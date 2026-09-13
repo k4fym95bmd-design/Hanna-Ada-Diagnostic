@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 
 const port = 31337;
 const base = `http://127.0.0.1:${port}`;
@@ -51,6 +52,28 @@ try {
   assert.equal(catalog.advancedStages.every(p => p.price === null), true);
   assert.deepEqual(catalog.stagePolicy.advancedCustomStages, [4, 5, 6, 7]);
   assert.equal(catalog.stagePolicy.m5CharacterIsSeparate, true);
+
+  const staticCatalogRes = await fetch(`${base}/config/tuning-products.json`);
+  assert.equal(staticCatalogRes.status, 200);
+  const staticCatalog = await staticCatalogRes.json();
+  assert.deepEqual(staticCatalog.stagePolicy, catalog.stagePolicy);
+  assert.deepEqual(staticCatalog.products, catalog.products);
+  assert.deepEqual(staticCatalog.advancedStages, catalog.advancedStages);
+  assert.deepEqual(staticCatalog.writePolicy, catalog.writePolicy);
+
+  const staticHealthRes = await fetch(`${base}/health.json`);
+  assert.equal(staticHealthRes.status, 200);
+  const staticHealth = await staticHealthRes.json();
+  assert.equal(staticHealth.ok, true);
+  assert.equal(staticHealth.service, 'hanna-ada-diagnostics');
+  assert.equal(staticHealth.writeFlashDefault, 'BLOCKED');
+
+  const netlify = await readFile('netlify.toml', 'utf8');
+  assert.match(netlify, /publish\s*=\s*"public"/i);
+  assert.match(netlify, /from\s*=\s*"\/api\/tuning-products"/i);
+  assert.match(netlify, /to\s*=\s*"\/config\/tuning-products\.json"/i);
+  assert.match(netlify, /from\s*=\s*"\/health"/i);
+  assert.match(netlify, /to\s*=\s*"\/health\.json"/i);
 
   const homeRes = await fetch(`${base}/`);
   assert.equal(homeRes.status, 200);
