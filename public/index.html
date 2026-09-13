@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
@@ -12,6 +12,7 @@
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/app.css" />
   <link rel="stylesheet" href="/mobile.css" />
+  <link rel="stylesheet" href="/pro-runtime.css" />
 </head>
 <body>
   <header class="topbar">
@@ -29,11 +30,12 @@
     </aside>
     <main>
       <div id="view" aria-live="polite"></div>
-      <div class="footer-note">Hanna & Ada DIAG PRO · capability-safe development build. Generic OBD-II capabilities are separated from BMW-specific module access. Write/flash remains locked unless the required hardware, protocol, ECU identity, backup, validation and explicit confirmation gates are satisfied.</div>
+      <div class="footer-note">Hanna & Ada DIAG PRO · real diagnostic runtime + capability-safe development build. Generic OBD-II is separated from BMW-specific module access. Write/flash stays locked unless hardware, protocol, ECU identity, backup, validation and confirmation gates are satisfied.</div>
     </main>
   </div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/tuning-stage-extension.js"></script>
   <script type="module" src="/mobile-shell.js"></script>
+  <script type="module" src="/obd-runtime.js"></script>
 </body>
 </html>
