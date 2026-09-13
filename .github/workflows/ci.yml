@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "hardening/**"]
+    branches: [main, "hardening/**", "feature/**"]
   pull_request:
     branches: [main]
 
@@ -16,12 +16,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Use Node.js 20
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-      - name: Install
-        run: npm install --ignore-scripts
+          node-version: 24
       - name: Smoke test
         run: npm test
