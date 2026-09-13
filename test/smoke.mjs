@@ -35,20 +35,29 @@ try {
   const catalogRes = await fetch(`${base}/api/tuning-products`);
   assert.equal(catalogRes.status, 200);
   const catalog = await catalogRes.json();
+
   assert.equal(catalog.products.length, 4);
-  const numberedStages = catalog.products.filter(p => p.kind === 'stage');
-  assert.deepEqual(numberedStages.map(p => p.stage), [1, 2, 3]);
-  assert.equal(catalog.products.some(p => p.stage === 4), false, 'Stage 4 must not exist');
+  const coreStages = catalog.products.filter(p => p.kind === 'stage');
+  assert.deepEqual(coreStages.map(p => p.stage), [1, 2, 3]);
+
   const m5 = catalog.products.find(p => p.kind === 'premium_character');
   assert.ok(m5, 'M5 Character / Booster product is required');
-  assert.equal(m5.stage ?? null, null, 'M5 product must not be Stage 4');
+  assert.equal(m5.stage ?? null, null, 'M5 product must remain separate from numbered stages');
   assert.equal(m5.price, 179);
+
+  assert.ok(Array.isArray(catalog.advancedStages), 'advancedStages catalog is required');
+  assert.deepEqual(catalog.advancedStages.map(p => p.stage), [4, 5, 6, 7]);
+  assert.equal(catalog.advancedStages.every(p => p.availability === 'CUSTOM_ONLY'), true);
+  assert.equal(catalog.advancedStages.every(p => p.price === null), true);
+  assert.deepEqual(catalog.stagePolicy.advancedCustomStages, [4, 5, 6, 7]);
+  assert.equal(catalog.stagePolicy.m5CharacterIsSeparate, true);
 
   const homeRes = await fetch(`${base}/`);
   assert.equal(homeRes.status, 200);
   const html = await homeRes.text();
   assert.match(html, /Hanna\s*&\s*Ada/i);
   assert.match(html, /app\.js/i);
+  assert.match(html, /tuning-stage-extension\.js/i);
   assert.match(html, /app\.css/i);
 
   const appRes = await fetch(`${base}/app.js`);
@@ -59,9 +68,18 @@ try {
     'CODING STUDIO','BMW EXPERT','TUNING / MAP STORE','ADVANCED / EXPERT LAB','AI MECHANIC',
     'REPORTS / HISTORY','VCI / CONNECTION','WORKSHOP LIBRARY','WIRING LAB','FLASH / RECOVERY','REMOTE GARAGE'
   ]) assert.match(app, new RegExp(moduleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
-  assert.match(app, /3 Stages \+ M5 Character/i);
   assert.match(app, /M5 Character \/ Booster is a separate premium product/i);
   assert.match(app, /Write\/flash remains locked|Flash is intentionally blocked|WRITE SAFETY/i);
+
+  const extensionRes = await fetch(`${base}/tuning-stage-extension.js`);
+  assert.equal(extensionRes.status, 200);
+  const extension = await extensionRes.text();
+  assert.match(extension, /Stages 1–7 \+ M5 Character/i);
+  assert.match(extension, /data-advanced-stage/i);
+  assert.match(extension, /Stage 4 — Custom Performance/i);
+  assert.match(extension, /Stage 5 — Race \/ Track\+/i);
+  assert.match(extension, /Stage 6 — Motorsport \/ FI\+/i);
+  assert.match(extension, /Stage 7 — Bespoke Engineering/i);
 
   const cssRes = await fetch(`${base}/app.css`);
   assert.equal(cssRes.status, 200);
