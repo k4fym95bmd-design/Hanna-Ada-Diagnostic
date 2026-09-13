@@ -75,7 +75,7 @@ try {
   assert.equal(extensionRes.status, 200);
   const extension = await extensionRes.text();
   assert.match(extension, /Stages 1–7 \+ M5 Character/i);
-  assert.match(extension, /data-advanced-stage/i);
+  assert.match(extension, /dataset\.advancedStage/i);
   assert.match(extension, /Stage 4 — Custom Performance/i);
   assert.match(extension, /Stage 5 — Race \/ Track\+/i);
   assert.match(extension, /Stage 6 — Motorsport \/ FI\+/i);
