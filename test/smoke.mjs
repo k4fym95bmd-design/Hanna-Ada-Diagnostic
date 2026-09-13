@@ -38,6 +38,7 @@ try {
   assert.equal(catalog.products.length, 4);
   const numberedStages = catalog.products.filter(p => p.kind === 'stage');
   assert.deepEqual(numberedStages.map(p => p.stage), [1, 2, 3]);
+  assert.equal(catalog.products.some(p => p.stage === 4), false, 'Stage 4 must not exist');
   const m5 = catalog.products.find(p => p.kind === 'premium_character');
   assert.ok(m5, 'M5 Character / Booster product is required');
   assert.equal(m5.stage ?? null, null, 'M5 product must not be Stage 4');
@@ -61,7 +62,6 @@ try {
   assert.match(app, /3 Stages \+ M5 Character/i);
   assert.match(app, /M5 Character \/ Booster is a separate premium product/i);
   assert.match(app, /Write\/flash remains locked|Flash is intentionally blocked|WRITE SAFETY/i);
-  assert.doesNotMatch(app, /Stage 4/i);
 
   const cssRes = await fetch(`${base}/app.css`);
   assert.equal(cssRes.status, 200);
