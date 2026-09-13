@@ -17,14 +17,17 @@ create table if not exists tuning_products (
   price_eur numeric(10,2) not null check (price_eur >= 0),
   enabled boolean not null default true,
   metadata jsonb not null default '{}'::jsonb,
-  constraint stage_number_valid check ((kind = 'stage' and stage between 1 and 3) or (kind <> 'stage' and stage is null))
+  constraint stage_number_valid check ((kind = 'stage' and stage between 1 and 7) or (kind <> 'stage' and stage is null))
 );
+
+comment on constraint stage_number_valid on tuning_products is
+  'Numbered tuning tiers may use Stage 1-7. Stages 4-7 are advanced custom tiers and are not seeded as fixed-price SKUs until individually configured.';
 
 insert into tuning_products (id,kind,stage,name,price_eur,metadata) values
 ('stage-1-road','stage',1,'Stage 1 — Road Performance',89,'{"marketing":{"label":"UP TO +50 hp / +80 Nm"}}'),
 ('stage-2-sport','stage',2,'Stage 2 — Sport Hardware',149,'{"marketing":{"label":"UP TO +80 hp / +130 Nm"}}'),
 ('stage-3-track-fi','stage',3,'Stage 3 — Track / Forced Induction',249,'{"marketing":{"label":"UP TO +120 hp"},"priceQualifier":"base"}'),
-('m5-character','premium_character',null,'M5 Character / Booster',179,'{"separateProduct":true,"notStage4":true,"rule":"Vehicle-specific compatible M62/M62TU calibration only; never blind S62/M5 binary copy"}'),
+('m5-character','premium_character',null,'M5 Character / Booster',179,'{"separateProduct":true,"rule":"Vehicle-specific compatible M62/M62TU calibration only; never blind S62/M5 binary copy"}'),
 ('addon-m5-character-booster','addon',null,'M5 Character Booster',49,'{}'),
 ('addon-exhaust-pack','addon',null,'Exhaust Pack',39,'{"compatibleHardwareRequired":true}'),
 ('addon-throttle-sport-plus','addon',null,'Throttle Sport+',29,'{}'),
