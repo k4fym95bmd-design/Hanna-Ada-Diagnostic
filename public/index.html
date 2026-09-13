@@ -2,16 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <meta name="theme-color" content="#07090d" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Hanna & Ada" />
   <title>Hanna & Ada DIAG PRO</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
   <header class="topbar">
-    <div><span class="brand">Hanna <b>&</b> Ada <small>DIAG PRO</small></span></div>
+    <div class="brand-wrap">
+      <button class="mobile-menu" id="mobileMenuButton" type="button" aria-label="Open navigation" aria-controls="nav" aria-expanded="false">☰</button>
+      <span class="brand">Hanna <b>&</b> Ada <small>DIAG PRO</small></span>
+    </div>
     <div class="top-status" id="topStatus" aria-label="connection status"></div>
   </header>
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true"></div>
   <div class="shell">
     <aside>
       <div class="vehicle-mini" id="vehicleMini"></div>
@@ -24,5 +33,6 @@
   </div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/tuning-stage-extension.js"></script>
+  <script type="module" src="/mobile-shell.js"></script>
 </body>
 </html>
