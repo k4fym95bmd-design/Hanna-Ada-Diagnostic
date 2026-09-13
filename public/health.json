@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "service": "hanna-ada-diagnostics",
+  "mode": "safe-static",
+  "brand": "Hanna & Ada DIAG PRO",
+  "writeFlashDefault": "BLOCKED"
+}
