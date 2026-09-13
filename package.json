@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "npm run test:smoke",
+    "test:smoke": "node test/smoke.mjs"
   },
   "engines": {
     "node": ">=20"
