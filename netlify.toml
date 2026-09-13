@@ -1,0 +1,31 @@
+[build]
+  publish = "public"
+
+[[redirects]]
+  from = "/api/tuning-products"
+  to = "/config/tuning-products.json"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/health"
+  to = "/health.json"
+  status = 200
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/config/*"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/health.json"
+  [headers.values]
+    Cache-Control = "no-store"
