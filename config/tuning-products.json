@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "brand": "Hanna & Ada",
+  "entitlement": "HANNA_ADA_PRO",
+  "currency": "EUR",
+  "products": [
+    {
+      "id": "stage-1-road",
+      "kind": "stage",
+      "stage": 1,
+      "name": "Stage 1 — Road Performance",
+      "price": 89,
+      "licenseScope": "VIN_ECU_STOCK_HASH",
+      "marketing": { "maxHpGain": 50, "maxNmGain": 80, "label": "UP TO +50 hp / +80 Nm" },
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "stage-2-sport",
+      "kind": "stage",
+      "stage": 2,
+      "name": "Stage 2 — Sport Hardware",
+      "price": 149,
+      "licenseScope": "VIN_ECU_STOCK_HASH",
+      "marketing": { "maxHpGain": 80, "maxNmGain": 130, "label": "UP TO +80 hp / +130 Nm" },
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "SUPPORTED_HARDWARE", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "stage-3-track-fi",
+      "kind": "stage",
+      "stage": 3,
+      "name": "Stage 3 — Track / Forced Induction",
+      "price": 249,
+      "priceQualifier": "base",
+      "licenseScope": "VIN_ECU_STOCK_HASH",
+      "marketing": { "maxHpGain": 120, "label": "UP TO +120 hp" },
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "CUSTOM_HARDWARE_VALIDATION", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "m5-character",
+      "kind": "premium_character",
+      "stage": null,
+      "name": "M5 Character / Booster",
+      "price": 179,
+      "licenseScope": "VIN_ECU_STOCK_HASH",
+      "description": "Vehicle-specific compatible character calibration for supported M62/M62TU targets. Not Stage 4 and never a blind S62/M5 binary copy.",
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    }
+  ],
+  "addons": [
+    { "id": "m5-character-booster", "name": "M5 Character Booster", "price": 49 },
+    { "id": "exhaust-pack", "name": "Exhaust Pack", "price": 39, "requires": ["COMPATIBLE_HARDWARE"] },
+    { "id": "throttle-sport-plus", "name": "Throttle Sport+", "price": 29 },
+    { "id": "custom-dyno", "name": "Custom Dyno", "price": 199 }
+  ],
+  "vehicleProfiles": {
+    "bmw-e39-540i-v8-pretu": { "years": "1997-1998", "engine": "M62B44", "dme": ["Bosch M5.2", "Bosch M5.2.1"], "vanos": false },
+    "bmw-e39-540i-v8-tu": { "years": "1999-2003", "engine": "M62TUB44", "dme": ["Bosch ME7.2"], "vanos": true }
+  },
+  "writePolicy": {
+    "default": "BLOCKED",
+    "requiredGates": ["ECU_ID", "HW_SW_MATCH", "STOCK_HASH", "CALIBRATION_COMPATIBILITY", "BACKUP_OK", "CHECKSUM_OK", "PROTOCOL_OK", "VOLTAGE_OK", "AUTHORIZATION_OK", "EXPLICIT_CONFIRMATION"]
+  }
+}
