@@ -1,8 +1,13 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "brand": "Hanna & Ada",
   "entitlement": "HANNA_ADA_PRO",
   "currency": "EUR",
+  "stagePolicy": {
+    "coreCommercialStages": [1, 2, 3],
+    "advancedCustomStages": [4, 5, 6, 7],
+    "m5CharacterIsSeparate": true
+  },
   "products": [
     {
       "id": "stage-1-road",
@@ -42,8 +47,54 @@
       "name": "M5 Character / Booster",
       "price": 179,
       "licenseScope": "VIN_ECU_STOCK_HASH",
-      "description": "Vehicle-specific compatible character calibration for supported M62/M62TU targets. Not Stage 4 and never a blind S62/M5 binary copy.",
+      "description": "Vehicle-specific compatible character calibration for supported M62/M62TU targets. Separate from all numbered stages and never a blind S62/M5 binary copy.",
       "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    }
+  ],
+  "advancedStages": [
+    {
+      "id": "stage-4-custom-performance",
+      "kind": "advanced_stage",
+      "stage": 4,
+      "name": "Stage 4 — Custom Performance",
+      "availability": "CUSTOM_ONLY",
+      "price": null,
+      "marketing": { "label": "CUSTOM · DYNO/HARDWARE VALIDATION REQUIRED" },
+      "description": "Custom calibration tier. No fixed power claim or one-click flash; exact hardware, ECU and stock base must be validated.",
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "CUSTOM_HARDWARE_VALIDATION", "DYNO_OR_LOG_VALIDATION", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "stage-5-race-track-plus",
+      "kind": "advanced_stage",
+      "stage": 5,
+      "name": "Stage 5 — Race / Track+",
+      "availability": "CUSTOM_ONLY",
+      "price": null,
+      "marketing": { "label": "CUSTOM · TRACK HARDWARE REQUIRED" },
+      "description": "Advanced track-only calibration tier for a verified hardware package. No guaranteed output figure.",
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "CUSTOM_HARDWARE_VALIDATION", "DYNO_OR_LOG_VALIDATION", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "stage-6-motorsport-fi-plus",
+      "kind": "advanced_stage",
+      "stage": 6,
+      "name": "Stage 6 — Motorsport / FI+",
+      "availability": "CUSTOM_ONLY",
+      "price": null,
+      "marketing": { "label": "CUSTOM · MOTORSPORT VALIDATION REQUIRED" },
+      "description": "Motorsport/forced-induction custom tier. Calibration availability depends on the exact engine build, ECU and validated logging/dyno data.",
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "CUSTOM_HARDWARE_VALIDATION", "DYNO_OR_LOG_VALIDATION", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
+    },
+    {
+      "id": "stage-7-bespoke-engineering",
+      "kind": "advanced_stage",
+      "stage": 7,
+      "name": "Stage 7 — Bespoke Engineering",
+      "availability": "CUSTOM_ONLY",
+      "price": null,
+      "marketing": { "label": "BESPOKE · ENGINEERING REVIEW REQUIRED" },
+      "description": "Top custom engineering tier. Every calibration is individually reviewed and remains blocked until all compatibility and safety gates pass.",
+      "requires": ["ECU_ID", "COMPATIBLE_STOCK_BASE", "CUSTOM_HARDWARE_VALIDATION", "DYNO_OR_LOG_VALIDATION", "ENGINEERING_REVIEW", "STOCK_BACKUP", "CHECKSUM_VALIDATION", "VOLTAGE_PREFLIGHT", "USER_CONFIRMATION"]
     }
   ],
   "addons": [
