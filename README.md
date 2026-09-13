@@ -37,12 +37,31 @@ Primary modules:
 - DME: Bosch M5.2 / M5.2.1
 - Transmission: ZF 5HP24 / EGS where fitted
 - Relevant transport: K-Line / DS2 / generic OBD-II
+- No VANOS feature set
 
 ### TU — 1999–2003
 - Engine: M62TUB44
 - DME: Bosch ME7.2
 - Transmission: ZF 5HP24 / EGS where fitted
 - Relevant transport: K-Line / DS2 / BMW KWP2000 / generic OBD-II
+- VANOS-related functions only where implemented and verified
+
+## Tuning / Map Store — canonical catalog
+
+There are exactly **three numbered stages plus one separate M5 Character / Booster product**. M5 is not Stage 4.
+
+- **Stage 1 — Road Performance** — €89 / VIN — UP TO +50 hp / +80 Nm
+- **Stage 2 — Sport Hardware** — €149 / VIN — UP TO +80 hp / +130 Nm
+- **Stage 3 — Track / Forced Induction** — €249 base — UP TO +120 hp
+- **M5 Character / Booster** — €179 — separate premium vehicle-specific calibration product
+
+Optional add-ons: M5 Character Booster +€49, Exhaust Pack +€39 where compatible, Throttle Sport+ +€29, Custom Dyno +€199.
+
+A tuning entitlement is bound to user + VIN + ECU HW/SW + stock hash + product. A purchase does not bypass safety gates. Flash remains blocked until ECU identity, exact compatibility, backup, checksum/signature state, required protocol/VCI, stable voltage and explicit confirmation are all valid.
+
+The M5 Character / Booster package must never blindly install an S62/M5 binary into an M62/M62TU ECU.
+
+See `docs/TUNING_CATALOG.md` and the machine-readable `config/tuning-products.json`.
 
 ## Platform roles
 
@@ -62,10 +81,33 @@ Read-only diagnostics are separated from Active Test, Write and Flash operations
 
 No immobilizer bypass, emissions defeat, or fabricated OEM-tool parity.
 
+## Runnable tuning catalog
+
+The repository now includes a minimal Railway-ready Node service:
+
+- `server.mjs`
+- `public/index.html`
+- `config/tuning-products.json`
+- `package.json`
+
+Run with:
+
+```bash
+npm start
+```
+
+Endpoints:
+
+- `/` — Hanna & Ada Tuning / Map Store UI
+- `/api/tuning-products` — canonical catalog JSON
+- `/health` — service health check
+
+This catalog UI intentionally keeps WRITE locked until a real, validated ECU session satisfies the full safety preflight.
+
 ## Current app
 
 Floot production build currently exists at https://bmw.floot.app. Branding and architecture are being migrated to the Hanna & Ada system; production should only be treated as updated after a verified rebuild and republish.
 
 ## Documentation
 
-See `docs/ARCHITECTURE.md`, `docs/CAPABILITY_MATRIX.md`, `docs/E39_540I_PROFILES.md`, `docs/CARISTA_BLE.md` and `docs/KDCAN_ANDROID.md`.
+See `docs/ARCHITECTURE.md`, `docs/CAPABILITY_MATRIX.md`, `docs/E39_540I_PROFILES.md`, `docs/CARISTA_BLE.md`, `docs/KDCAN_ANDROID.md` and `docs/TUNING_CATALOG.md`.
