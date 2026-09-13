@@ -36,10 +36,8 @@ try {
   assert.equal(catalogRes.status, 200);
   const catalog = await catalogRes.json();
   assert.equal(catalog.products.length, 4);
-
   const numberedStages = catalog.products.filter(p => p.kind === 'stage');
   assert.deepEqual(numberedStages.map(p => p.stage), [1, 2, 3]);
-
   const m5 = catalog.products.find(p => p.kind === 'premium_character');
   assert.ok(m5, 'M5 Character / Booster product is required');
   assert.equal(m5.stage ?? null, null, 'M5 product must not be Stage 4');
@@ -49,8 +47,25 @@ try {
   assert.equal(homeRes.status, 200);
   const html = await homeRes.text();
   assert.match(html, /Hanna\s*&\s*Ada/i);
-  assert.match(html, /3 Stages \+ M5 Character/i);
-  assert.match(html, /M5 Character \/ Booster is a separate premium product/i);
+  assert.match(html, /app\.js/i);
+  assert.match(html, /app\.css/i);
+
+  const appRes = await fetch(`${base}/app.js`);
+  assert.equal(appRes.status, 200);
+  const app = await appRes.text();
+  for (const moduleName of [
+    'HOME','SCAN','CONTROL UNITS','DTC','LIVE DATA','ACTIVE TEST','SERVICE','ADAPTATIONS',
+    'CODING STUDIO','BMW EXPERT','TUNING / MAP STORE','ADVANCED / EXPERT LAB','AI MECHANIC',
+    'REPORTS / HISTORY','VCI / CONNECTION','WORKSHOP LIBRARY','WIRING LAB','FLASH / RECOVERY','REMOTE GARAGE'
+  ]) assert.match(app, new RegExp(moduleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  assert.match(app, /3 Stages \+ M5 Character/i);
+  assert.match(app, /M5 Character \/ Booster is a separate premium product/i);
+  assert.match(app, /Write\/flash remains locked|Flash is intentionally blocked|WRITE SAFETY/i);
+  assert.doesNotMatch(app, /Stage 4/i);
+
+  const cssRes = await fetch(`${base}/app.css`);
+  assert.equal(cssRes.status, 200);
+  assert.match(await cssRes.text(), /--blue:#158cff/i);
 
   console.log('Smoke tests passed.');
 } finally {
