@@ -2,7 +2,7 @@ name: Native iOS
 
 on:
   push:
-    branches: [native-ios-corebluetooth]
+    branches: [main, native-ios-corebluetooth]
     paths:
       - 'ios-native/**'
       - '.github/workflows/ios-native.yml'
@@ -10,6 +10,7 @@ on:
     paths:
       - 'ios-native/**'
       - '.github/workflows/ios-native.yml'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,3 +25,19 @@ jobs:
       - name: Build for iOS Simulator
         working-directory: ios-native
         run: xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+      - name: Build unsigned iPhone app
+        working-directory: ios-native
+        run: xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -sdk iphoneos -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build
+      - name: Package unsigned IPA
+        working-directory: ios-native
+        run: |
+          rm -rf Payload HannaAdaDiag-unsigned.ipa
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/HannaAdaDiag.app Payload/
+          /usr/bin/zip -qry HannaAdaDiag-unsigned.ipa Payload
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: HannaAdaDiag-unsigned-ipa
+          path: ios-native/HannaAdaDiag-unsigned.ipa
+          if-no-files-found: error
