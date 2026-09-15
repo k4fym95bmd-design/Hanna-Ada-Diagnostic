@@ -1,0 +1,26 @@
+name: Native iOS
+
+on:
+  push:
+    branches: [native-ios-corebluetooth]
+    paths:
+      - 'ios-native/**'
+      - '.github/workflows/ios-native.yml'
+  pull_request:
+    paths:
+      - 'ios-native/**'
+      - '.github/workflows/ios-native.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: ios-native
+        run: xcodegen generate
+      - name: Build for iOS Simulator
+        working-directory: ios-native
+        run: xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
