@@ -24,7 +24,22 @@ Recommended initialization sequence:
 - `0100`
 - `ATDP`
 
-The first `0100` response must contain a valid Mode 01 PID bitmap before the UI moves to ECU-connected state.
+The first `0100` response must contain at least one valid Mode 01 supported-PID bitmap before the UI moves to ECU-connected state.
+
+### Multi-ECU `0100` handling
+
+A valid vehicle may return more than one `41 00` response to a single `0100` request because multiple ECUs can answer the functional OBD-II query. The parser must therefore accept one or more valid `41 00` frames rather than treating multiple replies as ambiguous.
+
+For supported PIDs 01–20:
+
+- every `41 00` frame used must contain at least four bitmap payload bytes;
+- the four-byte bitmaps from all valid `41 00` replies are combined with bitwise OR (set union);
+- command echo `0100`, `SEARCHING...`, headers/addresses, and unrelated otherwise-valid frames are ignored;
+- `NO DATA`, `ERROR`, `UNABLE TO CONNECT`, truncated `41 00`, or the absence of any valid `41 00` still fails verification;
+- the stricter single-response behavior for ordinary live PID reads remains unchanged;
+- when `0100` verification fails, the diagnostic error includes the raw `0100` adapter response so the next vehicle test exposes the actual transport reply.
+
+Regression coverage includes a single `41 00`, two valid `41 00` replies, echo plus two replies, and truncated/missing valid replies.
 
 ## Generic OBD-II scope
 
