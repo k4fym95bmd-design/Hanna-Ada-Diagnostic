@@ -69,12 +69,60 @@ enum BridgeContract {
         guard identity.status == "VERIFIED_ONLINE",
               identity.moduleId == profile.moduleId,
               identity.protocolName == profile.protocolName,
-              identity.identity.count >= 6 && identity.identity.count <= 128,
-              identity.identity.utf8.allSatisfy({ $0 >= 32 && $0 <= 126 }),
-              !identity.responseHex.isEmpty,
-              identity.responseHex.split(separator: " ").allSatisfy({
-                  $0.count == 2 && $0.allSatisfy({ $0.isHexDigit })
-              }) else { throw Problem.invalidResponse }
+              (6...128).contains(identity.identity.count),
+              identity.identity.utf8.allSatisfy({ $0 >= 32 && $0 <= 126 }) else {
+            throw Problem.invalidResponse
+        }
+
+        // Validate the RAW ECU frame independently of the gateway's JSON claims.
+        // Never promote a module based on responseHex merely being nonempty.
+        let tokens = identity.responseHex.split(separator: " ")
+        guard (4...260).contains(tokens.count), tokens.allSatisfy({
+            $0.count == 2 && $0.allSatisfy({ $0.isASCII && $0.isHexDigit })
+        }) else { throw Problem.invalidResponse }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(tokens.count)
+        for token in tokens {
+            guard let value = UInt8(token, radix: 16) else { throw Problem.invalidResponse }
+            bytes.append(value)
+        }
+        guard bytes.dropLast().reduce(UInt8(0), { $0 ^ $1 }) == bytes.last else {
+            throw Problem.invalidResponse
+        }
+
+        let payload: [UInt8]
+        switch profile {
+        case .egs:
+            guard bytes.count <= 255, bytes[0] == 0x32,
+                  Int(bytes[1]) == bytes.count else { throw Problem.invalidResponse }
+            payload = Array(bytes[2..<(bytes.count - 1)])
+        case .dme:
+            guard bytes.count >= 6, bytes[0] == 0xB8,
+                  bytes[1] == 0xF1, bytes[2] == 0x12,
+                  Int(bytes[3]) + 5 == bytes.count else { throw Problem.invalidResponse }
+            payload = Array(bytes[4..<(bytes.count - 1)])
+        }
+        let positive: UInt8 = profile == .egs ? 0xA0 : 0xE2
+        guard payload.first == positive else { throw Problem.invalidResponse }
+
+        // Same conservative evidence rule as gateway/bmw_frames.py: the longest
+        // run of >=6 printable ASCII characters after a positive service byte.
+        var runs: [String] = []
+        var current: [UInt8] = []
+        for byte in payload.dropFirst() {
+            if (0x20...0x7E).contains(byte) {
+                current.append(byte)
+            } else {
+                if current.count >= 6 { runs.append(String(decoding: current, as: UTF8.self)) }
+                current.removeAll(keepingCapacity: true)
+            }
+        }
+        if current.count >= 6 { runs.append(String(decoding: current, as: UTF8.self)) }
+        var longest = ""
+        for run in runs where run.count > longest.count { longest = run }
+        guard longest.count >= 6, String(longest.prefix(128)) == identity.identity else {
+            throw Problem.invalidResponse
+        }
         return identity.identity
     }
 }
