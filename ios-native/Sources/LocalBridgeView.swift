@@ -80,6 +80,14 @@ struct LocalBridgeView: View {
                                 if let identity = bridge.identities[profile.moduleId] {
                                     Text(identity).font(.caption.monospaced()).textSelection(.enabled)
                                 }
+                                if let evidence = bridge.evidence[profile.moduleId] {
+                                    Text("VALIDATED ECU FRAME · \(evidence.protocolName)")
+                                        .font(.caption2.bold()).foregroundStyle(.secondary)
+                                    Text(evidence.responseHex)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
                                 Button("READ ECU IDENTITY") {
                                     Task { await bridge.probe(profile) }
                                 }
@@ -88,6 +96,15 @@ struct LocalBridgeView: View {
                             }
                             .padding(12)
                             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                        if !bridge.evidence.isEmpty {
+                            ShareLink(item: bridge.reportText) {
+                                Label("EXPORT VERIFIED ECU REPORT", systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Text("Export contains ECU identity and raw diagnostic bytes. Review the destination before sharing. Host address and pairing token are not included. Export before disconnecting: evidence is erased from memory on disconnect.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                         Text("Read-only identity probes only. Fault clearing, activation, coding, adaptation and flashing remain unavailable.")
                             .font(.caption).foregroundStyle(.secondary)
