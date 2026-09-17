@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "npm run test:smoke",
-    "test:smoke": "node test/smoke.mjs"
+    "test": "npm run test:smoke && npm run test:gateway",
+    "test:smoke": "node test/smoke.mjs",
+    "test:gateway": "node --test test/gateway-port.mjs"
   },
   "engines": {
     "node": ">=20"
