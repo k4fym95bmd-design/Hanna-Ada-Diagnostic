@@ -19,6 +19,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Hanna & Ada"
         INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "Hanna & Ada uses Bluetooth to connect to your authorized OBD diagnostic adapter."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Hanna & Ada connects to the USB diagnostic gateway on your own Wi-Fi network to read BMW ECU identification."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1"
   HannaAdaDiagTests:
