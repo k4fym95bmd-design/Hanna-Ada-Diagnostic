@@ -8,14 +8,40 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: netlify-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NETLIFY_SITE_ID: 5eec6c26-090e-4e0c-8a05-d8518bcc0995
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Deploy to Netlify
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify site files and gateway tests
+        run: |
+          test -f public/index.html
+          test -f netlify.toml
+          npm test
+      - name: Verify Netlify authorization is configured
+        run: |
+          if [ -z "$NETLIFY_AUTH_TOKEN" ]; then
+            echo "::error title=Netlify credential missing::Add NETLIFY_AUTH_TOKEN as a GitHub Actions repository secret under Settings > Secrets and variables > Actions. Do not paste it into code or a workflow file."
+            exit 1
+          fi
+      - name: Deploy static site to existing Netlify project
         run: >-
-          npx -y @netlify/mcp@latest
-          --site-id 5eec6c26-090e-4e0c-8a05-d8518bcc0995
-          --proxy-path "https://netlify-mcp.netlify.app/proxy/eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..ncbpioYEmBxGxqiD.MX39O14Its1-gIbUTyFpGuDAZc-p-uc2hK66PTuHVj-yk22o1P29N8ZluWRHbMX41b3wjk359Hxmc4jmwxCtOm6YrfgxlncHlJ1IEmeIsKYswBCB7O8_OHbkKerCQhdJ6zX693lMelJmGhp1xrjyPWM9WCvNMdfFO6LEpR_hUSFA7yQ-07D4K6hSUi8tFw06sQh8gT1UfU9RP6CQBEQXZb8S_90TXkmT0l3mFgtorOmzm-GDwCqAh-OKThbP5qMEkWPNoE2sEnP5p2MEXKKPhW4XHn1l6HGs3wack9nq3yMtFKeUYGSMlfF0wGXJ8nE-eZq51r1U1SNuRvtj-Ibrgw95WoirbKOyW8EsbvAtdOZ10S6Wcx0y1uMvn1xGYm4FHWh2OAXm.VNJxt9uxOsKN9RKlDyVHyw"
+          npx --yes netlify-cli@latest deploy
+          --prod
+          --no-build
+          --dir=public
+          --site="$NETLIFY_SITE_ID"
+          --message="GitHub ${GITHUB_SHA}"
