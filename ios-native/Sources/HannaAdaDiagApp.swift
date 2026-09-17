@@ -6,9 +6,14 @@ struct HannaAdaDiagApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(obd)
-                .preferredColorScheme(.dark)
+            TabView {
+                ContentView()
+                    .environmentObject(obd)
+                    .tabItem { Label("Carista OBD", systemImage: "waveform.path.ecg") }
+                LocalBridgeView()
+                    .tabItem { Label("BMW USB", systemImage: "cable.connector") }
+            }
+            .preferredColorScheme(.dark)
         }
     }
 }
