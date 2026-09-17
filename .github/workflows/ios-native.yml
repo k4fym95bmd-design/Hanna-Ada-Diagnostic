@@ -15,6 +15,7 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Install XcodeGen
@@ -25,6 +26,12 @@ jobs:
       - name: Build for iOS Simulator
         working-directory: ios-native
         run: xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+      - name: Run iOS native unit tests
+        working-directory: ios-native
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; choices=[d["udid"] for runtime, entries in devices.items() if "iOS" in runtime for d in entries if d.get("isAvailable") and d["name"].startswith("iPhone")]; print(choices[0] if choices else "")')
+          test -n "$DEVICE_ID" || { echo 'No available iPhone simulator'; exit 1; }
+          xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -destination "platform=iOS Simulator,id=$DEVICE_ID" -configuration Debug CODE_SIGNING_ALLOWED=NO test
       - name: Build unsigned iPhone app
         working-directory: ios-native
         run: xcodebuild -project HannaAdaDiag.xcodeproj -scheme HannaAdaDiag -sdk iphoneos -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build
