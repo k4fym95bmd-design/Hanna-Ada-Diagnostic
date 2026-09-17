@@ -46,6 +46,38 @@ enum BridgeContract {
         }
     }
 
+    // Construct this only after verify(_:profile:) has independently parsed the raw ECU frame.
+    struct VerifiedEvidence: Equatable {
+        let moduleId: String
+        let protocolName: String
+        let identity: String
+        let responseHex: String
+        let capturedAt: Date
+    }
+
+    static func report(_ evidence: [VerifiedEvidence]) -> String {
+        var lines = [
+            "Hanna & Ada Diagnostics — BMW ECU identity evidence",
+            "Scope: read-only identity probes only; this is not a complete vehicle scan.",
+            "Only independently validated replies are included. No host URL, pairing token or user credentials are exported.",
+        ]
+        guard !evidence.isEmpty else {
+            lines.append("No verified ECU identities are available.")
+            return lines.joined(separator: "\n")
+        }
+        let timestamp = ISO8601DateFormatter()
+        timestamp.formatOptions = [.withInternetDateTime]
+        for item in evidence.sorted(by: { $0.moduleId < $1.moduleId }) {
+            lines.append("")
+            lines.append("Module: \(item.moduleId.uppercased())")
+            lines.append("Protocol: \(item.protocolName)")
+            lines.append("Identity: \(item.identity)")
+            lines.append("Captured (UTC): \(timestamp.string(from: item.capturedAt))")
+            lines.append("Raw validated ECU response: \(item.responseHex)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     static func endpoint(_ raw: String) throws -> URL {
         let address = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let parts = URLComponents(string: address),
@@ -133,6 +165,9 @@ final class LocalBridgeClient: ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var message = "No local USB host connected. Carista BLE remains separate."
     @Published private(set) var identities: [String: String] = [:]
+    @Published private(set) var evidence: [String: BridgeContract.VerifiedEvidence] = [:]
+
+    var reportText: String { BridgeContract.report(Array(evidence.values)) }
 
     private var origin: URL?
     private var token: String = ""
@@ -148,6 +183,7 @@ final class LocalBridgeClient: ObservableObject {
         usbOpen = false
         busy = false
         identities.removeAll()
+        evidence.removeAll()
         message = "Disconnected. All BMW ECU evidence cleared."
     }
 
@@ -184,6 +220,7 @@ final class LocalBridgeClient: ObservableObject {
         let current = generation
         busy = true
         identities.removeValue(forKey: profile.moduleId)
+        evidence.removeValue(forKey: profile.moduleId)
         defer { if generation == current { busy = false } }
         do {
             let body = try JSONEncoder().encode(["profile": profile.rawValue])
@@ -191,6 +228,13 @@ final class LocalBridgeClient: ObservableObject {
             guard generation == current else { return }
             let identity = try BridgeContract.verify(response, profile: profile)
             identities[profile.moduleId] = identity
+            evidence[profile.moduleId] = BridgeContract.VerifiedEvidence(
+                moduleId: response.moduleId,
+                protocolName: response.protocolName,
+                identity: identity,
+                responseHex: response.responseHex,
+                capturedAt: Date()
+            )
             message = "\(profile.moduleId.uppercased()): verified ECU identity from local host."
         } catch {
             guard generation == current else { return }
