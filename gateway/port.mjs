@@ -40,7 +40,7 @@ export class LocalVciPort {
   }
 
   status() {
-    return { connected: !!this.#hello, hardwareId: this.#hello?.hardwareId ?? null, transport: this.#hello?.transport ?? null, capabilities: [...(this.#hello?.capabilities ?? [])], onlineModules: [...this.#modules.keys()] };
+    return { connected: !!this.#hello, hardwareId: this.#hello?.hardwareId ?? null, transport: this.#hello?.transport ?? null, capabilities: [...(this.#hello?.capabilities ?? [])], onlineModules: [...this.#modules.keys()], busBusy: this.#inFlight };
   }
 
   // Probe definitions are reviewed per ECU and injected by a future BMW protocol layer.
@@ -51,15 +51,18 @@ export class LocalVciPort {
     if (!this.#hello.capabilities.includes(definition.capability)) throw new GatewayProtocolError('BMW physical protocol unsupported');
     if (typeof definition.request !== 'function' || typeof definition.validateResponse !== 'function') throw new GatewayProtocolError('Reviewed identity request and parser required');
     if (definition.readOnly !== true) throw new GatewayProtocolError('Only read-only identity probes are allowed');
-    // One vehicle bus, one outstanding exchange; never interleave module replies.
+    // One physical vehicle bus, one outstanding exchange. A disconnect invalidates
+    // the session but cannot cancel hardware I/O: retain ownership until it settles.
     if (this.#inFlight) throw new GatewayProtocolError('Vehicle bus busy with another identity probe');
     this.#modules.delete(definition.moduleId);
     const epoch = this.#epoch;
     const sessionId = this.#hello.sessionId;
-    const bytes = definition.request();
-    if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > 256) throw new GatewayProtocolError('Invalid request frame');
+    // Acquire BEFORE calling caller-supplied request() to prevent reentrant probes.
     this.#inFlight = true;
     try {
+      const bytes = definition.request();
+      if (!this.#hello || this.#epoch !== epoch || this.#hello.sessionId !== sessionId) throw new GatewayProtocolError('VCI session changed while preparing request');
+      if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > 256) throw new GatewayProtocolError('Invalid request frame');
       const received = await this.#exchange({ sessionId, capability: definition.capability, moduleId: definition.moduleId, bytes: Uint8Array.from(bytes) });
       // Session IDs are supplied by a remote peer and can be reused: check our own epoch too.
       if (!this.#hello || this.#epoch !== epoch || this.#hello.sessionId !== sessionId) throw new GatewayProtocolError('VCI session changed during request');
@@ -71,7 +74,9 @@ export class LocalVciPort {
       this.#modules.set(definition.moduleId, identity.trim());
       return { moduleId: definition.moduleId, identity: identity.trim(), status: 'VERIFIED_ONLINE' };
     } finally {
-      if (this.#epoch === epoch) this.#inFlight = false;
+      // No other probe can start while this exchange owns the bus, even if a
+      // disconnect/reconnect took place; releasing here is safe in all epochs.
+      this.#inFlight = false;
     }
   }
 
@@ -79,6 +84,7 @@ export class LocalVciPort {
     this.#epoch += 1;
     this.#hello = null;
     this.#modules.clear();
-    this.#inFlight = false;
+    // Do not clear #inFlight: an abandoned exchange may still be using hardware.
+    // Its own finally block releases the bus when the exchange has settled.
   }
 }
