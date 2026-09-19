@@ -82,6 +82,83 @@ test('concurrent probes are rejected rather than interleaving the vehicle bus', 
   assert.deepEqual(port.status().onlineModules, ['ike']);
 });
 
+test('disconnect and reconnect cannot overlap an unresolved hardware exchange', async () => {
+  let resolveOld;
+  let exchanges = 0;
+  const port = new LocalVciPort(() => {
+    exchanges++;
+    return exchanges === 1
+      ? new Promise(resolve => { resolveOld = resolve; })
+      : Promise.resolve(Uint8Array.from([0x80, 0x12]));
+  });
+  port.connect(hello);
+  const stale = port.probeIdentity(identity);
+  port.disconnect();
+  port.connect(hello); // Even reusing the peer session ID cannot release physical bus ownership.
+  assert.equal(port.status().busBusy, true);
+  await assert.rejects(port.probeIdentity({ ...identity, moduleId: 'dme' }), /busy/);
+  assert.equal(exchanges, 1);
+  resolveOld(Uint8Array.from([0x80, 0x12]));
+  await assert.rejects(stale, GatewayProtocolError);
+  assert.equal(port.status().busBusy, false);
+  assert.deepEqual(port.status().onlineModules, []);
+  assert.equal((await port.probeIdentity(identity)).status, 'VERIFIED_ONLINE');
+  assert.equal(exchanges, 2);
+});
+
+test('request factory cannot run a reentrant probe before bus ownership is acquired', async () => {
+  let reentrant;
+  let exchanges = 0;
+  const port = new LocalVciPort(async () => {
+    exchanges++;
+    return Uint8Array.from([0x80, 0x12]);
+  });
+  port.connect(hello);
+  const first = port.probeIdentity({
+    ...identity,
+    request: () => {
+      reentrant = port.probeIdentity({ ...identity, moduleId: 'dme' });
+      return identity.request();
+    },
+  });
+  await assert.rejects(reentrant, /busy/);
+  assert.equal((await first).status, 'VERIFIED_ONLINE');
+  assert.equal(exchanges, 1);
+});
+
+test('session change inside request factory blocks transmission and releases bus', async () => {
+  let exchanges = 0;
+  const port = new LocalVciPort(async () => {
+    exchanges++;
+    return Uint8Array.from([0x80, 0x12]);
+  });
+  port.connect(hello);
+  await assert.rejects(port.probeIdentity({
+    ...identity,
+    request: () => {
+      port.disconnect();
+      port.connect(hello);
+      return identity.request();
+    },
+  }), /session changed/);
+  assert.equal(exchanges, 0);
+  assert.equal(port.status().busBusy, false);
+  assert.equal((await port.probeIdentity(identity)).status, 'VERIFIED_ONLINE');
+});
+
+test('invalid request bytes release bus without transmitting', async () => {
+  let exchanges = 0;
+  const port = new LocalVciPort(async () => {
+    exchanges++;
+    return Uint8Array.from([0x80, 0x12]);
+  });
+  port.connect(hello);
+  await assert.rejects(port.probeIdentity({ ...identity, request: () => new Uint8Array() }), /Invalid request frame/);
+  assert.equal(exchanges, 0);
+  assert.equal(port.status().busBusy, false);
+  assert.equal((await port.probeIdentity(identity)).status, 'VERIFIED_ONLINE');
+});
+
 test('exchange failure releases the bus for a later probe', async () => {
   let calls = 0;
   const port = new LocalVciPort(async () => {
