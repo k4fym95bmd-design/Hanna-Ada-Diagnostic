@@ -20,7 +20,7 @@ final class CaristaFieldReportTests: XCTestCase {
 
     func testVerifiedValuesAndRawRepliesAreIncludedWithoutInvention() {
         let report = CaristaFieldReport.render(
-            capturedAt: epoch, state: "ECU ONLINE", status: "2 PIDs declared",
+            capturedAt: epoch, state: "OBD-II ECU ONLINE", status: "2 PIDs declared",
             adapterIdentity: "ELM327", protocolName: "ISO 9141-2",
             supportedPIDs: [0x0C, 0x05], rpm: 650, coolant: 88,
             storedDTCs: ["P0308"], rawLog: ["TX  0100", "RX  41 00 08 10 00 00"]
@@ -32,6 +32,15 @@ final class CaristaFieldReportTests: XCTestCase {
         XCTAssertTrue(report.contains("Coolant: 88 C"))
         XCTAssertTrue(report.contains("Stored DTCs shown: P0308"))
         XCTAssertTrue(report.contains("RX  41 00 08 10 00 00"))
+    }
+
+    func testLegacyStateStringDoesNotClaimVerification() {
+        let report = CaristaFieldReport.render(
+            capturedAt: epoch, state: "ECU ONLINE", status: "old state label",
+            adapterIdentity: "ELM327", protocolName: "—", supportedPIDs: [],
+            rpm: nil, coolant: nil, storedDTCs: [], rawLog: ["RX  ELM327"]
+        )
+        XCTAssertTrue(report.contains("ECU verified by valid OBD Mode 01 PID bitmap: NO"))
     }
 
     func testEmptyTranscriptIsExplicitAndSharingWarningIsPresent() {
