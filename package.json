@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "npm run test:smoke && npm run test:gateway && npm run test:diagnostic-core",
+    "test": "npm run test:smoke && npm run test:http && npm run test:gateway && npm run test:diagnostic-core",
     "test:smoke": "node test/smoke.mjs",
+    "test:http": "node --test test/http-server.mjs",
     "test:gateway": "node --test test/gateway-port.mjs",
     "test:diagnostic-core": "node --test test/diagnostic-core.mjs"
   },
