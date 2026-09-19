@@ -1,8 +1,10 @@
 name: Deploy Hanna & Ada to Netlify
 
+# Netlify currently responds with HTTP 403 / account credit usage exceeded.
+# Keep CI running for every change, but only publish when the account has
+# deployment credits. Manual dispatch avoids a failed deployment notification
+# for every unrelated diagnostics commit. It does not change Floot publishing.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
