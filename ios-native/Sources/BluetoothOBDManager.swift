@@ -31,8 +31,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     @Published var dtcs: [String] = []
     @Published var rawLog: [String] = []
 
-    // These are candidate ELM-over-BLE profiles, not a claim that every Carista EVO
-    // firmware exposes an ELM-compatible third-party protocol.
+    // Candidate ELM-over-BLE profiles: a UUID match alone does not establish
+    // compatibility with every Carista OBD/EVO firmware revision.
     private let caristaService = CBUUID(string: "FFF0")
     private let caristaNotify = CBUUID(string: "FFF1")
     private let caristaWrite = CBUUID(string: "FFF2")
@@ -53,6 +53,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var pendingContinuation: CheckedContinuation<String, Error>?
     private var pendingTimer: Timer?
     private var handshakeStarted = false
+    private var selectedOBDProtocolNumber: String?
 
     override init() {
         super.init()
@@ -126,7 +127,10 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         let operationEpoch = epoch
         dtcs = []
         do {
-            let codes = try OBDParser.dtcs(from: try await command("03", timeout: 10))
+            // ATDPN (not ATI or a guess based on byte parity) identifies the
+            // protocol actually selected by ELM after the valid PID 0100 reply.
+            let codes = try OBDParser.dtcs(from: try await command("03", timeout: 10),
+                                           protocolNumber: selectedOBDProtocolNumber)
             guard operationEpoch == epoch else { return }
             dtcs = codes
             status = dtcs.isEmpty ? "No stored Mode 03 DTCs" : "\(dtcs.count) stored DTC(s)"
@@ -187,6 +191,18 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
             let protocolRaw = try await command("ATDP", timeout: 5)
             guard operationEpoch == epoch else { return }
             protocolName = OBDParser.clean(protocolRaw).replacingOccurrences(of: "ATDP", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // Some clone firmware may not implement ATDPN. A valid 0100 still
+            // verifies the generic ECU, but unframed DTC decoding stays locked.
+            let protocolNumberRaw = try? await command("ATDPN", timeout: 5)
+            guard operationEpoch == epoch else { return }
+            if let protocolNumberRaw,
+               OBDParser.vehicleBusKind(fromATDPN: protocolNumberRaw) != nil {
+                selectedOBDProtocolNumber = protocolNumberRaw
+                appendLog("SYS  Vehicle protocol verified by ATDPN")
+            } else {
+                selectedOBDProtocolNumber = nil
+                appendLog("SYS  ATDPN unavailable/unknown; unframed DTC decoding locked")
+            }
             if let voltageRaw = try? await command("ATRV", timeout: 5) {
                 guard operationEpoch == epoch else { return }
                 let cleaned = OBDParser.clean(voltageRaw)
@@ -225,6 +241,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         guard let (write, notify) = pair, let peripheral else { return }
         writeCharacteristic = write
         notifyCharacteristic = notify
+        appendLog("SYS  GATT serial \(service.uuid.uuidString): RX \(notify.uuid.uuidString) TX \(write.uuid.uuidString)")
         peripheral.setNotifyValue(true, for: notify)
     }
 
@@ -241,6 +258,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         discoveryRemaining = 0
         receiveBuffer = ""
         handshakeStarted = false
+        selectedOBDProtocolNumber = nil
         adapterIdentity = "—"
         protocolName = "—"
         adapterVoltage = nil
@@ -329,6 +347,7 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
                 self.status = "No BLE GATT services reported by adapter"
                 return
             }
+            self.appendLog("SYS  GATT services: \(services.map { $0.uuid.uuidString }.joined(separator: ", "))")
             self.discoveryRemaining = services.count
             for service in services { peripheral.discoverCharacteristics(nil, for: service) }
         }
@@ -338,7 +357,10 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
         Task { @MainActor in
             guard self.peripheral === peripheral else { return }
             if let error { self.appendLog("ERR GATT \(error.localizedDescription)") }
-            else { self.chooseSerialCharacteristics(from: service) }
+            else {
+                self.appendLog("SYS  GATT \(service.uuid.uuidString) characteristics: \((service.characteristics ?? []).map { $0.uuid.uuidString }.joined(separator: ", "))")
+                self.chooseSerialCharacteristics(from: service)
+            }
             self.discoveryRemaining = max(0, self.discoveryRemaining - 1)
             if self.discoveryRemaining == 0 && (self.writeCharacteristic == nil || self.notifyCharacteristic == nil) {
                 self.state = .error
