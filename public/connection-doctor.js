@@ -1,0 +1,77 @@
+// Portable, read-only connection triage for Hanna & Ada Diagnostics.
+// Accepts observed transport data ONLY. It neither connects to Bluetooth nor
+// implies that generic OBD access verifies BMW-specific modules.
+import { classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError } from './diagnostic-core.js';
+
+const result = (stage, code, explanation, nextStep, evidence = {}) => Object.freeze({
+  stage, code, explanation, nextStep, evidence: Object.freeze(evidence),
+  bmwModulesVerified: false, writesEnabled: false,
+});
+
+// Observations should be supplied by the real native/Floot transport. Never
+// save raw replies or VINs in this summary; export raw logs only by opt-in.
+export function diagnoseConnection(observation = {}) {
+  if (!observation || typeof observation !== 'object' || Array.isArray(observation)) {
+    throw new TypeError('A connection observation object is required');
+  }
+  const {
+    bluetoothPowered = false, adapterSeen = false, bleConnected = false,
+    gattDiscovered = false, notificationsActive = false, adapterReply = null,
+    pid0100Reply = null, protocolReply = null, transportError = null,
+  } = observation;
+
+  if (!bluetoothPowered) return result('BLUETOOTH', 'BT_UNAVAILABLE',
+    'Bluetooth is unavailable or permission has not been granted.',
+    'Enable Bluetooth, permit the app to use it, then start a fresh scan.');
+  if (!adapterSeen) return result('DISCOVERY', 'ADAPTER_NOT_FOUND',
+    'No suitable adapter has been identified by the scan.',
+    'Check that the adapter is powered and look at the discovered BLE name and advertised services.');
+  if (!bleConnected) return result('BLE', 'BLE_NOT_CONNECTED',
+    'The adapter was discovered, but a Bluetooth link is not established.',
+    'Reconnect and capture the Bluetooth connection result.',
+    { adapterSeen: true });
+  if (!gattDiscovered) return result('GATT', 'GATT_NOT_FOUND',
+    'Bluetooth connected, but a compatible serial GATT service is not verified.',
+    'Record available service and characteristic UUIDs and compare them with the actual adapter firmware.',
+    { bleConnected: true });
+  if (!notificationsActive) return result('NOTIFICATIONS', 'NOTIFY_NOT_READY',
+    'The GATT channel exists, but notifications have not been confirmed.',
+    'Check the notification subscription result before sending ELM commands.',
+    { bleConnected: true, gattDiscovered: true });
+  if (transportError) return result('ELM', 'TRANSPORT_ERROR',
+    'The transport reported an error; later replies may be stale.',
+    'Disconnect, re-establish a clean session and capture the first failing command.',
+    { notificationsActive: true });
+  if (typeof adapterReply !== 'string' || !adapterReply.trim() ||
+      /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(adapterReply.toUpperCase())) {
+    return result('ELM', 'ADAPTER_UNVERIFIED',
+      'No usable adapter response was observed; an open BLE channel alone is insufficient.',
+      'Capture the ATI response after notifications are enabled.',
+      { notificationsActive: true });
+  }
+  if (typeof pid0100Reply !== 'string' || !pid0100Reply.trim()) {
+    return result('ECU', 'ECU_NOT_PROBED',
+      'The adapter replied, but a vehicle ECU response has not been checked.',
+      'Request generic Mode 01 PID 00 with the vehicle stationary and record the exact reply.',
+      { adapterIdentified: true });
+  }
+  let pids;
+  try {
+    pids = decodeSupportedPIDs(pid0100Reply);
+  } catch (error) {
+    const cause = error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR';
+    return result('ECU', 'ECU_RESPONSE_INVALID',
+      'PID 0100 did not provide a complete, verified ECU bitmap.',
+      'Capture the raw PID 0100 response and verify the vehicle-side connector and protocol.',
+      { adapterIdentified: true, parserError: cause });
+  }
+  const protocol = typeof protocolReply === 'string' ? classifyVehicleProtocol(protocolReply) : 'unknown';
+  if (protocol === 'unknown') return result('PROTOCOL', 'PROTOCOL_UNVERIFIED',
+    'Generic ECU communication is confirmed, but the selected bus protocol is unknown.',
+    'Capture ATDPN or ATDP before interpreting unframed fault-code replies.',
+    { genericECUVerified: true, responderCount: pids.responderCount, pidCount: pids.pids.length });
+  return result('GENERIC_OBD', 'GENERIC_OBD_VERIFIED',
+    'A generic vehicle ECU replied and the bus protocol was identified.',
+    'Generic read-only DTC and live-PID tests can be run; BMW module access remains unverified.',
+    { genericECUVerified: true, protocol, responderCount: pids.responderCount, pidCount: pids.pids.length });
+}
