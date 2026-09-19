@@ -1,12 +1,19 @@
 // Portable, read-only connection triage for Hanna & Ada Diagnostics.
 // Accepts observed transport data ONLY. It neither connects to Bluetooth nor
 // implies that generic OBD access verifies BMW-specific modules.
-import { classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError } from './diagnostic-core.js';
+import { classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError, cleanELM } from './diagnostic-core.js';
 
 const result = (stage, code, explanation, nextStep, evidence = {}) => Object.freeze({
   stage, code, explanation, nextStep, evidence: Object.freeze(evidence),
   bmwModulesVerified: false, writesEnabled: false,
 });
+
+function hasAdapterIdentity(raw) {
+  if (typeof raw !== 'string' ||
+      /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(raw.toUpperCase())) return false;
+  return cleanELM(raw).some(line => !/^ATI$/i.test(line) && !/^OK$/i.test(line) &&
+    line.length >= 3 && /[a-z0-9]/i.test(line));
+}
 
 // Observations should be supplied by the real native/Floot transport. Never
 // save raw replies or VINs in this summary; export raw logs only by opt-in.
@@ -42,13 +49,10 @@ export function diagnoseConnection(observation = {}) {
     'The transport reported an error; later replies may be stale.',
     'Disconnect, re-establish a clean session and capture the first failing command.',
     { notificationsActive: true });
-  if (typeof adapterReply !== 'string' || !adapterReply.trim() ||
-      /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(adapterReply.toUpperCase())) {
-    return result('ELM', 'ADAPTER_UNVERIFIED',
-      'No usable adapter response was observed; an open BLE channel alone is insufficient.',
-      'Capture the ATI response after notifications are enabled.',
-      { notificationsActive: true });
-  }
+  if (!hasAdapterIdentity(adapterReply)) return result('ELM', 'ADAPTER_UNVERIFIED',
+    'No usable adapter identity was observed; an open BLE channel alone is insufficient.',
+    'Capture the ATI response after notifications are enabled.',
+    { notificationsActive: true });
   if (typeof pid0100Reply !== 'string' || !pid0100Reply.trim()) {
     return result('ECU', 'ECU_NOT_PROBED',
       'The adapter replied, but a vehicle ECU response has not been checked.',
