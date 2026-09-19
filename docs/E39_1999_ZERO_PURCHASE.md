@@ -1,23 +1,34 @@
-# BMW E39 540i (1999, round 20-pin): zero-purchase path
+# BMW E39 540i (1999, round 20-pin): no-new-purchase diagnostic path
 
-Status: documented hardware plan only. No physical BMW module access has been achieved or verified.
+Status (17 September 2026): a **limited read-only local USB bridge and native iOS client have been implemented and build-tested**, but **no genuine vehicle ECU response has been captured**. This is not a finished BMW-wide diagnostic system.
 
-## Existing hardware reported by owner
-- Carista/Car Insta BLE adapter: standard emissions OBD session already works, not proof of proprietary BMW module access.
-- USB K+DCAN / INPA-compatible cable: user previously supplied a photo, identified as K+DCAN-class. Actual USB chipset, K-line mode, routing and ADS capability NOT verified.
-- An R365X device was previously pictured as a possible Android gateway host; actual OS and USB host support NOT confirmed. Do not assume it is an Android tablet.
-- Vehicle: model year 1999 BMW E39 540i, round 20-pin engine-bay diagnostic connector confirmed verbally. Vehicle production date, interior 16-pin connector, diagnostic pin 15 occupancy and a 20-to-16-pin adapter owned by user are unknown.
+## What is saved in this repository
 
-## What can be done without buying anything
-1. Keep the existing Carista and verify/read generic Mode 01 PIDs, supported bitmap, and SAE Mode 03/07/0A DTC through the existing phone app. Report actual raw responses and errors. This does not unlock ABS/DSC, IKE, body or BMW-specific DME functions.
-2. Inventory what is already owned: photograph both ends of the K+DCAN cable, any round BMW 20-pin adapter already in the toolkit, and the possible R365X USB/OS screens; inspect diagnostic socket pin 15 without probing/shorting contacts. If a suitable 20-pin-to-16-pin adapter and USB host are already owned, use them as the candidate path for a *new* local gateway implementation. Software is NOT yet implemented.
-3. If the required 20-pin mating connector/adapter is not owned, borrowing one temporarily (no purchase) is a possible way to test. USB K+DCAN plugs cannot be inserted into BMW round 20-pin sockets; neither GitHub, iPhone, a website nor cloud hosting can replace the missing connector or automotive K-line transceiver.
-4. If physical access is available, develop/test an actual USB serial transport with real read-only per-ECU identity requests using the existing draft port `gateway/port.mjs`; authenticate a local Wi-Fi host-to-phone bridge; only promote modules following genuine validated replies. Do not claim full access on the basis of protocol name, ELM ATI, or a successful generic `0100`.
+- `gateway/usb_kline.py`: operating-system USB serial interface using pyserial, exclusive port, fixed 9600 baud/8E1, bounded timeouts and allowlisted identity probes. No ADS, arbitrary commands or coding.
+- `gateway/bmw_frames.py`: DS2/KWP frame encoding and strict checksum, address, length, positive-service and ECU-identity validation.
+- `gateway/lan_bridge.py`: local HTTP loopback or authenticated HTTPS on the LAN. The iPhone side requires HTTPS with a certificate trusted by iOS.
+- `ios-native/`: separate SwiftUI iPhone app for DME/EGS identity evidence, authenticated LAN connection, raw frame display and user-initiated export; evidence is cleared on disconnect. This is **not** the published Floot/Capacitor app.
+- `test/test_usb_bmw.py`, `test/test_lan_bridge.py`, `ios-native/Tests/`: simulated, offline transport/protocol/security tests. Passing tests do **not** establish real-car compatibility.
+- Native GitHub workflow builds an **unsigned** IPA artifact. It is not a ready-to-install TestFlight/App Store download.
 
-## Critical 1999 checks
-- BMW vehicles in the transitional period may have both interior 16-pin emissions connector and round under-hood 20-pin; the interior connector can lack access to BMW proprietary modules. BMW diagnosis documentation: https://www.one-stop-electronics.com/wp-content/uploads/2023/05/General_Introduction_dcan.pdf .
-- Presence of a populated round socket pin 15 can indicate the need for an ADS-capable interface for some modules. Confirm physical state and vehicle-specific compatibility, not just the model year. Reference background: https://www.bimmerforums.com/forum/archive/index.php/t-2174462.html .
-- The round socket cap can contain diagnostic routing bridges; leave it intact in normal use. Never recommend bare-wire bridging, improvised pin shorting, or energizing unknown pins: wrong connections can damage vehicle control units. Reference background: https://www.obd-2.de/wartungsintervallanzeige/43-bmw3/96-bmw-mit-20-pol-diagnosestecker-im-motorraum.html .
+## Existing equipment: facts and open checks
 
-## Engineering boundary
-`gateway/port.mjs` is a software contract and simulated-test target, not a working hardware bridge. A read-only USB driver, verified physical connector/route, BMW DS2/KWP transport profiles, host and iOS integration, and actual-car test are all outstanding. Avoid buying or deploying anything until owned-hardware inventory is complete; no firmware jailbreak or software port can manufacture missing electrical contact.
+- Carista / Car Insta BLE: the Floot app's generic OBD-II companion path; its connection cannot establish proprietary DME/EGS/ABS/DSC availability.
+- Previously pictured USB K+DCAN / INPA-style cable: chipset, required K-line routing, ADS support and correct vehicle connector **not verified**.
+- Previously pictured R365X: operating system, USB-host capability and suitability as a local serial host **not verified**.
+- Reported vehicle: 1999 E39 540i with round 20-pin under-hood connector. Exact production date, socket pin 15 population, access to a correctly pinned 20-to-16 adapter, and an OS USB host are **not verified**.
+
+## Hardware-gated validation — do not bypass electrical checks
+
+1. Continue generic OBD-II live PIDs and emissions codes through the owned BLE adapter only when a real adapter and vehicle reply are available. Never generate artificial live measurements.
+2. Confirm **already owned** 20-pin adapter, its wiring/compatibility, and a machine capable of recognizing the USB serial cable. No additional purchase should be assumed or requested before inventorying the existing equipment.
+3. Check vehicle-specific protocol requirements, including whether the 20-pin socket's pin 15 is populated and whether ADS/L-line handling is needed. The implemented gateway does **not** implement ADS. No bare-wire bridging, pin shorting or energizing unknown pins.
+4. On an electrically correct setup only, use `python gateway/usb_kline.py --list` to identify the OS port. `--dry-run --probe dme-me72` or `egs-gs8602` prints a **software-only** request and does not contact the vehicle. Actual `--port ... --probe ...` requires a connected interface and the appropriate vehicle profile; a failed/ambiguous response must remain `NOT_VERIFIED`.
+5. If the local host and iPhone are on the same trusted network, the bridge requires a TLS certificate trusted by the iPhone and a session bearer token. Never expose the bridge to the internet or share its token.
+6. Save a report only after the iPhone app independently validates a real ECU frame. A USB-open status, adapter greeting or static example fixture is insufficient evidence.
+
+## Delivery status
+
+The web app remains at https://bmw.floot.app; it has not been updated with this separate Swift native implementation. The working code is on GitHub PR #7: https://github.com/k4fym95bmd-design/Hanna-Ada-Diagnostic/pull/7 . Review and actual-vehicle validation are prerequisites to claiming support beyond generic OBD-II or these limited experimental identity probes.
+
+Unimplemented in this bridge: full-module scan; proprietary fault-memory read/clear, full live data, actuation, service, adaptation, coding, programming, flashing and recovery. The AutoMotion integration lists service locations; it does not supply protocol drivers or diagnostics APIs.

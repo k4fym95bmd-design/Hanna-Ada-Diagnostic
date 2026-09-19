@@ -20,5 +20,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Smoke test
+      - name: JavaScript smoke and gateway tests
         run: npm test
+      - name: BMW DS2/KWP codec and USB serial transport tests (offline fake hardware)
+        run: python3 -m unittest discover -s test -p 'test_*.py' -v
