@@ -34,6 +34,7 @@ test('a valid CAN frame is sufficient evidence even when ATDP is unknown', () =>
 
 test('CAN headers-off count, trailing zero padding and zero-fault replies', () => {
   assert.deepEqual(decodeStoredDTCs('43 01 03 08 00 00 00\r>', 'can').codes, ['P0308']);
+  assert.deepEqual(decodeStoredDTCs('43 01 03 08\r>', 'can').codes, ['P0308']);
   assert.deepEqual(decodeStoredDTCs('43 00\r>', 'can').codes, []);
   assert.deepEqual(decodeStoredDTCs('43 00 00 00 00\r>', 'can').codes, []);
   assert.deepEqual(decodeStoredDTCs('7E8 02 43 00 FF FF FF FF FF\r>').codes, []);
@@ -66,7 +67,7 @@ test('reject truncated, corrupt, multi-frame, count mismatch and protocol mismat
   rejectsCode(() => decodeStoredDTCs('7E8 04 43 01 03\r>', 'can'), 'TRUNCATED');
   rejectsCode(() => decodeStoredDTCs('7E8 10 0A 43 03 01 33\r>', 'can'), 'UNSUPPORTED_FRAME');
   rejectsCode(() => decodeStoredDTCs('7E8 04 43 01 03 08 00\r>', 'legacy'), 'PROTOCOL_MISMATCH');
-  rejectsCode(() => decodeStoredDTCs('43 02 03 08 00 00\r>', 'can'), 'TRUNCATED');
+  rejectsCode(() => decodeStoredDTCs('43 02 03 08 00\r>', 'can'), 'TRUNCATED');
   rejectsCode(() => decodeStoredDTCs('43 01 03 08 01\r>', 'can'), 'TRUNCATED');
   rejectsCode(() => decodeStoredDTCs('43 GG\r>', 'can'), 'INVALID_HEX');
   rejectsCode(() => decodeStoredDTCs('NO DATA\r>', 'can'), 'ADAPTER_ERROR');
