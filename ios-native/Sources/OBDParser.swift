@@ -149,7 +149,14 @@ enum OBDParser {
         for bytes in responseLines(raw) {
             guard let marker = bytes.firstIndex(of: responseService) else { continue }
             sawPositive = true
-            var index = marker + 1
+            let start = marker + 1
+            // A DTC occupies exactly two bytes. A service marker by itself or an
+            // orphaned byte is not proof that the ECU reported zero faults.
+            let payloadCount = bytes.count - start
+            guard payloadCount >= 2, payloadCount.isMultiple(of: 2) else {
+                throw OBDParserError.truncatedResponse(clean(raw))
+            }
+            var index = start
             while index + 1 < bytes.count {
                 let a = bytes[index], b = bytes[index + 1]
                 if a != 0 || b != 0 { codes.insert(dtcCode(a, b)) }

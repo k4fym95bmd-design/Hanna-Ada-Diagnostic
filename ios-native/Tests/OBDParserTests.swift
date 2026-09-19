@@ -33,4 +33,30 @@ final class OBDParserTests: XCTestCase {
         XCTAssertNil(OBDParser.misfireCylinder(from: "P0300"))
         XCTAssertNil(OBDParser.misfireCylinder(from: "P0310"))
     }
+
+    func testValidMode03ReportsMisfireCylinderEight() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 03 08 00 00\r>"), ["P0308"])
+    }
+
+    func testValidMode03ZeroDTCs() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 00 00 00 00\r>"), [])
+    }
+
+    func testMode03WithoutDTCBytesIsNotReportedAsNoFaults() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43\r>")) { error in
+            guard case OBDParserError.truncatedResponse = error else {
+                return XCTFail("Expected incomplete ECU response, got \(error)")
+            }
+        }
+    }
+
+    func testMode03WithOrphanedDTCByteIsRejected() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03\r>"))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03 08 00\r>"))
+    }
+
+    func testMode03RejectsMalformedSecondResponderRatherThanClearingFaults() {
+        let raw = "43 00 00\r43 03\r>"
+        XCTAssertThrowsError(try OBDParser.dtcs(from: raw))
+    }
 }
