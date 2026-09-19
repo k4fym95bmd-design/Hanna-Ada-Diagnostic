@@ -24,6 +24,19 @@ final class OBDParserTests: XCTestCase {
         XCTAssertThrowsError(try OBDParser.supportedPIDs01to20(from: "41 00 BE 3E\r>"))
     }
 
+    func testTruncatedSecondECUCannotBeHiddenByValidFirstECU() {
+        let raw = "41 00 BE 3E B8 13\r41 00 80 00\r>"
+        XCTAssertThrowsError(try OBDParser.supportedPIDs01to20(from: raw)) { error in
+            guard case OBDParserError.truncatedResponse = error else {
+                return XCTFail("Expected incomplete ECU response, got \(error)")
+            }
+        }
+    }
+
+    func testTruncatedLiveValueCannotBeHiddenByValidFirstResponder() {
+        XCTAssertThrowsError(try OBDParser.rpm(from: "41 0C 1A F8\r41 0C 1A\r>"))
+    }
+
     func testNoDataIsRejected() {
         XCTAssertThrowsError(try OBDParser.supportedPIDs01to20(from: "NO DATA\r>"))
     }
@@ -34,12 +47,41 @@ final class OBDParserTests: XCTestCase {
         XCTAssertNil(OBDParser.misfireCylinder(from: "P0310"))
     }
 
-    func testValidMode03ReportsMisfireCylinderEight() throws {
+    func testValidLegacyMode03ReportsMisfireCylinderEight() throws {
         XCTAssertEqual(try OBDParser.dtcs(from: "43 03 08 00 00\r>"), ["P0308"])
     }
 
-    func testValidMode03ZeroDTCs() throws {
+    func testValidLegacyMode03ZeroDTCs() throws {
         XCTAssertEqual(try OBDParser.dtcs(from: "43 00 00 00 00\r>"), [])
+    }
+
+    func testCANMode03UnframedCountIsNotDecodedAsDTC() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08\r>"), ["P0308"])
+    }
+
+    func testCANMode03UnframedCountAndZeroPadding() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08 00 00\r>"), ["P0308"])
+    }
+
+    func testCANMode03FramedSingleCodeIgnoresBusPadding() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "7E8 04 43 01 03 08 AA AA AA\r>"), ["P0308"])
+    }
+
+    func testCANMode03FramedZeroCountIsConfirmed() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "7E8 02 43 00 AA AA AA AA AA\r>"), [])
+    }
+
+    func testCANMode03MultipleValidRespondersCombineCodes() throws {
+        let raw = "7E8 04 43 01 03 08 00 00 00\r7E9 04 43 01 01 33 00 00 00\r>"
+        XCTAssertEqual(try OBDParser.dtcs(from: raw), ["P0133", "P0308"])
+    }
+
+    func testCANMode03TruncatedSingleFrameIsRejected() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "7E8 04 43 01 03\r>"))
+    }
+
+    func testCANMode03UnsupportedMultiFrameFailsClosed() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "7E8 10 0A 43 03 01 33\r>"))
     }
 
     func testMode03WithoutDTCBytesIsNotReportedAsNoFaults() {
@@ -48,6 +90,10 @@ final class OBDParserTests: XCTestCase {
                 return XCTFail("Expected incomplete ECU response, got \(error)")
             }
         }
+    }
+
+    func testMode03UnframedCountOnlyIsNotReportedAsNoFaults() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 00\r>"))
     }
 
     func testMode03WithOrphanedDTCByteIsRejected() {
