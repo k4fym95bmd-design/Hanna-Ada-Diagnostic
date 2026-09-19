@@ -96,10 +96,9 @@ enum OBDParser {
             }
         }
 
-        if validFrameCount == 0 {
-            if sawTruncatedPositive { throw OBDParserError.truncatedResponse(clean(raw)) }
-            throw OBDParserError.noPositiveResponse(clean(raw))
-        }
+        // One truncated responder must not be masked by a complete response from another ECU.
+        if sawTruncatedPositive { throw OBDParserError.truncatedResponse(clean(raw)) }
+        if validFrameCount == 0 { throw OBDParserError.noPositiveResponse(clean(raw)) }
 
         var result = Set<Int>()
         for bitIndex in 0..<32 {
@@ -127,8 +126,8 @@ enum OBDParser {
                 matches.append(Array(bytes[start..<bytes.count]))
             }
         }
+        if truncated { throw OBDParserError.truncatedResponse(clean(raw)) }
         if matches.count == 1 { return matches[0] }
-        if matches.isEmpty && truncated { throw OBDParserError.truncatedResponse(clean(raw)) }
         throw OBDParserError.noPositiveResponse(clean(raw))
     }
 
@@ -142,28 +141,70 @@ enum OBDParser {
         return Double(Int(p[0]) - 40)
     }
 
+    // Returns the declared payload for an explicitly addressed ISO-TP CAN single frame.
+    // This removes both PCI and bus padding. Multi-frame DTC responses are rejected
+    // rather than interpreted as an incomplete or incorrect single-frame result.
+    private static func canSingleFrame(_ line: String, raw: String) throws -> [UInt8]? {
+        let tokens = line.split { $0.isWhitespace }.map(String.init)
+        guard tokens.count >= 3 else { return nil }
+        let header = tokens[0]
+        guard (header.count == 3 || header.count == 8), header.allSatisfy(\.isHexDigit),
+              tokens[1].count == 2, let pci = UInt8(tokens[1], radix: 16) else { return nil }
+        let bytes = lineBytes(tokens.dropFirst().joined(separator: " "))
+        guard !bytes.isEmpty else { throw OBDParserError.truncatedResponse(raw) }
+        guard pci >> 4 == 0 else {
+            throw OBDParserError.adapterError("ISO-TP multi-frame/unsupported CAN payload; RAW: \(raw)")
+        }
+        let declared = Int(pci & 0x0F)
+        guard declared > 0, bytes.count >= declared + 1 else {
+            throw OBDParserError.truncatedResponse(raw)
+        }
+        return Array(bytes[1...declared])
+    }
+
     static func dtcs(from raw: String, responseService: UInt8 = 0x43) throws -> [String] {
         try validateNoAdapterError(raw)
+        let cleaned = clean(raw)
         var codes = Set<String>()
         var sawPositive = false
-        for bytes in responseLines(raw) {
+
+        for line in cleaned.split(separator: "\n").map(String.init) {
+            let framed = try canSingleFrame(line, raw: cleaned)
+            let bytes = framed ?? lineBytes(line)
             guard let marker = bytes.firstIndex(of: responseService) else { continue }
             sawPositive = true
-            let start = marker + 1
-            // A DTC occupies exactly two bytes. A service marker by itself or an
-            // orphaned byte is not proof that the ECU reported zero faults.
-            let payloadCount = bytes.count - start
-            guard payloadCount >= 2, payloadCount.isMultiple(of: 2) else {
-                throw OBDParserError.truncatedResponse(clean(raw))
+            let payload = Array(bytes[(marker + 1)...])
+            let dtcBytes: [UInt8]
+
+            if framed != nil {
+                // ISO 15765-4: 43, count, two bytes for each DTC.
+                guard let count = payload.first, payload.count >= 1 + Int(count) * 2 else {
+                    throw OBDParserError.truncatedResponse(cleaned)
+                }
+                let end = 1 + Int(count) * 2
+                guard payload[end...].allSatisfy({ $0 == 0 }) else {
+                    throw OBDParserError.truncatedResponse(cleaned)
+                }
+                dtcBytes = Array(payload[1..<end])
+            } else if payload.count >= 2 && payload.count.isMultiple(of: 2) {
+                // Legacy ISO 9141/KWP/J1850: no count byte; padded zero DTC pairs.
+                dtcBytes = payload
+            } else if payload.count >= 3, let count = payload.first, count > 0,
+                      payload.count >= 1 + Int(count) * 2,
+                      payload[(1 + Int(count) * 2)...].allSatisfy({ $0 == 0 }) {
+                // ELM with headers off can produce an unframed CAN count + DTC pairs.
+                // Never accept an unframed count-only zero reply as confirmed no faults.
+                dtcBytes = Array(payload[1..<(1 + Int(count) * 2)])
+            } else {
+                throw OBDParserError.truncatedResponse(cleaned)
             }
-            var index = start
-            while index + 1 < bytes.count {
-                let a = bytes[index], b = bytes[index + 1]
+
+            for index in stride(from: 0, to: dtcBytes.count, by: 2) {
+                let a = dtcBytes[index], b = dtcBytes[index + 1]
                 if a != 0 || b != 0 { codes.insert(dtcCode(a, b)) }
-                index += 2
             }
         }
-        guard sawPositive else { throw OBDParserError.noPositiveResponse(clean(raw)) }
+        guard sawPositive else { throw OBDParserError.noPositiveResponse(cleaned) }
         return codes.sorted()
     }
 
