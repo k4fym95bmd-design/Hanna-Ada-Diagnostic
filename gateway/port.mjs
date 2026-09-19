@@ -24,6 +24,8 @@ export class LocalVciPort {
   #hello = null;
   #modules = new Map();
   #exchange;
+  #epoch = 0;
+  #inFlight = false;
 
   constructor(exchange) {
     if (typeof exchange !== 'function') throw new TypeError('An injected physical gateway exchange is required');
@@ -31,8 +33,9 @@ export class LocalVciPort {
   }
 
   connect(hello) {
+    const validated = validateGatewayHello(hello);
     this.disconnect();
-    this.#hello = validateGatewayHello(hello);
+    this.#hello = validated;
     return this.status();
   }
 
@@ -40,7 +43,7 @@ export class LocalVciPort {
     return { connected: !!this.#hello, hardwareId: this.#hello?.hardwareId ?? null, transport: this.#hello?.transport ?? null, capabilities: [...(this.#hello?.capabilities ?? [])], onlineModules: [...this.#modules.keys()] };
   }
 
-  // Probe definitions are reviewed per ECU and injected by future BMW protocol layer.
+  // Probe definitions are reviewed per ECU and injected by a future BMW protocol layer.
   // Arbitrary hex/raw TX and write/actuation/reset requests are intentionally unavailable.
   async probeIdentity(definition) {
     if (!this.#hello) throw new GatewayProtocolError('VCI not connected');
@@ -48,21 +51,34 @@ export class LocalVciPort {
     if (!this.#hello.capabilities.includes(definition.capability)) throw new GatewayProtocolError('BMW physical protocol unsupported');
     if (typeof definition.request !== 'function' || typeof definition.validateResponse !== 'function') throw new GatewayProtocolError('Reviewed identity request and parser required');
     if (definition.readOnly !== true) throw new GatewayProtocolError('Only read-only identity probes are allowed');
+    // One vehicle bus, one outstanding exchange; never interleave module replies.
+    if (this.#inFlight) throw new GatewayProtocolError('Vehicle bus busy with another identity probe');
     this.#modules.delete(definition.moduleId);
+    const epoch = this.#epoch;
     const sessionId = this.#hello.sessionId;
     const bytes = definition.request();
     if (!(bytes instanceof Uint8Array) || bytes.length === 0 || bytes.length > 256) throw new GatewayProtocolError('Invalid request frame');
-    const received = await this.#exchange({ sessionId, capability: definition.capability, moduleId: definition.moduleId, bytes: Uint8Array.from(bytes) });
-    if (!this.#hello || this.#hello.sessionId !== sessionId) throw new GatewayProtocolError('VCI disconnected during request');
-    if (!(received instanceof Uint8Array) || received.length === 0 || received.length > 4096) throw new GatewayProtocolError('Missing or oversized physical ECU response');
-    const identity = definition.validateResponse(Uint8Array.from(received));
-    if (typeof identity !== 'string' || identity.trim().length < 2 || identity.length > 256) throw new GatewayProtocolError('ECU identity not verified');
-    this.#modules.set(definition.moduleId, identity.trim());
-    return { moduleId: definition.moduleId, identity: identity.trim(), status: 'VERIFIED_ONLINE' };
+    this.#inFlight = true;
+    try {
+      const received = await this.#exchange({ sessionId, capability: definition.capability, moduleId: definition.moduleId, bytes: Uint8Array.from(bytes) });
+      // Session IDs are supplied by a remote peer and can be reused: check our own epoch too.
+      if (!this.#hello || this.#epoch !== epoch || this.#hello.sessionId !== sessionId) throw new GatewayProtocolError('VCI session changed during request');
+      if (!(received instanceof Uint8Array) || received.length === 0 || received.length > 4096) throw new GatewayProtocolError('Missing or oversized physical ECU response');
+      const identity = definition.validateResponse(Uint8Array.from(received));
+      if (typeof identity !== 'string' || identity.trim().length < 2 || identity.length > 256) throw new GatewayProtocolError('ECU identity not verified');
+      // A parser may indirectly end the session; never publish identity from a stale one.
+      if (!this.#hello || this.#epoch !== epoch || this.#hello.sessionId !== sessionId) throw new GatewayProtocolError('VCI session changed while validating response');
+      this.#modules.set(definition.moduleId, identity.trim());
+      return { moduleId: definition.moduleId, identity: identity.trim(), status: 'VERIFIED_ONLINE' };
+    } finally {
+      if (this.#epoch === epoch) this.#inFlight = false;
+    }
   }
 
   disconnect() {
+    this.#epoch += 1;
     this.#hello = null;
     this.#modules.clear();
+    this.#inFlight = false;
   }
 }

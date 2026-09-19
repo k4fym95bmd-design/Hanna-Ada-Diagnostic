@@ -52,3 +52,45 @@ test('a disconnect during physical request invalidates the response', async () =
   await assert.rejects(pending, GatewayProtocolError);
   assert.deepEqual(port.status().onlineModules, []);
 });
+
+test('a reused remote session ID cannot authenticate a stale response', async () => {
+  let resolve;
+  const port = new LocalVciPort(() => new Promise(r => { resolve = r; }));
+  port.connect(hello);
+  const oldProbe = port.probeIdentity(identity);
+  port.disconnect();
+  port.connect(hello); // Peer reused an identical session ID after reconnect.
+  resolve(Uint8Array.from([0x80, 0x12]));
+  await assert.rejects(oldProbe, GatewayProtocolError);
+  assert.equal(port.status().connected, true);
+  assert.deepEqual(port.status().onlineModules, []);
+});
+
+test('concurrent probes are rejected rather than interleaving the vehicle bus', async () => {
+  let resolve;
+  let exchangeCount = 0;
+  const port = new LocalVciPort(() => {
+    exchangeCount++;
+    return new Promise(r => { resolve = r; });
+  });
+  port.connect(hello);
+  const first = port.probeIdentity(identity);
+  await assert.rejects(port.probeIdentity({ ...identity, moduleId: 'dme' }), /busy/);
+  assert.equal(exchangeCount, 1);
+  resolve(Uint8Array.from([0x80, 0x12]));
+  await first;
+  assert.deepEqual(port.status().onlineModules, ['ike']);
+});
+
+test('exchange failure releases the bus for a later probe', async () => {
+  let calls = 0;
+  const port = new LocalVciPort(async () => {
+    if (++calls === 1) throw new Error('temporary transport failure');
+    return Uint8Array.from([0x80, 0x12]);
+  });
+  port.connect(hello);
+  await assert.rejects(port.probeIdentity(identity), /temporary transport failure/);
+  const result = await port.probeIdentity(identity);
+  assert.equal(result.status, 'VERIFIED_ONLINE');
+  assert.equal(calls, 2);
+});

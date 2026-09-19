@@ -9,7 +9,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         case ble = "BLE"
         case gatt = "GATT"
         case adapter = "ADAPTER"
-        case ecu = "ECU ONLINE"
+        case ecu = "OBD-II ECU ONLINE"
         case error = "ERROR"
     }
 
@@ -31,6 +31,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     @Published var dtcs: [String] = []
     @Published var rawLog: [String] = []
 
+    // These are candidate ELM-over-BLE profiles, not a claim that every Carista EVO
+    // firmware exposes an ELM-compatible third-party protocol.
     private let caristaService = CBUUID(string: "FFF0")
     private let caristaNotify = CBUUID(string: "FFF1")
     private let caristaWrite = CBUUID(string: "FFF2")
@@ -45,6 +47,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var peripheral: CBPeripheral?
     private var writeCharacteristic: CBCharacteristic?
     private var notifyCharacteristic: CBCharacteristic?
+    private var discoveryRemaining = 0
+    private var epoch = 0
     private var receiveBuffer = ""
     private var pendingContinuation: CheckedContinuation<String, Error>?
     private var pendingTimer: Timer?
@@ -61,22 +65,24 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
             status = "Bluetooth is not available"
             return
         }
+        disconnect()
         resetSession(keepDevices: false)
+        let scanEpoch = epoch
         state = .scanning
         status = "Scanning for BLE OBD adapters…"
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(7))
-            if self.state == .scanning {
-                self.central.stopScan()
-                self.status = self.devices.isEmpty ? "No BLE OBD adapter found" : "Select an adapter"
-            }
+            guard self.epoch == scanEpoch, self.state == .scanning else { return }
+            self.central.stopScan()
+            self.status = self.devices.isEmpty ? "No BLE OBD adapter found" : "Select an adapter"
         }
     }
 
     func connect(to device: Device) {
         guard let candidate = peripherals[device.id] else { return }
         central.stopScan()
+        if let old = peripheral { central.cancelPeripheralConnection(old) }
         resetSession(keepDevices: true)
         peripheral = candidate
         candidate.delegate = self
@@ -86,7 +92,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
-        if let peripheral { central.cancelPeripheralConnection(peripheral) }
+        central.stopScan()
+        if let old = peripheral { central.cancelPeripheralConnection(old) }
         resetSession(keepDevices: true)
         state = .disconnected
         status = "Disconnected"
@@ -94,26 +101,37 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
     func readLive() async {
         guard state == .ecu else { return }
+        let operationEpoch = epoch
+        rpm = nil
+        coolant = nil
         do {
             if supportedPIDs.contains(0x0C) {
-                rpm = try OBDParser.rpm(from: try await command("010C", timeout: 5))
+                let value = try OBDParser.rpm(from: try await command("010C", timeout: 5))
+                guard operationEpoch == epoch else { return }
+                rpm = value
             }
             if supportedPIDs.contains(0x05) {
-                coolant = try OBDParser.coolant(from: try await command("0105", timeout: 5))
+                let value = try OBDParser.coolant(from: try await command("0105", timeout: 5))
+                guard operationEpoch == epoch else { return }
+                coolant = value
             }
-            status = "Live values updated"
+            status = "Generic OBD-II live values updated"
         } catch {
-            status = error.localizedDescription
+            if operationEpoch == epoch { status = error.localizedDescription }
         }
     }
 
     func readDTCs() async {
         guard state == .ecu else { return }
+        let operationEpoch = epoch
+        dtcs = []
         do {
-            dtcs = try OBDParser.dtcs(from: try await command("03", timeout: 10))
+            let codes = try OBDParser.dtcs(from: try await command("03", timeout: 10))
+            guard operationEpoch == epoch else { return }
+            dtcs = codes
             status = dtcs.isEmpty ? "No stored Mode 03 DTCs" : "\(dtcs.count) stored DTC(s)"
         } catch {
-            status = error.localizedDescription
+            if operationEpoch == epoch { status = error.localizedDescription }
         }
     }
 
@@ -127,7 +145,6 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         guard notifyCharacteristic.isNotifying else {
             throw OBDParserError.adapterError("Notifications are not active")
         }
-
         receiveBuffer = ""
         appendLog("TX  \(command)")
         return try await withCheckedThrowingContinuation { continuation in
@@ -137,11 +154,12 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
                 Task { @MainActor in
                     guard let self, let pending = self.pendingContinuation else { return }
                     self.pendingContinuation = nil
+                    self.pendingTimer = nil
+                    self.receiveBuffer = ""
                     self.appendLog("ERR Timeout: \(command)")
                     pending.resume(throwing: OBDParserError.adapterError("Timeout waiting for \(command)"))
                 }
             }
-
             let payload = Data((command.trimmingCharacters(in: .whitespacesAndNewlines) + "\r").utf8)
             let type: CBCharacteristicWriteType = writeCharacteristic.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
             peripheral.writeValue(payload, for: writeCharacteristic, type: type)
@@ -151,37 +169,35 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private func startHandshake() async {
         guard !handshakeStarted else { return }
         handshakeStarted = true
+        let operationEpoch = epoch
         do {
             status = "Initializing ELM…"
             for cmd in ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATAT1", "ATSTFF", "ATSP0"] {
                 _ = try await command(cmd, timeout: cmd == "ATZ" ? 9 : 5)
+                guard operationEpoch == epoch else { return }
             }
-
             let identityRaw = try await command("ATI", timeout: 5)
+            guard operationEpoch == epoch else { return }
             adapterIdentity = OBDParser.clean(identityRaw).replacingOccurrences(of: "ATI", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
             state = .adapter
-
-            status = "Adapter online · verifying ECU…"
+            status = "Adapter online · verifying generic OBD ECU…"
             let pidRaw = try await command("0100", timeout: 15)
-            do {
-                supportedPIDs = try OBDParser.supportedPIDs01to20(from: pidRaw)
-            } catch {
-                appendLog("RAW 0100  \(OBDParser.clean(pidRaw))")
-                throw error
-            }
-
+            guard operationEpoch == epoch else { return }
+            supportedPIDs = try OBDParser.supportedPIDs01to20(from: pidRaw)
             let protocolRaw = try await command("ATDP", timeout: 5)
+            guard operationEpoch == epoch else { return }
             protocolName = OBDParser.clean(protocolRaw).replacingOccurrences(of: "ATDP", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-
             if let voltageRaw = try? await command("ATRV", timeout: 5) {
+                guard operationEpoch == epoch else { return }
                 let cleaned = OBDParser.clean(voltageRaw)
                 let pattern = /([0-9]+(?:\.[0-9]+)?)\s*V/
                 if let match = cleaned.firstMatch(of: pattern) { adapterVoltage = Double(match.1) }
             }
-
+            guard operationEpoch == epoch else { return }
             state = .ecu
-            status = "ECU ONLINE · \(supportedPIDs.count) PID(s) declared"
+            status = "Generic OBD-II ECU ONLINE · \(supportedPIDs.count) PIDs; BMW modules not verified"
         } catch {
+            guard operationEpoch == epoch else { return }
             state = .error
             status = error.localizedDescription
             appendLog("ERR \(error.localizedDescription)")
@@ -189,40 +205,40 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     }
 
     private func chooseSerialCharacteristics(from service: CBService) {
-        guard let characteristics = service.characteristics else { return }
-
+        guard writeCharacteristic == nil, notifyCharacteristic == nil, let chars = service.characteristics else { return }
+        var pair: (CBCharacteristic, CBCharacteristic)?
         if service.uuid == caristaService {
-            writeCharacteristic = characteristics.first(where: { $0.uuid == caristaWrite && ($0.properties.contains(.write) || $0.properties.contains(.writeWithoutResponse)) })
-            notifyCharacteristic = characteristics.first(where: { $0.uuid == caristaNotify && ($0.properties.contains(.notify) || $0.properties.contains(.indicate)) })
+            if let write = chars.first(where: { $0.uuid == caristaWrite && ($0.properties.contains(.write) || $0.properties.contains(.writeWithoutResponse)) }),
+               let notify = chars.first(where: { $0.uuid == caristaNotify && ($0.properties.contains(.notify) || $0.properties.contains(.indicate)) }) {
+                pair = (write, notify)
+            }
         } else if service.uuid == ffe0Service {
-            if let shared = characteristics.first(where: { $0.uuid == ffe1Characteristic }) {
-                if shared.properties.contains(.write) || shared.properties.contains(.writeWithoutResponse) { writeCharacteristic = shared }
-                if shared.properties.contains(.notify) || shared.properties.contains(.indicate) { notifyCharacteristic = shared }
+            if let shared = chars.first(where: { $0.uuid == ffe1Characteristic && ($0.properties.contains(.write) || $0.properties.contains(.writeWithoutResponse)) && ($0.properties.contains(.notify) || $0.properties.contains(.indicate)) }) {
+                pair = (shared, shared)
             }
         } else if service.uuid == nusService {
-            writeCharacteristic = characteristics.first(where: { $0.uuid == nusWrite })
-            notifyCharacteristic = characteristics.first(where: { $0.uuid == nusNotify })
+            if let write = chars.first(where: { $0.uuid == nusWrite && ($0.properties.contains(.write) || $0.properties.contains(.writeWithoutResponse)) }),
+               let notify = chars.first(where: { $0.uuid == nusNotify && ($0.properties.contains(.notify) || $0.properties.contains(.indicate)) }) {
+                pair = (write, notify)
+            }
         }
-
-        if writeCharacteristic == nil {
-            writeCharacteristic = characteristics.first(where: { $0.properties.contains(.writeWithoutResponse) || $0.properties.contains(.write) })
-        }
-        if notifyCharacteristic == nil {
-            notifyCharacteristic = characteristics.first(where: { $0.properties.contains(.notify) || $0.properties.contains(.indicate) })
-        }
-
-        if let notifyCharacteristic, let peripheral, !notifyCharacteristic.isNotifying {
-            peripheral.setNotifyValue(true, for: notifyCharacteristic)
-        }
+        guard let (write, notify) = pair, let peripheral else { return }
+        writeCharacteristic = write
+        notifyCharacteristic = notify
+        peripheral.setNotifyValue(true, for: notify)
     }
 
     private func resetSession(keepDevices: Bool) {
+        epoch &+= 1
         pendingTimer?.invalidate()
         pendingTimer = nil
-        pendingContinuation?.resume(throwing: OBDParserError.adapterError("Session reset"))
+        let pending = pendingContinuation
         pendingContinuation = nil
+        pending?.resume(throwing: OBDParserError.adapterError("Session reset"))
+        peripheral = nil
         writeCharacteristic = nil
         notifyCharacteristic = nil
+        discoveryRemaining = 0
         receiveBuffer = ""
         handshakeStarted = false
         adapterIdentity = "—"
@@ -248,14 +264,16 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor in
             if central.state != .poweredOn {
+                self.resetSession(keepDevices: true)
                 self.state = .disconnected
-                self.status = "Bluetooth: \(String(describing: central.state))"
+                self.status = "Bluetooth unavailable: \(String(describing: central.state))"
             }
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi RSSI: NSNumber) {
         Task { @MainActor in
+            guard self.state == .scanning else { return }
             let name = peripheral.name ?? (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? "BLE device"
             let relevant = name.localizedCaseInsensitiveContains("carista") || name.localizedCaseInsensitiveContains("obd") || name.localizedCaseInsensitiveContains("vlink") || name.localizedCaseInsensitiveContains("veepeak")
             guard relevant else { return }
@@ -269,6 +287,7 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         Task { @MainActor in
+            guard self.peripheral === peripheral else { return }
             self.state = .ble
             self.status = "BLE connected · discovering GATT…"
             peripheral.discoverServices(nil)
@@ -277,6 +296,8 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            guard self.peripheral === peripheral else { return }
+            self.resetSession(keepDevices: true)
             self.state = .error
             self.status = error?.localizedDescription ?? "BLE connection failed"
         }
@@ -284,6 +305,7 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            guard self.peripheral === peripheral else { return }
             self.resetSession(keepDevices: true)
             self.state = .disconnected
             self.status = error?.localizedDescription ?? "Disconnected"
@@ -294,6 +316,7 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 extension BluetoothOBDManager: CBPeripheralDelegate {
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         Task { @MainActor in
+            guard self.peripheral === peripheral else { return }
             if let error {
                 self.state = .error
                 self.status = error.localizedDescription
@@ -301,55 +324,85 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
             }
             self.state = .gatt
             let services = peripheral.services ?? []
-            for service in services {
-                peripheral.discoverCharacteristics(nil, for: service)
+            guard !services.isEmpty else {
+                self.state = .error
+                self.status = "No BLE GATT services reported by adapter"
+                return
             }
+            self.discoveryRemaining = services.count
+            for service in services { peripheral.discoverCharacteristics(nil, for: service) }
         }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         Task { @MainActor in
-            if let error {
-                self.appendLog("ERR GATT \(error.localizedDescription)")
-                return
-            }
-            self.chooseSerialCharacteristics(from: service)
-            if self.writeCharacteristic != nil && self.notifyCharacteristic != nil {
-                self.status = "GATT serial channel found · enabling notifications…"
+            guard self.peripheral === peripheral else { return }
+            if let error { self.appendLog("ERR GATT \(error.localizedDescription)") }
+            else { self.chooseSerialCharacteristics(from: service) }
+            self.discoveryRemaining = max(0, self.discoveryRemaining - 1)
+            if self.discoveryRemaining == 0 && (self.writeCharacteristic == nil || self.notifyCharacteristic == nil) {
+                self.state = .error
+                self.status = "No supported ELM BLE serial service; adapter may use a proprietary protocol"
+            } else if self.writeCharacteristic != nil && self.notifyCharacteristic != nil {
+                self.status = "BLE serial channel found · enabling notifications…"
             }
         }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
+            guard self.peripheral === peripheral, let selected = self.notifyCharacteristic, characteristic === selected else { return }
             if let error {
                 self.state = .error
                 self.status = error.localizedDescription
                 return
             }
-            guard characteristic.uuid == self.notifyCharacteristic?.uuid, characteristic.isNotifying else { return }
+            guard characteristic.isNotifying else { return }
             self.status = "Notifications active · starting ELM handshake…"
             await self.startHandshake()
         }
     }
 
+    nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        Task { @MainActor in
+            guard self.peripheral === peripheral, let selected = self.writeCharacteristic, characteristic === selected, let error else { return }
+            self.pendingTimer?.invalidate()
+            self.pendingTimer = nil
+            let pending = self.pendingContinuation
+            self.pendingContinuation = nil
+            self.receiveBuffer = ""
+            self.appendLog("ERR GATT write: \(error.localizedDescription)")
+            pending?.resume(throwing: error)
+        }
+    }
+
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
+            guard self.peripheral === peripheral, let selected = self.notifyCharacteristic, characteristic === selected else { return }
             if let error {
                 self.pendingTimer?.invalidate()
                 self.pendingTimer = nil
-                if let pending = self.pendingContinuation {
-                    self.pendingContinuation = nil
-                    pending.resume(throwing: error)
-                }
+                let pending = self.pendingContinuation
+                self.pendingContinuation = nil
+                self.receiveBuffer = ""
+                pending?.resume(throwing: error)
                 return
             }
-            guard let data = characteristic.value, let chunk = String(data: data, encoding: .utf8) else { return }
+            guard self.pendingContinuation != nil, let data = characteristic.value, let chunk = String(data: data, encoding: .utf8) else { return }
             self.receiveBuffer += chunk
             self.appendLog("RX  \(OBDParser.clean(chunk))")
+            if self.receiveBuffer.utf8.count > 16384 {
+                self.pendingTimer?.invalidate()
+                self.pendingTimer = nil
+                let pending = self.pendingContinuation
+                self.pendingContinuation = nil
+                self.receiveBuffer = ""
+                pending?.resume(throwing: OBDParserError.adapterError("Oversized BLE response"))
+                return
+            }
             guard let prompt = self.receiveBuffer.firstIndex(of: ">"), let pending = self.pendingContinuation else { return }
             let response = String(self.receiveBuffer[...prompt])
-            self.receiveBuffer = String(self.receiveBuffer[self.receiveBuffer.index(after: prompt)...])
+            self.receiveBuffer = ""
             self.pendingTimer?.invalidate()
             self.pendingTimer = nil
             self.pendingContinuation = nil
