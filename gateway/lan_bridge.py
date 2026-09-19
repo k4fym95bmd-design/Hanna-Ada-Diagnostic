@@ -82,18 +82,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if self.path != "/v1/status":
             self._reply(404, {"state": "NOT_FOUND"})
             return
-        connected = bool(getattr(self.server.transport, "_connected", False))
-        self._reply(200, {
-            "state": "USB_OPEN_NOT_ECU_VERIFIED" if connected else "USB_DISCONNECTED",
-            "moduleIds": sorted(self.server.transport.verified_modules),
-            "codecs": ["bmw-ds2", "bmw-kwp"],
-            "arbitraryWritesEnabled": False,
-        })
+        self._reply(200, self.server.transport.snapshot())
 
     def do_POST(self):
         if not self._authorized():
             return
-        if self.path != "/v1/identity":
+        if self.path not in ("/v1/identity", "/v1/connect"):
             self._reply(404, {"state": "NOT_FOUND"})
             return
         if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
@@ -110,6 +104,20 @@ class BridgeHandler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(size).decode("utf-8"))
         except (UnicodeError, ValueError):
             self._reply(400, {"state": "BAD_JSON"})
+            return
+        if self.path == "/v1/connect":
+            # Reopen only the operator-configured port; never accept a remote
+            # device path or transmit a diagnostic request during connection.
+            if not isinstance(body, dict) or body:
+                self._reply(400, {"state": "EMPTY_OBJECT_REQUIRED"})
+                return
+            try:
+                self.server.transport.open()
+                status = self.server.transport.snapshot()
+            except UsbKlineError:
+                self._reply(503, {"state": "USB_UNAVAILABLE"})
+                return
+            self._reply(200, status)
             return
         if not isinstance(body, dict) or set(body) != {"profile"} or not isinstance(body["profile"], str) or body["profile"] not in IDENTITY_PROFILES:
             self._reply(400, {"state": "PROFILE_NOT_ALLOWLISTED"})
@@ -160,3 +168,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+

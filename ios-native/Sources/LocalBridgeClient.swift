@@ -173,6 +173,11 @@ final class LocalBridgeClient: ObservableObject {
     private var token: String = ""
     private var session: URLSession?
     private var generation = 0
+    private let makeConfiguration: () -> URLSessionConfiguration
+
+    init(makeConfiguration: @escaping () -> URLSessionConfiguration = { .ephemeral }) {
+        self.makeConfiguration = makeConfiguration
+    }
 
     func disconnect() {
         generation += 1
@@ -198,13 +203,20 @@ final class LocalBridgeClient: ObservableObject {
             guard secret.count >= 32 else { throw BridgeContract.Problem.weakToken }
             origin = url
             token = secret
-            let configuration = URLSessionConfiguration.ephemeral
+            let configuration = makeConfiguration()
             configuration.timeoutIntervalForRequest = 8
             configuration.timeoutIntervalForResource = 12
             session = URLSession(configuration: configuration)
             let status: BridgeContract.Status = try await request("v1/status")
             guard generation == current else { return }
             usbOpen = try BridgeContract.verify(status)
+            if !usbOpen {
+                // The user's Connect action can reopen the configured host port
+                // after a bus error. This does not send an ECU identity probe.
+                let reopened: BridgeContract.Status = try await request("v1/connect", body: Data("{}".utf8))
+                guard generation == current else { return }
+                usbOpen = try BridgeContract.verify(reopened)
+            }
             message = usbOpen
                 ? "USB host connected over HTTPS. No ECU verified yet."
                 : "Gateway responds but USB adapter is disconnected."

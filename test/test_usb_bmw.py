@@ -1,4 +1,7 @@
 import unittest
+import threading
+from unittest.mock import patch
+from types import SimpleNamespace
 
 from gateway.bmw_frames import (
     BmwFrameError, IDENTITY_PROFILES, ds2_decode, ds2_encode, kwp_decode,
@@ -129,9 +132,65 @@ class UsbSessionTests(unittest.TestCase):
             connection.probe("egs-gs8602")
         self.assertFalse(connection.verified_modules)
 
+    def test_owned_port_can_reopen_after_error_without_reusing_old_evidence(self):
+        good = ds2_encode(0x32, b"\xa0" + b"1423953")
+        class OwnedSerial(FakeSerial):
+            def close(self):
+                self.is_open = False
+        first, second = OwnedSerial(good), OwnedSerial(good)
+        backend = SimpleNamespace(Serial=unittest.mock.Mock(side_effect=[first, second]),
+                                  EIGHTBITS=8, PARITY_EVEN="E", STOPBITS_ONE=1)
+        with patch.dict("sys.modules", {"serial": backend}):
+            connection = UsbKline("FAKE")
+            connection.open()
+            connection.probe("egs-gs8602")
+            first.reply = good[:-1] + bytes([good[-1] ^ 1])
+            with self.assertRaises(BmwFrameError):
+                connection.probe("egs-gs8602")
+            self.assertFalse(first.is_open)
+            connection.open()
+            self.assertEqual(connection.snapshot()["moduleIds"], [])
+            self.assertEqual(second.sent, [])
+            self.assertEqual(connection.probe("egs-gs8602")["identity"], "1423953")
+            connection.close()
+
+    def test_waiting_probe_rechecks_connection_before_writing(self):
+        fake = FakeSerial(ds2_encode(0x32, b"\xa0" + b"1423953"))
+        connection = UsbKline("FAKE", serial_obj=fake)
+        connection.open()
+        started = threading.Event()
+        errors = []
+        def worker():
+            started.set()
+            try:
+                connection.probe("egs-gs8602")
+            except Exception as error:
+                errors.append(error)
+        with connection._lock:
+            thread = threading.Thread(target=worker)
+            thread.start()
+            self.assertTrue(started.wait(1))
+            connection.close()
+        thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], UsbKlineError)
+        self.assertEqual(fake.sent, [])
+
+    def test_snapshot_invalidates_evidence_if_port_has_closed(self):
+        fake = FakeSerial(ds2_encode(0x32, b"\xa0" + b"1423953"))
+        connection = UsbKline("FAKE", serial_obj=fake)
+        connection.open()
+        connection.probe("egs-gs8602")
+        fake.is_open = False
+        state = connection.snapshot()
+        self.assertEqual(state["state"], "USB_DISCONNECTED")
+        self.assertEqual(state["moduleIds"], [])
+
     def test_dry_run_makes_no_hardware_claim(self):
         self.assertEqual(main(["--probe", "egs-gs8602", "--dry-run"]), 0)
 
 
 if __name__ == "__main__":
     unittest.main()
+

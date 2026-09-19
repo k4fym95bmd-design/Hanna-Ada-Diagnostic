@@ -36,12 +36,18 @@ class UsbKline:
         self._serial = serial_obj
         self._owns_serial = serial_obj is None
         self._connected = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.verified_modules = {}
 
     def open(self):
-        if self._connected:
+        with self._lock:
+            self._open_locked()
+
+    def _open_locked(self):
+        if self._connected and getattr(self._serial, "is_open", False):
             return
+        if self._connected:
+            self._close_locked()
         if self._serial is None:
             try:
                 import serial
@@ -66,11 +72,28 @@ class UsbKline:
         self.verified_modules.clear()
 
     def close(self):
+        with self._lock:
+            self._close_locked()
+
+    def _close_locked(self):
         self._connected = False
         self.verified_modules.clear()
         if self._serial is not None and self._owns_serial:
             self._serial.close()
             self._serial = None
+
+    def snapshot(self):
+        """Atomic host state only; opening a port never verifies an ECU."""
+        with self._lock:
+            connected = self._connected and bool(getattr(self._serial, "is_open", False))
+            if not connected:
+                self._close_locked()
+            return {
+                "state": "USB_OPEN_NOT_ECU_VERIFIED" if connected else "USB_DISCONNECTED",
+                "moduleIds": sorted(self.verified_modules),
+                "codecs": ["bmw-ds2", "bmw-kwp"],
+                "arbitraryWritesEnabled": False,
+            }
 
     def _read_exact(self, count, deadline):
         chunks = bytearray()
@@ -102,11 +125,12 @@ class UsbKline:
     def probe(self, profile_name):
         if profile_name not in IDENTITY_PROFILES:
             raise UsbKlineError("Only allowlisted read-only BMW ECU identities can be probed")
-        if not self._connected:
-            raise UsbKlineError("Physical USB K-line port not open")
         profile = IDENTITY_PROFILES[profile_name]
         request = encode_identity(profile)
         with self._lock:
+            if not self._connected or not getattr(self._serial, "is_open", False):
+                self._close_locked()
+                raise UsbKlineError("Physical USB K-line port not open")
             self.verified_modules.pop(profile.module_id, None)
             deadline = time.monotonic() + self.timeout
             try:
@@ -170,3 +194,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
