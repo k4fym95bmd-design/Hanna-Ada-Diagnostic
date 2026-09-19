@@ -14,7 +14,9 @@ enum CaristaFieldReport {
         storedDTCs: [String],
         rawLog: [String]
     ) -> String {
-        let ecuVerified = state == "ECU ONLINE"
+        // Match BluetoothOBDManager.ConnectionState.ecu exactly; a BLE/ATI reply
+        // alone must not mark either generic OBD-II or BMW modules verified.
+        let ecuVerified = state == "OBD-II ECU ONLINE"
         let time = ISO8601DateFormatter().string(from: capturedAt)
         let pids = supportedPIDs.sorted().map { String(format: "%02X", $0) }.joined(separator: ", ")
         let dtcs = storedDTCs.joined(separator: ", ")
