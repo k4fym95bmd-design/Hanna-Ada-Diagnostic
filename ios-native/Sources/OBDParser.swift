@@ -15,6 +15,11 @@ enum OBDParserError: LocalizedError, Equatable {
 }
 
 enum OBDParser {
+    enum VehicleBusKind: Equatable {
+        case legacy
+        case can
+    }
+
     static func clean(_ raw: String) -> String {
         raw
             .replacingOccurrences(of: "\0", with: "")
@@ -33,6 +38,20 @@ enum OBDParser {
         if errors.contains(where: upper.contains) {
             throw OBDParserError.adapterError(clean(raw))
         }
+    }
+
+    // ATDPN reports the actually selected vehicle protocol; ATI only identifies the adapter.
+    // A prefix indicates automatic selection. 1-5 are legacy OBD; 6-9 are ISO 15765 CAN.
+    // 0/unknown/J1939/user-defined protocols are not sufficient evidence for Mode 03 decoding.
+    static func vehicleBusKind(fromATDPN raw: String?) -> VehicleBusKind? {
+        guard let raw else { return nil }
+        let cleaned = clean(raw).uppercased()
+            .replacingOccurrences(of: "ATDPN", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let number = cleaned.hasPrefix("A") ? String(cleaned.dropFirst()) : cleaned
+        guard number.count == 1, let value = UInt8(number), (1...9).contains(value) else { return nil }
+        if (1...5).contains(value) { return .legacy }
+        return .can
     }
 
     static func lineBytes(_ line: String) -> [UInt8] {
@@ -90,13 +109,9 @@ enum OBDParser {
                     continue
                 }
                 validFrameCount += 1
-                for offset in 0..<4 {
-                    bitmap[offset] |= bytes[index + 2 + offset]
-                }
+                for offset in 0..<4 { bitmap[offset] |= bytes[index + 2 + offset] }
             }
         }
-
-        // One truncated responder must not be masked by a complete response from another ECU.
         if sawTruncatedPositive { throw OBDParserError.truncatedResponse(clean(raw)) }
         if validFrameCount == 0 { throw OBDParserError.noPositiveResponse(clean(raw)) }
 
@@ -104,9 +119,7 @@ enum OBDParser {
         for bitIndex in 0..<32 {
             let byteIndex = bitIndex / 8
             let bitInByte = 7 - (bitIndex % 8)
-            if bitmap[byteIndex] & (1 << bitInByte) != 0 {
-                result.insert(bitIndex + 1)
-            }
+            if bitmap[byteIndex] & (1 << bitInByte) != 0 { result.insert(bitIndex + 1) }
         }
         return result
     }
@@ -141,9 +154,8 @@ enum OBDParser {
         return Double(Int(p[0]) - 40)
     }
 
-    // Returns the declared payload for an explicitly addressed ISO-TP CAN single frame.
-    // This removes both PCI and bus padding. Multi-frame DTC responses are rejected
-    // rather than interpreted as an incomplete or incorrect single-frame result.
+    // Explicitly addressed ISO-TP CAN single frame. The PCI length removes bus padding.
+    // Unsupported multi-frame replies must fail rather than being mistaken for zero DTCs.
     private static func canSingleFrame(_ line: String, raw: String) throws -> [UInt8]? {
         let tokens = line.split { $0.isWhitespace }.map(String.init)
         guard tokens.count >= 3 else { return nil }
@@ -156,15 +168,14 @@ enum OBDParser {
             throw OBDParserError.adapterError("ISO-TP multi-frame/unsupported CAN payload; RAW: \(raw)")
         }
         let declared = Int(pci & 0x0F)
-        guard declared > 0, bytes.count >= declared + 1 else {
-            throw OBDParserError.truncatedResponse(raw)
-        }
+        guard declared > 0, bytes.count >= declared + 1 else { throw OBDParserError.truncatedResponse(raw) }
         return Array(bytes[1...declared])
     }
 
-    static func dtcs(from raw: String, responseService: UInt8 = 0x43) throws -> [String] {
+    static func dtcs(from raw: String, responseService: UInt8 = 0x43, protocolNumber: String? = nil) throws -> [String] {
         try validateNoAdapterError(raw)
         let cleaned = clean(raw)
+        let bus = vehicleBusKind(fromATDPN: protocolNumber)
         var codes = Set<String>()
         var sawPositive = false
 
@@ -176,27 +187,28 @@ enum OBDParser {
             let payload = Array(bytes[(marker + 1)...])
             let dtcBytes: [UInt8]
 
-            if framed != nil {
-                // ISO 15765-4: 43, count, two bytes for each DTC.
-                guard let count = payload.first, payload.count >= 1 + Int(count) * 2 else {
-                    throw OBDParserError.truncatedResponse(cleaned)
-                }
+            if framed != nil && bus == .legacy {
+                throw OBDParserError.adapterError("CAN frame contradicts verified legacy protocol; RAW: \(cleaned)")
+            }
+            if framed == nil && bus == nil {
+                throw OBDParserError.adapterError("ATDPN vehicle protocol unknown: unframed DTC is ambiguous; RAW: \(cleaned)")
+            }
+
+            if framed != nil || bus == .can {
+                // ISO 15765-4: service 43, count, exactly two bytes per reported DTC.
+                // Only zero-valued trailing pad bytes are allowed.
+                guard let count = payload.first, count <= 127 else { throw OBDParserError.truncatedResponse(cleaned) }
                 let end = 1 + Int(count) * 2
-                guard payload[end...].allSatisfy({ $0 == 0 }) else {
+                guard payload.count >= end, payload[end...].allSatisfy({ $0 == 0 }) else {
                     throw OBDParserError.truncatedResponse(cleaned)
                 }
                 dtcBytes = Array(payload[1..<end])
-            } else if payload.count >= 2 && payload.count.isMultiple(of: 2) {
-                // Legacy ISO 9141/KWP/J1850: no count byte; padded zero DTC pairs.
-                dtcBytes = payload
-            } else if payload.count >= 3, let count = payload.first, count > 0,
-                      payload.count >= 1 + Int(count) * 2,
-                      payload[(1 + Int(count) * 2)...].allSatisfy({ $0 == 0 }) {
-                // ELM with headers off can produce an unframed CAN count + DTC pairs.
-                // Never accept an unframed count-only zero reply as confirmed no faults.
-                dtcBytes = Array(payload[1..<(1 + Int(count) * 2)])
             } else {
-                throw OBDParserError.truncatedResponse(cleaned)
+                // ISO 9141, ISO 14230 and J1850: no CAN DTC-count byte.
+                guard payload.count >= 2, payload.count.isMultiple(of: 2) else {
+                    throw OBDParserError.truncatedResponse(cleaned)
+                }
+                dtcBytes = payload
             }
 
             for index in stride(from: 0, to: dtcBytes.count, by: 2) {

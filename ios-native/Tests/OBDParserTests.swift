@@ -9,15 +9,13 @@ final class OBDParserTests: XCTestCase {
     }
 
     func testMultiplePIDBitmapRespondersAreUnioned() throws {
-        let raw = "41 00 80 00 00 00\r41 00 00 00 00 01\r>"
-        let pids = try OBDParser.supportedPIDs01to20(from: raw)
+        let pids = try OBDParser.supportedPIDs01to20(from: "41 00 80 00 00 00\r41 00 00 00 00 01\r>")
         XCTAssertEqual(pids, Set([1, 32]))
     }
 
     func testEchoHeadersAndMultipleResponders() throws {
         let raw = "0100\rSEARCHING...\r7E8 06 41 00 80 00 00 00\r7E9 06 41 00 00 00 00 01\r>"
-        let pids = try OBDParser.supportedPIDs01to20(from: raw)
-        XCTAssertEqual(pids, Set([1, 32]))
+        XCTAssertEqual(try OBDParser.supportedPIDs01to20(from: raw), Set([1, 32]))
     }
 
     func testTruncatedPositiveResponseIsRejected() {
@@ -25,11 +23,8 @@ final class OBDParserTests: XCTestCase {
     }
 
     func testTruncatedSecondECUCannotBeHiddenByValidFirstECU() {
-        let raw = "41 00 BE 3E B8 13\r41 00 80 00\r>"
-        XCTAssertThrowsError(try OBDParser.supportedPIDs01to20(from: raw)) { error in
-            guard case OBDParserError.truncatedResponse = error else {
-                return XCTFail("Expected incomplete ECU response, got \(error)")
-            }
+        XCTAssertThrowsError(try OBDParser.supportedPIDs01to20(from: "41 00 BE 3E B8 13\r41 00 80 00\r>")) { error in
+            guard case OBDParserError.truncatedResponse = error else { return XCTFail("Expected truncation: \(error)") }
         }
     }
 
@@ -47,24 +42,60 @@ final class OBDParserTests: XCTestCase {
         XCTAssertNil(OBDParser.misfireCylinder(from: "P0310"))
     }
 
-    func testValidLegacyMode03ReportsMisfireCylinderEight() throws {
-        XCTAssertEqual(try OBDParser.dtcs(from: "43 03 08 00 00\r>"), ["P0308"])
+    func testATDPNClassifiesOnlyActualKnownProtocols() {
+        for raw in ["3", "A3\r>", "ATDPN\rA4\r>", "1", "5"] {
+            XCTAssertEqual(OBDParser.vehicleBusKind(fromATDPN: raw), .legacy)
+        }
+        for raw in ["6", "A6\r>", "ATDPN\rA9\r>", "7", "8"] {
+            XCTAssertEqual(OBDParser.vehicleBusKind(fromATDPN: raw), .can)
+        }
+        for raw in ["", "0", "A0", "A", "A3GARBAGE", "ELM327 v2.2", "ISO 9141-2", "?", "B"] {
+            XCTAssertNil(OBDParser.vehicleBusKind(fromATDPN: raw))
+        }
+        XCTAssertNil(OBDParser.vehicleBusKind(fromATDPN: nil))
     }
 
-    func testValidLegacyMode03ZeroDTCs() throws {
-        XCTAssertEqual(try OBDParser.dtcs(from: "43 00 00 00 00\r>"), [])
+    func testVerifiedLegacyMode03ReportsMisfireCylinderEight() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 03 08 00 00\r>", protocolNumber: "A3"), ["P0308"])
     }
 
-    func testCANMode03UnframedCountIsNotDecodedAsDTC() throws {
-        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08\r>"), ["P0308"])
+    func testVerifiedLegacyMode03ZeroDTCs() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 00 00 00 00\r>", protocolNumber: "3"), [])
     }
 
-    func testCANMode03UnframedCountAndZeroPadding() throws {
-        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08 00 00\r>"), ["P0308"])
+    func testVerifiedCANUnframedCountIsNotDecodedAsDTC() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08\r>", protocolNumber: "A6"), ["P0308"])
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 01 03 08 00 00\r>", protocolNumber: "6"), ["P0308"])
+    }
+
+    func testLegacyAndCANUseDifferentDecodingForAmbiguousSameLengthData() throws {
+        let legacy = "43 01 33 00 00 00 00\r>"
+        let can = "43 01 03 08 00 00 00\r>"
+        XCTAssertEqual(try OBDParser.dtcs(from: legacy, protocolNumber: "A3"), ["P0133"])
+        XCTAssertEqual(try OBDParser.dtcs(from: can, protocolNumber: "A6"), ["P0308"])
+        XCTAssertThrowsError(try OBDParser.dtcs(from: legacy))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: can))
+    }
+
+    func testVerifiedCANUnframedZeroCountIsConfirmed() throws {
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 00\r>", protocolNumber: "6"), [])
+        XCTAssertEqual(try OBDParser.dtcs(from: "43 00 00 00\r>", protocolNumber: "A7"), [])
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 00\r>", protocolNumber: "3"))
+    }
+
+    func testUnknownProtocolNeverProducesFalseNoFaults() {
+        for raw in ["43 00", "43 00 00", "43 03 08 00 00", "43 01 03 08"] {
+            XCTAssertThrowsError(try OBDParser.dtcs(from: raw + "\r>"))
+        }
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 00\r>", protocolNumber: "A0"))
     }
 
     func testCANMode03FramedSingleCodeIgnoresBusPadding() throws {
         XCTAssertEqual(try OBDParser.dtcs(from: "7E8 04 43 01 03 08 AA AA AA\r>"), ["P0308"])
+    }
+
+    func testCANFrameContradictingVerifiedLegacyProtocolFails() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "7E8 04 43 01 03 08 00 00 00\r>", protocolNumber: "3"))
     }
 
     func testCANMode03FramedZeroCountIsConfirmed() throws {
@@ -76,6 +107,10 @@ final class OBDParserTests: XCTestCase {
         XCTAssertEqual(try OBDParser.dtcs(from: raw), ["P0133", "P0308"])
     }
 
+    func testCANMode03RejectsMalformedSecondResponder() {
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 01 03 08\r43 02 01 33\r>", protocolNumber: "6"))
+    }
+
     func testCANMode03TruncatedSingleFrameIsRejected() {
         XCTAssertThrowsError(try OBDParser.dtcs(from: "7E8 04 43 01 03\r>"))
     }
@@ -85,24 +120,15 @@ final class OBDParserTests: XCTestCase {
     }
 
     func testMode03WithoutDTCBytesIsNotReportedAsNoFaults() {
-        XCTAssertThrowsError(try OBDParser.dtcs(from: "43\r>")) { error in
-            guard case OBDParserError.truncatedResponse = error else {
-                return XCTFail("Expected incomplete ECU response, got \(error)")
-            }
-        }
-    }
-
-    func testMode03UnframedCountOnlyIsNotReportedAsNoFaults() {
-        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 00\r>"))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43\r>", protocolNumber: "3"))
     }
 
     func testMode03WithOrphanedDTCByteIsRejected() {
-        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03\r>"))
-        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03 08 00\r>"))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03\r>", protocolNumber: "3"))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 03 08 00\r>", protocolNumber: "3"))
     }
 
     func testMode03RejectsMalformedSecondResponderRatherThanClearingFaults() {
-        let raw = "43 00 00\r43 03\r>"
-        XCTAssertThrowsError(try OBDParser.dtcs(from: raw))
+        XCTAssertThrowsError(try OBDParser.dtcs(from: "43 00 00\r43 03\r>", protocolNumber: "3"))
     }
 }
