@@ -23,6 +23,26 @@ test('triage finds the first unverified stage without inventing connection succe
   assert.equal(diagnoseConnection({ ...base, transportError: 'timeout' }).code, 'TRANSPORT_ERROR');
 });
 
+test('standalone ATI ERROR never verifies the adapter despite valid later replies', () => {
+  for (const adapterReply of ['ERROR', 'ATI\rERROR\r>', 'ATI\r  error  \r>']) {
+    const diagnosis = diagnoseConnection({ ...base, adapterReply });
+    assert.equal(diagnosis.code, 'ADAPTER_UNVERIFIED');
+    assert.equal(diagnosis.evidence.genericECUVerified, undefined);
+  }
+});
+
+test('ATI ERROR alongside an identity rejects the whole response in either order', () => {
+  for (const adapterReply of [
+    'ATI\rELM327 v2.2\rERROR\r>',
+    'ATI\rERROR\rELM327 v2.2\r>',
+    'ATI\nELM327 v2.2\n error \n>',
+  ]) {
+    const diagnosis = diagnoseConnection({ ...base, adapterReply });
+    assert.equal(diagnosis.code, 'ADAPTER_UNVERIFIED');
+    assert.equal(diagnosis.evidence.genericECUVerified, undefined);
+  }
+});
+
 test('only real, parsed 0100 and identified protocol verify generic ECU', () => {
   const unknown = diagnoseConnection({ ...base, protocolReply: null });
   assert.equal(unknown.code, 'PROTOCOL_UNVERIFIED');

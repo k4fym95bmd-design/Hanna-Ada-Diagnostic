@@ -11,7 +11,10 @@ const result = (stage, code, explanation, nextStep, evidence = {}) => Object.fre
 function hasAdapterIdentity(raw) {
   if (typeof raw !== 'string' ||
       /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(raw.toUpperCase())) return false;
-  return cleanELM(raw).some(line => !/^ATI$/i.test(line) && !/^OK$/i.test(line) &&
+  const lines = cleanELM(raw);
+  // A failure anywhere in this reply invalidates even a plausible ATI identity.
+  if (lines.some(line => /^ERROR$/i.test(line))) return false;
+  return lines.some(line => !/^ATI$/i.test(line) && !/^OK$/i.test(line) &&
     line.length >= 3 && /[a-z0-9]/i.test(line));
 }
 
