@@ -101,16 +101,14 @@ export function decodeStoredDTCs(raw, protocol = 'unknown') {
     const frame = extractLine(line, evidence);
     if (!frame) continue;
     const { bytes, framed } = frame;
-    // Discard unrelated command echo/other services, but fail on DTC-shaped
-    // malformed messages rather than counting them as an empty fault list.
-    if (!bytes.includes(0x43)) continue;
-    const marker = bytes.indexOf(0x43);
-    if (framed && marker !== 0) throw new DiagnosticError('INVALID_FRAME', 'CAN response service is not at payload start', evidence);
+    // A service marker embedded inside another PID's data is not a positive
+    // DTC response. Require 43 at the start of the actual frame payload.
+    if (bytes[0] !== 0x43) continue;
     if (framed && protocol === 'legacy') throw new DiagnosticError('PROTOCOL_MISMATCH', 'CAN frame conflicts with detected legacy vehicle protocol', evidence);
     if (!framed && protocol === 'unknown') throw new DiagnosticError('PROTOCOL_REQUIRED', 'Unframed DTC data requires verified ATDP or ATDPN protocol', evidence);
     responders++;
     usedCANFrame ||= framed;
-    const payload = bytes.slice(marker + 1);
+    const payload = bytes.slice(1);
     let pairs;
     if (framed || protocol === 'can') {
       if (!payload.length) throw new DiagnosticError('TRUNCATED', 'Missing CAN DTC count', evidence);
@@ -148,10 +146,10 @@ export function decodeSupportedPIDs(raw) {
     const frame = extractLine(line, evidence);
     if (!frame) continue;
     const bytes = frame.bytes;
-    const marker = bytes.findIndex((value, index) => value === 0x41 && bytes[index + 1] === 0x00);
-    if (marker < 0) continue;
-    if (bytes.length < marker + 6) throw new DiagnosticError('TRUNCATED', 'Incomplete Mode 01 PID bitmap', evidence);
-    for (let i = 0; i < 4; i++) bitmap[i] |= bytes[marker + 2 + i];
+    // A 41 00 sequence inside another PID's data is not a PID 0100 response.
+    if (bytes[0] !== 0x41 || bytes[1] !== 0x00) continue;
+    if (bytes.length < 6) throw new DiagnosticError('TRUNCATED', 'Incomplete Mode 01 PID bitmap', evidence);
+    for (let i = 0; i < 4; i++) bitmap[i] |= bytes[2 + i];
     responders++;
   }
   if (!responders) throw new DiagnosticError('NO_ECU_RESPONSE', 'No verified Mode 01 PID bitmap', evidence);
