@@ -177,16 +177,20 @@ export function reduceDiagnosticSession(session, event) {
   }
   if (event.type === 'ADAPTER_IDENTIFIED' && session.stage === 'BLE' &&
       typeof event.identity === 'string' && event.identity.trim() &&
+      !/^(?:ATI|OK|SEARCHING\.{0,3})$/i.test(event.identity.trim()) &&
       !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(event.identity.toUpperCase())) {
     return Object.freeze({ ...session, stage: 'ADAPTER', adapterIdentity: event.identity.trim() });
   }
   if (event.type === 'PID_RESPONSE' && ['ADAPTER', 'ECU'].includes(session.stage)) {
     try {
       const result = decodeSupportedPIDs(event.raw);
-      return Object.freeze({ ...session, stage: 'ECU', pids: result.pids, lastErrorCode: null });
+      // A fresh ECU probe invalidates protocol/DTC evidence from any earlier
+      // probe even when the BLE link and epoch have not changed.
+      return Object.freeze({ ...session, stage: 'ECU', pids: result.pids,
+        protocol: 'unknown', dtcs: null, lastErrorCode: null });
     } catch (error) {
       return Object.freeze({ ...session, stage: 'ADAPTER', pids: null, dtcs: null,
-        lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
+        protocol: 'unknown', lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
     }
   }
   if (event.type === 'PROTOCOL_RESPONSE' && session.stage === 'ECU') {
