@@ -24,9 +24,17 @@ export function cleanELM(raw) {
 // ATDPN identifiers 1-5 are legacy, 6-9 are ISO 15765-4 CAN; 0/A/B/C
 // are not accepted as verified generic OBD transport identifiers here.
 export function classifyVehicleProtocol(raw) {
-  const text = cleanELM(raw).filter(line => !/^ATDPN?$/i.test(line)).join(' ').toUpperCase();
-  if (/\bISO[ -]?15765(?:-4)?\b|\bCAN\b/.test(text)) return 'can';
-  if (/\bISO[ -]?9141\b|\bISO[ -]?14230\b|\bKWP\b|\bJ1850\b/.test(text)) return 'legacy';
+  const lines = cleanELM(raw).filter(line => !/^ATDPN?$/i.test(line));
+  // A reply with multiple/conflicting observations or an ELM failure cannot
+  // verify the vehicle bus, even when one line contains a familiar CAN name.
+  if (lines.length !== 1) return 'unknown';
+  const text = lines[0].toUpperCase();
+  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(text)) return 'unknown';
+  const can = /\bISO[ -]?15765(?:-4)?\b|\bCAN\b/.test(text);
+  const legacy = /\bISO[ -]?9141\b|\bISO[ -]?14230\b|\bKWP\b|\bJ1850\b/.test(text);
+  if (can && legacy) return 'unknown';
+  if (can) return 'can';
+  if (legacy) return 'legacy';
   const numeric = text.match(/^(?:A)?([0-9A-C])$/);
   if (numeric) {
     if ('12345'.includes(numeric[1])) return 'legacy';
@@ -36,7 +44,7 @@ export function classifyVehicleProtocol(raw) {
 }
 
 function assertAdapterOK(raw) {
-  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(raw.toUpperCase())) {
+  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(raw.toUpperCase())) {
     throw new DiagnosticError('ADAPTER_ERROR', 'Adapter or ECU reported an error', raw);
   }
 }
@@ -168,7 +176,8 @@ export function reduceDiagnosticSession(session, event) {
     return Object.freeze({ ...session, stage: 'BLE' });
   }
   if (event.type === 'ADAPTER_IDENTIFIED' && session.stage === 'BLE' &&
-      typeof event.identity === 'string' && event.identity.trim()) {
+      typeof event.identity === 'string' && event.identity.trim() &&
+      !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(event.identity.toUpperCase())) {
     return Object.freeze({ ...session, stage: 'ADAPTER', adapterIdentity: event.identity.trim() });
   }
   if (event.type === 'PID_RESPONSE' && ['ADAPTER', 'ECU'].includes(session.stage)) {
