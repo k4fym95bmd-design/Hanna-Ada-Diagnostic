@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -29,13 +30,16 @@ import java.util.Map;
 
 /**
  * ONLY an off-vehicle, offline USB capability test. It has no Internet permission,
- * port opening, transfers, ELM/BMW commands or diagnostic functionality.
+ * data transfers, ELM/BMW commands, port configuration or diagnostic functionality.
+ * USB access test opens and immediately closes an OS handle; it never claims an interface.
  */
 public final class MainActivity extends Activity {
     private static final String ACTION_PERMISSION = "app.hannaada.usbprobe.USB_PERMISSION";
     private UsbManager usbManager;
     private LinearLayout content;
     private boolean receiverRegistered;
+    private String testedDeviceName;
+    private String accessResult;
 
     private final BroadcastReceiver usbEvents = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -44,7 +48,8 @@ public final class MainActivity extends Activity {
             if (ACTION_PERMISSION.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                // A broadcast never proves access: re-read actual system state.
+                // Detach/attach invalidates the previous physical-device test.
+                if (!ACTION_PERMISSION.equals(action)) resetAccessTest();
                 render();
             }
         }
@@ -81,6 +86,11 @@ public final class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    private void resetAccessTest() {
+        testedDeviceName = null;
+        accessResult = null;
+    }
+
     private int dp(int value) {
         return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
@@ -106,6 +116,11 @@ public final class MainActivity extends Activity {
         return String.format(Locale.US, "%04X:%04X", device.getVendorId(), device.getProductId());
     }
 
+    private static boolean isObservedFtdiId(UsbDevice device) {
+        // A USB descriptor alone does NOT prove that the IC is genuine or that serial works.
+        return device != null && device.getVendorId() == 0x0403 && device.getProductId() == 0x6001;
+    }
+
     private boolean hostFeature() {
         return getPackageManager().hasSystemFeature(PackageManager.FEATURE_USB_HOST);
     }
@@ -116,24 +131,35 @@ public final class MainActivity extends Activity {
 
     private List<String> sortedKeys(Map<String, UsbDevice> devices) {
         List<String> keys = new ArrayList<>(devices.keySet());
-        // Names are ONLY used internally for stable ordering; never displayed or exported.
+        // Names are only used internally for stable ordering; never displayed or exported.
         Collections.sort(keys);
         return keys;
+    }
+
+    private boolean matchesTestedDevice(UsbDevice device) {
+        return device != null && accessResult != null && testedDeviceName != null
+                && testedDeviceName.equals(device.getDeviceName())
+                && usbManager != null && usbManager.hasPermission(device)
+                && isObservedFtdiId(device);
     }
 
     private String currentReport() {
         Map<String, UsbDevice> devices = currentDevices();
         List<UsbReport.Device> snapshot = new ArrayList<>();
+        boolean matchingDevice = false;
         if (devices != null) {
             for (String key : sortedKeys(devices)) {
                 UsbDevice device = devices.get(key);
                 if (device != null) {
                     snapshot.add(new UsbReport.Device(device.getVendorId(), device.getProductId(),
                             device.getInterfaceCount(), usbManager.hasPermission(device)));
+                    if (matchesTestedDevice(device)) matchingDevice = true;
                 }
             }
         }
-        return UsbReport.build(Build.VERSION.SDK_INT, hostFeature(), devices != null, snapshot);
+        String report = UsbReport.build(Build.VERSION.SDK_INT, hostFeature(), devices != null, snapshot);
+        return report + "Test otwarcia uchwytu USB (bez transmisji): "
+                + (matchingDevice ? accessResult : "NIEPRZEPROWADZONY / NIEAKTUALNY") + "\n";
     }
 
     private void copyReport() {
@@ -142,7 +168,7 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Schowek niedostępny", Toast.LENGTH_SHORT).show();
             return;
         }
-        // Fresh state at tap time; report accepts no USB paths, serials or ECU data.
+        // No USB paths, serial numbers, VIN or ECU data ever enter the report.
         clipboard.setPrimaryClip(ClipData.newPlainText("Raport USB Hanna Ada", currentReport()));
         Toast.makeText(this, "Raport skopiowany — wklej go do rozmowy", Toast.LENGTH_LONG).show();
     }
@@ -169,6 +195,7 @@ public final class MainActivity extends Activity {
             label("Przetestuj poza autem posiadaną przejściówkę micro-USB OTG i zwykły pendrive; "
                     + "następnie wybierz «Odśwież wynik USB». Nie kupuj kabla na podstawie tego ekranu.",
                     14, Color.LTGRAY);
+            resetAccessTest();
         } else {
             label("2. Wykryte urządzenia: " + devices.size()
                     + " — system widzi sprzęt USB.", 17, Color.rgb(155, 227, 190));
@@ -184,21 +211,60 @@ public final class MainActivity extends Activity {
                 label("Urządzenie " + ordinal + " · VID:PID " + usbId(device)
                         + " · interfejsy " + device.getInterfaceCount(),
                         16, Color.rgb(180, 209, 245));
+                if (isObservedFtdiId(device)) {
+                    label("Identyfikator FTDI 0403:6001 (typ USB-Serial). Oryginalność układu, sterownik i K-line NIEPOTWIERDZONE.",
+                            14, Color.rgb(155, 227, 190));
+                }
                 boolean permitted = usbManager.hasPermission(device);
                 label("3. Zgoda Androida: " + (permitted ? "UDZIELONA" : "BRAK"),
                         14, permitted ? Color.rgb(155, 227, 190) : Color.LTGRAY);
                 if (!permitted) {
                     action("Poproś o zgodę: urządzenie " + ordinal,
                             view -> requestUsbPermission(device));
+                } else if (isObservedFtdiId(device)) {
+                    action("Test dostępu do kabla USB (BEZ transmisji)",
+                            view -> testUsbAccess(device));
+                    if (matchesTestedDevice(device)) {
+                        label("4. Uchwyt USB: " + accessResult, 15,
+                                "UDANY".equals(accessResult) ? Color.rgb(155, 227, 190)
+                                        : Color.rgb(255, 167, 122));
+                    }
                 }
             }
-            label("Wykrycie USB i zgoda NIE potwierdzają sterownika, kabla K-line ani połączenia z BMW.",
+            label("Wykrycie USB, zgoda i otwarcie uchwytu NIE potwierdzają sterownika szeregowego ani połączenia z BMW.",
                     13, Color.LTGRAY);
         }
         action("Kopiuj bezpieczny raport do ChatGPT", view -> copyReport());
-        label("Raport zawiera tylko wersję Androida, deklarację USB Host, VID:PID, liczbę "
-                + "interfejsów i status zgody. Nie zbiera numerów seryjnych ani danych pojazdu. "
-                + "Program nie otwiera portu i niczego nie wysyła.", 13, Color.LTGRAY);
+        label("Raport: wersja Androida, USB Host, VID:PID, liczba interfejsów, zgoda i wynik dostępu. "
+                + "Bez numerów seryjnych i danych pojazdu. Program nie konfiguruje portu, "
+                + "nie odbiera ani nie wysyła danych.", 13, Color.LTGRAY);
+    }
+
+    private void testUsbAccess(UsbDevice candidate) {
+        // Require a fresh, permissioned FTDI-descriptor match. Never run against other USB devices.
+        Map<String, UsbDevice> devices = currentDevices();
+        UsbDevice current = devices == null || candidate == null ? null
+                : devices.get(candidate.getDeviceName());
+        resetAccessTest();
+        if (usbManager == null || current == null || !isObservedFtdiId(current)
+                || !usbManager.hasPermission(current)) {
+            render();
+            return;
+        }
+        UsbDeviceConnection connection = null;
+        String result = "NIEUDANY";
+        try {
+            connection = usbManager.openDevice(current);
+            if (connection != null) result = "UDANY";
+        } catch (RuntimeException ignored) {
+            // Never export exception content: vendor implementations may include USB paths.
+            result = "NIEUDANY";
+        } finally {
+            if (connection != null) connection.close();
+        }
+        testedDeviceName = current.getDeviceName(); // Internal only; not copied or displayed.
+        accessResult = result;
+        render();
     }
 
     private void requestUsbPermission(UsbDevice candidate) {
@@ -215,7 +281,6 @@ public final class MainActivity extends Activity {
         }
         Intent scoped = new Intent(ACTION_PERMISSION).setPackage(getPackageName());
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        // Android 12+ USB framework must be able to populate permission extras.
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
         PendingIntent response = PendingIntent.getBroadcast(this, 0, scoped, flags);
         usbManager.requestPermission(current, response);
