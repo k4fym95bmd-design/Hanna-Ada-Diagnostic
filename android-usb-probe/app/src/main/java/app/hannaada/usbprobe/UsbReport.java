@@ -3,7 +3,7 @@ package app.hannaada.usbprobe;
 import java.util.List;
 import java.util.Locale;
 
-/** Pure, offline evidence formatter. Does not accept serial numbers, USB paths or ECU data. */
+/** Pure offline evidence formatter. Does not accept serial numbers, USB paths or ECU data. */
 public final class UsbReport {
     private UsbReport() { }
 
@@ -30,16 +30,18 @@ public final class UsbReport {
                 .append(hostFeature ? "TAK" : "NIE").append('\n');
         out.append("Odczyt listy USB: ")
                 .append(enumerationAvailable ? "DOSTĘPNY" : "NIEDOSTĘPNY").append('\n');
-        int count = enumerationAvailable && devices != null ? devices.size() : 0;
-        out.append("Wykryte urządzenia: ").append(count).append('\n');
+
+        int count = 0;
+        if (enumerationAvailable && devices != null) {
+            for (Device device : devices) {
+                if (UsbReadiness.valid(device)) count++;
+            }
+        }
+        out.append("Wykryte urządzenia z poprawnymi danymi: ").append(count).append('\n');
         if (enumerationAvailable && devices != null) {
             int ordinal = 0;
             for (Device device : devices) {
-                if (device == null || device.vendorId < 0 || device.vendorId > 0xffff
-                        || device.productId < 0 || device.productId > 0xffff
-                        || device.interfaceCount < 0) {
-                    continue;
-                }
+                if (!UsbReadiness.valid(device)) continue;
                 ++ordinal;
                 out.append("Urządzenie ").append(ordinal).append(": VID:PID ")
                         .append(String.format(Locale.US, "%04X:%04X", device.vendorId, device.productId))
@@ -48,6 +50,8 @@ public final class UsbReport {
                         .append(device.permissionGranted ? "TAK" : "NIE").append('\n');
             }
         }
+        out.append("\n").append(UsbReadiness.nextStep(hostFeature, enumerationAvailable, devices)).append('\n');
+        out.append("USB Host/OTG sprzętowo: NIEPOTWIERDZONE NA PODSTAWIE SAMEJ DEKLARACJI\n");
         out.append("Sterownik USB-Serial: NIEPOTWIERDZONY\n");
         out.append("Połączenie z BMW: NIEPOTWIERDZONE\n");
         out.append("Komendy diagnostyczne: WYŁĄCZONE\n");
