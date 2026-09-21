@@ -4,12 +4,13 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- No INTERNET, Bluetooth scan, location, ECU or vehicle-write permission. -->
+    <!-- No INTERNET, Bluetooth scan, location or vehicle-write permission. -->
     <application
         android:label="Hanna &amp; Ada · Połączenia"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".ConnectionsActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
