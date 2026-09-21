@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "npm run test:smoke && npm run test:http && npm run test:gateway && npm run test:diagnostic-core && npm run test:connection-doctor && npm run test:terminal-policy && npm run test:web-runtime",
+    "test": "npm run test:smoke && npm run test:http && npm run test:gateway && npm run test:diagnostic-core && npm run test:connection-doctor && npm run test:terminal-policy && npm run test:web-runtime && npm run test:tablet-usb",
     "test:smoke": "node test/smoke.mjs",
     "test:http": "node --test test/http-server.mjs",
     "test:gateway": "node --test test/gateway-port.mjs",
     "test:diagnostic-core": "node --test test/diagnostic-core.mjs test/protocol-evidence.mjs test/reprobe-session.mjs test/service-marker.mjs",
     "test:connection-doctor": "node --test test/connection-doctor.mjs",
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
-    "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs"
+    "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
+    "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs"
   },
   "engines": {
     "node": ">=20"
