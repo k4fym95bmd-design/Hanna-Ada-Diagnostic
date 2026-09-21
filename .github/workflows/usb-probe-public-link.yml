@@ -1,0 +1,56 @@
+# One-off handoff of the owner's already-built, read-only USB inspection APK.
+# No repository contents, logs, user data or credentials are published.
+name: One-time Android 5 USB test public download
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/usb-probe-public-link.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  share-verified-usb-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact successful v0.2 build from private Actions artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p apk
+          gh run download 35583500629 --repo "$GITHUB_REPOSITORY" --name hanna-ada-android5-usb-probe-debug --dir apk
+          test -s apk/app-debug.apk
+          echo '2ae182d7e4e403951c46ff588409b89ec9a7474842bc7b752a3c5c23567e038d  apk/app-debug.apk' | sha256sum --check
+          cp apk/app-debug.apk HannaAda-USB-Test-v0.2.apk
+      - name: Upload only the verified APK to public temporary download and verify bytes
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --retry 2 --max-time 75 \
+            -F 'files=@HannaAda-USB-Test-v0.2.apk;type=application/vnd.android.package-archive' \
+            -F expiryHours=48 \
+            'https://tempfile.org/api/upload/local')"
+          printf '%s' "$response" > "$RUNNER_TEMP/upload.json"
+          url="$(python3 - "$RUNNER_TEMP/upload.json" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          if d.get('success') is not True or len(d.get('files', []))!=1:
+              raise SystemExit('Upload did not succeed: '+str(d.get('error','unexpected response')))
+          f=d['files'][0]
+          if f.get('size') != 15653:
+              raise SystemExit('Size mismatch in upload response')
+          u=f.get('url', '').rstrip('/')
+          if not u.startswith('https://tempfile.org/') or '/' not in u.removeprefix('https://tempfile.org/'):
+              raise SystemExit('Unexpected upload URL')
+          print(u+'/download')
+          PY
+          )"
+          curl --fail --silent --show-error --location --retry 2 --max-time 75 "$url" -o "$RUNNER_TEMP/verified.apk"
+          cmp HannaAda-USB-Test-v0.2.apk "$RUNNER_TEMP/verified.apk"
+          printf 'PUBLIC_APK_DOWNLOAD=%s\n' "$url"
+          { echo '### Public APK link (48 h, no login)'; echo; echo "$url"; echo; echo 'SHA-256: `2ae182d7e4e403951c46ff588409b89ec9a7474842bc7b752a3c5c23567e038d`'; echo 'Link is verified by downloading and comparing exact bytes.'; } >> "$GITHUB_STEP_SUMMARY"
