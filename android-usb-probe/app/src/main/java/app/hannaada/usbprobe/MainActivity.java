@@ -21,6 +21,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.hoho.android.usbserial.driver.UsbSerialDriver;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -28,14 +30,16 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * ONLY an off-vehicle, offline USB capability test. It has no Internet permission,
- * port opening, transfers, ELM/BMW commands or diagnostic functionality.
+ * OFF-VEHICLE USB and USB-serial link test. No network, ECU traffic or car diagnosis.
+ * A successful USB port open does NOT imply working BMW diagnostics.
  */
 public final class MainActivity extends Activity {
     private static final String ACTION_PERMISSION = "app.hannaada.usbprobe.USB_PERMISSION";
     private UsbManager usbManager;
     private LinearLayout content;
     private boolean receiverRegistered;
+    private volatile boolean portTestRunning;
+    private String lastPortResult;
 
     private final BroadcastReceiver usbEvents = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -44,7 +48,7 @@ public final class MainActivity extends Activity {
             if (ACTION_PERMISSION.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                // A broadcast never proves access: re-read actual system state.
+                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) lastPortResult = null;
                 render();
             }
         }
@@ -116,7 +120,7 @@ public final class MainActivity extends Activity {
 
     private List<String> sortedKeys(Map<String, UsbDevice> devices) {
         List<String> keys = new ArrayList<>(devices.keySet());
-        // Names are ONLY used internally for stable ordering; never displayed or exported.
+        // USB paths used internally for stable ordering; never exported.
         Collections.sort(keys);
         return keys;
     }
@@ -133,6 +137,7 @@ public final class MainActivity extends Activity {
                 }
             }
         }
+        // Deliberately do not export model, serial number, device path or error strings.
         return UsbReport.build(Build.VERSION.SDK_INT, hostFeature(), devices != null, snapshot);
     }
 
@@ -142,63 +147,104 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Schowek niedostępny", Toast.LENGTH_SHORT).show();
             return;
         }
-        // Fresh state at tap time; report accepts no USB paths, serials or ECU data.
         clipboard.setPrimaryClip(ClipData.newPlainText("Raport USB Hanna Ada", currentReport()));
         Toast.makeText(this, "Raport skopiowany — wklej go do rozmowy", Toast.LENGTH_LONG).show();
     }
 
     private void render() {
         content.removeAllViews();
-        label("HANNA & ADA  /  TEST USB", 22, Color.rgb(100, 168, 255));
-        label("TYLKO POZA SAMOCHODEM · BEZ POLECEŃ DO ECU", 13, Color.rgb(255, 145, 145));
-        label("Android API: " + Build.VERSION.SDK_INT, 16, Color.WHITE);
+        label("HANNA & ADA / FIRE USB-SERIAL v0.4", 22, Color.rgb(100, 168, 255));
+        label("TEST WYŁĄCZNIE POZA AUTEM · ZERO POLECEŃ DO ECU", 13,
+                Color.rgb(255, 145, 145));
+        label("Tablet: " + Build.MANUFACTURER + " " + Build.MODEL + " · Android API "
+                + Build.VERSION.SDK_INT, 16, Color.WHITE);
 
         boolean host = hostFeature();
-        label("1. USB Host (deklaracja Androida): " + (host ? "TAK" : "NIE"), 17,
+        label("1. USB Host Androida: " + (host ? "TAK" : "NIE"), 17,
                 host ? Color.rgb(155, 227, 190) : Color.rgb(255, 167, 122));
-        label("Sama deklaracja nie dowodzi, że port micro-USB obsługuje OTG.", 13, Color.LTGRAY);
+        label("USB-C / micro-USB i deklaracja Host nie dowodzą, że konkretny adapter OTG działa.",
+                13, Color.LTGRAY);
         action("Odśwież wynik USB", view -> render());
 
         Map<String, UsbDevice> devices = currentDevices();
         if (devices == null) {
-            label("2. Lista USB niedostępna. Nie ma potwierdzenia trybu host.",
-                    16, Color.rgb(255, 167, 122));
+            label("2. Lista USB niedostępna. Brak potwierdzenia OTG.", 16,
+                    Color.rgb(255, 167, 122));
         } else if (devices.isEmpty()) {
-            label("2. Wykryte urządzenia: 0 — OTG nadal niepotwierdzone.",
-                    16, Color.rgb(255, 167, 122));
-            label("Przetestuj poza autem posiadaną przejściówkę micro-USB OTG i zwykły pendrive; "
-                    + "następnie wybierz «Odśwież wynik USB». Nie kupuj kabla na podstawie tego ekranu.",
-                    14, Color.LTGRAY);
+            label("2. Urządzenia USB: 0 — podłącz adapter USB poza samochodem.", 16,
+                    Color.rgb(255, 167, 122));
+            label("Przygotuj przejściówkę OTG zgodną z portem Fire HD 10 i podłącz kabel "
+                    + "bez samochodu. Odśwież wynik. Nie zmieniaj systemu i nie kupuj "
+                    + "sprzętu na podstawie samego komunikatu.", 14, Color.LTGRAY);
         } else {
-            label("2. Wykryte urządzenia: " + devices.size()
-                    + " — system widzi sprzęt USB.", 17, Color.rgb(155, 227, 190));
-            if (!host) {
-                label("Uwaga: wykrywanie USB i deklaracja systemu są sprzeczne; wymagany test na tablecie.",
-                        13, Color.rgb(255, 167, 122));
-            }
+            label("2. System wykrył " + devices.size() + " urządzeń USB.", 17,
+                    Color.rgb(155, 227, 190));
+            if (!host) label("Deklaracja Host i wykrycie USB są sprzeczne — sprawdź na tablecie.",
+                    13, Color.rgb(255, 167, 122));
             int ordinal = 0;
             for (String key : sortedKeys(devices)) {
                 final UsbDevice device = devices.get(key);
                 if (device == null) continue;
                 ++ordinal;
                 label("Urządzenie " + ordinal + " · VID:PID " + usbId(device)
-                        + " · interfejsy " + device.getInterfaceCount(),
-                        16, Color.rgb(180, 209, 245));
+                        + " · interfejsy " + device.getInterfaceCount(), 16,
+                        Color.rgb(180, 209, 245));
                 boolean permitted = usbManager.hasPermission(device);
-                label("3. Zgoda Androida: " + (permitted ? "UDZIELONA" : "BRAK"),
-                        14, permitted ? Color.rgb(155, 227, 190) : Color.LTGRAY);
+                label("Zgoda systemu: " + (permitted ? "UDZIELONA" : "BRAK"), 14,
+                        permitted ? Color.rgb(155, 227, 190) : Color.LTGRAY);
                 if (!permitted) {
                     action("Poproś o zgodę: urządzenie " + ordinal,
                             view -> requestUsbPermission(device));
+                } else {
+                    UsbSerialDriver driver = UsbSerialLink.findDriver(usbManager, device);
+                    if (driver == null) {
+                        label("Sterownik USB-serial: BRAK dla tego urządzenia.", 14,
+                                Color.rgb(255, 167, 122));
+                    } else {
+                        label("Sterownik: " + driver.getClass().getSimpleName() + " · porty: "
+                                + driver.getPorts().size(), 14, Color.rgb(155, 227, 190));
+                        if (!portTestRunning) {
+                            action("Sprawdź i zamknij port USB (TYLKO POZA AUTEM)",
+                                    view -> testSerialPort(device));
+                        }
+                    }
                 }
             }
-            label("Wykrycie USB i zgoda NIE potwierdzają sterownika, kabla K-line ani połączenia z BMW.",
-                    13, Color.LTGRAY);
         }
-        action("Kopiuj bezpieczny raport do ChatGPT", view -> copyReport());
-        label("Raport zawiera tylko wersję Androida, deklarację USB Host, VID:PID, liczbę "
-                + "interfejsów i status zgody. Nie zbiera numerów seryjnych ani danych pojazdu. "
-                + "Program nie otwiera portu i niczego nie wysyła.", 13, Color.LTGRAY);
+        if (portTestRunning) label("Trwa jednorazowy test otwarcia i zamknięcia portu...",
+                15, Color.rgb(100, 168, 255));
+        if (lastPortResult != null) label("3. Wynik portu: " + lastPortResult,
+                15, Color.rgb(155, 227, 190));
+        action("Kopiuj bezpieczny raport USB do ChatGPT", view -> copyReport());
+        label("Raport: tylko API Androida, USB Host, VID:PID, liczba interfejsów i zgoda. "
+                + "Test portu NIE komunikuje się z BMW i NIE uruchamia INPA/ISTA. "
+                + "Działanie z konkretnym Fire HD 10 i kablem pozostaje do sprawdzenia.",
+                13, Color.LTGRAY);
+    }
+
+    private void testSerialPort(UsbDevice selected) {
+        if (portTestRunning || selected == null || usbManager == null) return;
+        Map<String, UsbDevice> connected = currentDevices();
+        UsbDevice device = connected == null ? null : connected.get(selected.getDeviceName());
+        if (device == null || !usbManager.hasPermission(device)
+                || UsbSerialLink.findDriver(usbManager, device) == null) {
+            lastPortResult = "Połączenie zmieniło się. Odśwież listę i uzyskaj zgodę USB.";
+            render();
+            return;
+        }
+        portTestRunning = true;
+        lastPortResult = null;
+        render();
+        new Thread(() -> {
+            final String result = UsbSerialLink.testOpenAndClose(usbManager, device);
+            runOnUiThread(() -> {
+                portTestRunning = false;
+                if (!isFinishing()) {
+                    lastPortResult = result;
+                    render();
+                }
+            });
+        }, "hannaada-usb-port-test").start();
     }
 
     private void requestUsbPermission(UsbDevice candidate) {
@@ -215,7 +261,6 @@ public final class MainActivity extends Activity {
         }
         Intent scoped = new Intent(ACTION_PERMISSION).setPackage(getPackageName());
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        // Android 12+ USB framework must be able to populate permission extras.
         if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
         PendingIntent response = PendingIntent.getBroadcast(this, 0, scoped, flags);
         usbManager.requestPermission(current, response);
