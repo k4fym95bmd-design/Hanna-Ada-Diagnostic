@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native API 21 theme: keep Android system bars consistent with the tablet dashboard. -->
+    <style name="HannaAdaUsbTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#4DA6FF</item>
+        <item name="android:windowBackground">#090F1B</item>
+        <item name="android:statusBarColor">#090F1B</item>
+        <item name="android:navigationBarColor">#090F1B</item>
+    </style>
+</resources>
