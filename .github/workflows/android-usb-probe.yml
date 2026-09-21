@@ -28,6 +28,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - name: Install Android API 33 SDK
         run: sdkmanager 'platforms;android-33' 'build-tools;33.0.2'
       - uses: gradle/actions/setup-gradle@v4
