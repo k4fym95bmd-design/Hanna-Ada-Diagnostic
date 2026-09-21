@@ -1,15 +1,17 @@
 # K+DCAN / Android BMW Path
 
-Android is the direct-USB BMW platform for Hanna & Ada. K+DCAN is a raw USB serial transport, not an ELM327 adapter, so the application must implement the BMW transport/protocol layer explicitly.
+**Specific user tablet, Lenovo TAB3 7 Essential TB3-710F (ZA0R0040GB): see [`TB3_710F_USB_FEASIBILITY.md`](TB3_710F_USB_FEASIBILITY.md). USB host/OTG and cable chipset are not verified. Its original Android 5.0 is below the current Capacitor 8 minimum Android 7.0; do not promise an installable native build or spend a native build on this target without confirming platform support. The existing Floot PWA does not have a raw USB K+DCAN transport.**
+
+Android is the prospective direct-USB BMW platform for Hanna & Ada, not a validated hardware route. K+DCAN is a raw USB serial transport, not an ELM327 adapter, so the application must implement the BMW transport/protocol layer explicitly.
 
 ## Hardware requirements
 
-- Android 11+ preferred, Android 13/14 target
-- USB Host / OTG
-- reliable USB-C host mode
-- charge-while-host preferred for workshop use
-- support for common USB serial chipsets such as FTDI, PL2303, CP210x, CH340/341 and CDC/ACM through an appropriate Android serial layer
-- stable power and cable connection before any write/flash workflow
+- Android 11+ preferred, Android 13/14 target; check the selected Capacitor version's **actual minimum SDK** before building for any older device.
+- USB Host / OTG, *verified on the exact tablet* by enumeration; the Android version and micro-USB connector alone cannot prove it.
+- reliable USB host port (USB-C on newer target tablets; existing TB3-710F has micro-USB for charge/data, with OTG unverified)
+- charge-while-host preferred for workshop use, but not assumed
+- support for common USB serial chipsets such as FTDI, PL2303, CP210x, CH340/341 and CDC/ACM through an appropriate Android serial layer after identifying the actual cable
+- stable power and cable connection before any vehicle protocol work
 
 ## BMW transport target
 
@@ -26,13 +28,13 @@ Some E39 years/modules may require different diagnostic connector routing, inclu
 
 ## Session pipeline
 
-1. Detect USB device and serial chipset.
-2. Request Android USB permission.
+1. Detect actual tablet USB host capability and enumerate USB device (no vehicle command).
+2. Identify attached device and serial chipset; request Android USB permission.
 3. Open serial transport with verified parameters.
-4. Identify vehicle transport and ECU address.
+4. Identify vehicle transport and ECU address through a validated **read-only** protocol implementation.
 5. Execute a read-only identity/job probe.
 6. Promote functions from `PROTOCOL REQUIRED` to `SUPPORTED` only after verified responses.
-7. Keep write/coding/flash actions behind higher safety gates.
+7. Keep write/coding/flash actions disabled in the present unvalidated application.
 
 ## BMW Expert target
 
@@ -47,8 +49,8 @@ Some E39 years/modules may require different diagnostic connector routing, inclu
 
 ## Flash / recovery
 
-Flash is a separate highest-risk capability. It requires ECU identity, exact software/hardware compatibility, stable voltage, stock backup, checksum/signature validation where applicable, dry-run/precheck, explicit confirmation, audit trail and a tested recovery route.
+Flash is a separate highest-risk capability and **not implemented/enabled** in the current unvalidated app. It requires independent engineering, ECU identity, exact software/hardware compatibility, stable voltage, stock backup, checksum/signature validation where applicable, dry-run/precheck, explicit confirmation, audit trail and a tested recovery route.
 
 ## Limitations
 
-A K+DCAN interface is not automatically a passive CAN sniffer and must not be advertised as unrestricted raw CAN monitoring hardware. True passive CAN/advanced bus monitoring may require dedicated VCI hardware.
+A K+DCAN interface is not automatically a passive CAN sniffer and must not be advertised as unrestricted raw CAN monitoring hardware. True passive CAN/advanced bus monitoring may require dedicated VCI hardware. A remotely hosted web app cannot directly see a physical USB port on a tablet.
