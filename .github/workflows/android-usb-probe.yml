@@ -27,11 +27,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Test sanitized USB report (offline JDK)
+      - name: Test sanitized USB report and next-step logic (offline JDK)
         run: |
           mkdir -p "$RUNNER_TEMP/usb-report-tests"
           javac -encoding UTF-8 -d "$RUNNER_TEMP/usb-report-tests" \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UsbReport.java \
+            android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UsbReadiness.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/UsbReportTest.java
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.UsbReportTest
       - uses: android-actions/setup-android@v3
