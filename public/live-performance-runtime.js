@@ -14,7 +14,7 @@ function updateMetrics(stats) {
   const el = $('#haPerformanceStats');
   if (!el) return;
   const latency = stats.averageMs === null ? '—' : `${stats.averageMs} ms`;
-  el.textContent = `PRO · odczyty ${stats.reads} · cykle ${stats.cycles} · błędy ${stats.errors} · opóźnienie ${latency} · kolejka 0`;
+  el.textContent = `PRO · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · opóźnienie ${latency} · kolejka 0`;
   const button = $('#haLiveToggle');
   if (button) button.textContent = stats.running ? 'STOP LIVE' : 'START LIVE';
 }
@@ -49,7 +49,9 @@ async function snapshot() {
   if (result.skipped === 'BUS_BUSY') say('Magistrala zajęta; nie uruchamiam równoległego odczytu.', true);
   else if (result.skipped === 'ECU_OFFLINE') say('ECU offline; odczyt niewykonany.', true);
   else if (result.skipped === 'NO_VERIFIED_PIDS') say('Najpierw zweryfikuj dostępne PID.', true);
-  else say(`Migawka PRO: ${result.completed} odczytów, maksymalnie ${result.attempted} na cykl.`);
+  else if (result.completed < result.attempted) {
+    say(`Migawka niepełna: ${result.completed}/${result.attempted} poprawnych odczytów. NO DATA i błędy są pokazane osobno.`, true);
+  } else say(`Migawka PRO: ${result.completed}/${result.attempted} poprawnych odczytów.`);
 }
 function bind() {
   const root = $('#haRuntime');
