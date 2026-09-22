@@ -1,34 +1,25 @@
-# Hanna & Ada — physical cable receive path (draft)
+# Hanna & Ada — physical cable receive path (draft, DS2 + KWP2000)
 
-## What is connected in this branch
+## Existing app, one COM port, two passive parsers
 
-The EXISTING VCI page has a new `ODCZYTAJ PASYWNY RX` button inside its Windows bridge tab (`public/cable-rx-panel.js`). It calls the EXISTING local, token-protected Windows bridge at `GET /v1/rx` using the URL/token already entered in that tab. The bridge attaches `gateway/passive-ds2-rx.mjs` to the selected serial port's receive events after it has opened the port. It does **not** transmit any vehicle request, open a separate app, create a cloud vehicle session, store secrets, log payloads to disk or expose a raw command route.
+The existing VCI page exposes `ODCZYTAJ PASYWNY RX` on the Windows bridge tab (`public/cable-rx-panel.js`). It uses the current bridge URL and token to call `GET /v1/rx`. `gateway/windows-cable-bridge.mjs` attaches exactly **one** receive listener per open serial port using `attachPassiveRx`; the listener now feeds independent DS2 and KWP2000 decoders without a second port, vehicle session or database.
 
-The RX endpoint supplies the current 40-character bridge session ID, `portOpen`, cumulative byte count, rejected frame candidates and up to **16** checksum-valid candidate frames. Each frame is limited by DS2's single-byte total length (up to 255 bytes). The UI checks `/v1/status` again to reject results from a changed session; only a real user click fetches samples. Disconnect/close removes the port listener and discards captured frames. Authorization and exact allowed Origin are enforced as on the bridge's existing routes. LAN access still needs trusted HTTPS; never expose this local bridge on a public cloud host.
+The response includes `frames` (DS2 candidates), `kwpFrames` (KWP candidates), bounded counts and the current bridge session ID. The browser rechecks `/v1/status` before displaying evidence so old-session responses are rejected. Both decoders reset on close/disconnect, retain at most 16 frames each, reject malformed or oversized input, and never set `ecuVerified` true. The KWP parser checks format `B8 destination source payloadLength payload XOR`; a `possible-reply`/`possible-echo` label is **heuristic only**.
 
-## What the evidence means
+## Important finding for this BMW V8
 
-| Evidence | What is supported | What is NOT supported |
-|---|---|---|
-| USB device detected | USB descriptor visible | Appropriate cable wiring, ECU access |
-| Serial port opened | OS driver opened a COM device | Vehicle protocol available |
-| Passive RX bytes | Some bytes appeared on serial input | They came from an ECU |
-| DS2 length/XOR frame | Bytes match one known framing pattern | Response to our request, genuine ECU identity |
-| Actual ECU identified | **NOT IMPLEMENTED** | No read-DTC, coding, clearing, live engine PID claim |
+The external [pBmwScanner E38/E39 project](https://github.com/gigijoe/pBmwScanner) lists Bosch **ME7.2 / M62TU** as tested and routes that ECU through its `KWP2000` class (`me72.py`, not `DS2`). See [reference me72.py](https://github.com/gigijoe/pBmwScanner/blob/master/me72.py), [reference kwp2000.py](https://github.com/gigijoe/pBmwScanner/blob/master/kwp2000.py), and [K-line settings](https://github.com/gigijoe/pBmwScanner/blob/master/k_line.py). This is evidence about the reference implementation, **not proof** of the ECU, USB chipset or protocol in this particular car. Its known example response `B8 F1 12 05 62 40 07 01 90 EA` is included as a fixture; no live response was captured from the user's car.
 
-No vehicle TX endpoint exists: `POST /v1/transmit` returns 404. A DS2-looking frame may be a USB echo, unrelated traffic or coincidental bytes. The bridge and parser always return `ecuVerified: false`. The parser works on byte chunks in memory, rejects overlarge chunks, resynchronizes after noise, and caps retained frames. The passive mode may see **zero bytes even with perfectly functioning hardware**, because many ECUs only answer a request.
+The DS2-only path in the prior version could not decode this KWP framing. It remains for other modules and as a separately labeled candidate, not a fallback that automatically marks the DME online. A passively received KWP packet may be a local echo or other data; no request/response identity correlation exists yet.
 
-## Research, still requiring target validation
+## Strict limitations
 
-- [pBmwScanner for BMW E38/E39](https://github.com/gigijoe/pBmwScanner): an external Python reference for BMW DS2 and KWP2000, with ME7.2/GS8.60.2 listed as tested. Not imported wholesale and not proof about this vehicle.
-- [DS2 frame description](https://github.com/kmalinich/node-bmw-ref/blob/master/ds2/protocol.txt): module address, total frame length, payload, XOR checksum. Used only for framing, not to issue ECU commands.
-- [OBD32 protocol analysis](https://github.com/emdzej/ediabasx-docs/blob/main/reference/interfaces/obd32-protocols.md): shows separate BMW DS2 and KWP physical settings. The present bridge still opens 9600 with default parity solely for USB port testing, **not a validated BMW serial configuration**. Third-party sources differ on line parity; choose hardware parameters only after verifying the actual K+DCAN chipset, adapter/20-pin path and the intended ECU/protocol.
+- The existing bridge does **not transmit** any vehicle request or enable ECU commands, DTC clearing, coding, actuation, tuning or flashing. `POST /v1/transmit` returns 404. Opening a USB port or seeing a checksum-valid frame does not verify the ECU.
+- Hardware serial configuration is still a **port-opening test** (`9600`, Node SerialPort defaults); not a validated BMW KWP/DS2 configuration. Technical sources disagree on parity (including 8N1 vs 8E1). A reviewed implementation must independently establish the actual USB chipset, physical interface, correct K-line connection, ECU type, parity, initialization and timing. Do not infer these from the model year or a VID:PID alone.
+- The Windows bridge must run locally. LAN access requires trusted HTTPS and token/Origin checks. Never deploy the bridge to cloud hosting or log raw diagnostic payloads/tokens.
+- `GET /v1/rx` reads current in-memory samples only when the user taps; passive receive can correctly produce zero bytes without prior ECU requests.
+- GitHub draft PR #35 is **not** the published Floot app. Do not claim cable operation on `bmw.floot.app` until the existing Floot project is updated and checked.
 
-## Release gates before claiming BMW cable diagnostics
+## Next release gate
 
-1. Determine the actual USB chipset VID:PID and serial driver of the user's cable, and check any relevant connector/line bridging without assuming that a generic USB-to-OBD cable covers every BMW module.
-2. Implement and test an *allowlisted, reviewed, read-only* DS2/KWP identity request/response layer for the specific ECU and selected hardware. Echo filtering, timeouts, checksum, protocol-specific framing, bounded TX, cancellation and epoch ownership must be verified independently.
-3. Confirm an actual response from the correct physical ECU rather than a port open or echoed request. Only then advance the canonical VCI session and support module-specific read-only functions.
-4. Run complete repository tests and Floot tests, inspect preview, then migrate compatible code into the **existing** Floot project. This draft GitHub branch is **not** live at `https://bmw.floot.app`.
-
-No DTC erasure, coding, actuation or flashing is available through the passive cable route.
+Implement a single **allowlisted read-only KWP2000 identification request** only after exact hardware/ECU settings and physical protocol behavior are validated. The response gate must reject echo, mismatched source/destination, malformed checksum, negative responses, timeouts and stale session epochs; a genuine ECU identification must be parsed from matched response bytes. Test code alone does not substitute for an actual hardware transcript. Preserve one canonical Floot session and keep all write operations locked.
