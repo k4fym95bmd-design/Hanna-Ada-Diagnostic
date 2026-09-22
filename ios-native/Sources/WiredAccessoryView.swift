@@ -1,8 +1,8 @@
 import SwiftUI
 import ExternalAccessory
 
-/// Only reports accessories the iOS ExternalAccessory framework actually exposes.
-/// Generic USB FTDI (0403:6001) is NOT a publicly available iPhone serial port.
+/// Enumerates only accessories that iOS already exposes to this application.
+/// This does not open a generic FTDI port or claim a BMW ECU connection.
 @MainActor
 final class WiredAccessoryState: ObservableObject {
     @Published private(set) var accessoryNames: [String] = []
@@ -10,11 +10,19 @@ final class WiredAccessoryState: ObservableObject {
 
     func refresh() {
         let accessories = EAAccessoryManager.shared().connectedAccessories
-        // Only locally show accessory names; never copy serial numbers, VIN or addresses.
         accessoryNames = accessories.map { $0.name }
         status = accessories.isEmpty
-            ? "iOS nie udostępnia aplikacji zgodnego akcesorium MFi."
-            : "Wykryto akcesorium systemowe. Protokół i uprawnienia wymagają potwierdzenia producenta."
+            ? "iOS nie udostępnia aplikacji żadnego akcesorium przewodowego."
+            : "Wykryto akcesorium w iOS. To nie potwierdza protokołu, dostępu szeregowego ani ECU."
+    }
+
+    func startWatching() {
+        EAAccessoryManager.shared().registerForLocalNotifications()
+        refresh()
+    }
+
+    func stopWatching() {
+        EAAccessoryManager.shared().unregisterForLocalNotifications()
     }
 }
 
@@ -40,51 +48,61 @@ struct WiredAccessoryView: View {
                 }
                 panel {
                     VStack(alignment: .leading, spacing: 13) {
-                        Label("AKCESORIA WYKRYTE PRZEZ iOS", systemImage: "cable.connector")
+                        Label("AKCESORIA UDOSTĘPNIONE PRZEZ iOS", systemImage: "cable.connector")
                             .font(.headline)
                         Text(hardware.status).foregroundStyle(.secondary)
-                        ForEach(hardware.accessoryNames, id: \.self) { name in
-                            Label(name, systemImage: "checkmark.circle")
-                                .foregroundStyle(.green)
+                        ForEach(Array(hardware.accessoryNames.enumerated()), id: \.offset) { _, name in
+                            Label(name, systemImage: "cable.connector")
+                                .foregroundStyle(.orange)
                         }
+                        Text("Lista odświeża się także po podłączeniu lub odłączeniu akcesorium, gdy ta zakładka jest otwarta.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         Button {
                             hardware.refresh()
                         } label: {
                             Label("ODŚWIEŻ AKCESORIA", systemImage: "arrow.clockwise")
                                 .font(.headline)
-                                .frame(maxWidth: .infinity, minHeight: 54)
+                                .frame(maxWidth: .infinity, minHeight: 64)
                         }
                         .buttonStyle(.borderedProminent)
                     }
                 }
                 panel {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("TWÓJ KABEL K+DCAN · 0403:6001", systemImage: "exclamationmark.triangle")
+                        Label("KABEL K+DCAN · 0403:6001", systemImage: "exclamationmark.triangle")
                             .font(.headline)
                             .foregroundStyle(.orange)
-                        Text("Wykrycie kabla FTDI na Androidzie nie oznacza, że iPhone udostępni jego port USB aplikacji. Publiczne API iOS nie daje naszej aplikacji ogólnego sterownika FTDI, nawet po użyciu samej przejściówki Lightning/USB-C.")
+                        Text("Wykrycie FTDI na Androidzie nie oznacza, że iPhone udostępni jego port. Sama przejściówka Lightning lub USB-C nie dostarcza naszej aplikacji sterownika FTDI.")
                             .foregroundStyle(.secondary)
-                        Text("Połączenie przewodowe w iOS wymaga zgodnego, autoryzowanego akcesorium i udokumentowanego protokołu producenta. Dopóki tego nie potwierdzimy, nie pokażemy fałszywego przycisku POŁĄCZ.")
+                        Text("Połączenie przewodowe wymaga akcesorium zgodnego z iOS, udokumentowanego protokołu i odpowiednich uprawnień aplikacji. Nie pokazujemy przycisku Połącz bez tej weryfikacji.")
                             .foregroundStyle(.secondary)
                     }
                 }
                 panel {
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("BLUETOOTH LE JEST ODDZIELNY", systemImage: "waveform.path")
+                        Label("BLUETOOTH LE TO OSOBNY TOR", systemImage: "waveform.path")
                             .font(.headline)
                             .foregroundStyle(.blue)
-                        Text("Zakładka BLE korzysta z istniejącego modułu CoreBluetooth i obsługuje testy zgodnych adapterów Carista/ELM. Nie jest zamiennikiem dostępu K-Line przez USB.")
+                        Text("Zakładka BLE używa CoreBluetooth. Połączenie BLE nie zastępuje fizycznego dostępu do K-Line przez kabel.")
                             .foregroundStyle(.secondary)
                     }
                 }
-                Text("Tylko rzeczywisty status sprzętu · bez wymyślonych połączeń ECU")
+                Text("Status pochodzi z iOS · bez symulowanych połączeń ECU")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(18)
         }
         .background(background.ignoresSafeArea())
-        .onAppear { hardware.refresh() }
+        .onAppear { hardware.startWatching() }
+        .onDisappear { hardware.stopWatching() }
+        .onReceive(NotificationCenter.default.publisher(for: .EAAccessoryDidConnect)) { _ in
+            hardware.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .EAAccessoryDidDisconnect)) { _ in
+            hardware.refresh()
+        }
     }
 
     private func panel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
