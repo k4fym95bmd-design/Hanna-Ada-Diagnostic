@@ -43,6 +43,18 @@ test('ATI ERROR alongside an identity rejects the whole response in either order
   }
 });
 
+test('inline ATI ERROR never verifies an adapter or ECU when valid lines follow', () => {
+  for (const adapterReply of [
+    'ATI\rELM327 v2.2 ERROR\r>',
+    'ATI\rELM327 v2.2\rBUS ERROR, retry\r>',
+    'ATI\rCAN ERROR while identifying ELM327\r>',
+  ]) {
+    const diagnosis = diagnoseConnection({ ...base, adapterReply });
+    assert.equal(diagnosis.code, 'ADAPTER_UNVERIFIED', adapterReply);
+    assert.equal(diagnosis.evidence.genericECUVerified, undefined);
+  }
+});
+
 test('only real, parsed 0100 and identified protocol verify generic ECU', () => {
   const unknown = diagnoseConnection({ ...base, protocolReply: null });
   assert.equal(unknown.code, 'PROTOCOL_UNVERIFIED');
