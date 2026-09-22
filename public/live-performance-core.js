@@ -33,11 +33,11 @@ export function createLivePerformanceController({
     throw new TypeError('Live performance controller requires transport evidence and callbacks.');
   }
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
-  let averageMs = null, reads = 0, errors = 0, cycles = 0, consecutiveErrors = 0;
+  let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null;
 
   const metrics = () => Object.freeze({
-    running, reads, errors, cycles, averageMs: averageMs == null ? null : Math.round(averageMs),
+    running, reads, noData, errors, cycles, averageMs: averageMs == null ? null : Math.round(averageMs),
     lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
     inFlight: !!currentTask, queuedCommands: 0, writesEnabled: false,
   });
@@ -62,6 +62,18 @@ export function createLivePerformanceController({
     return currentTask ?? Promise.resolve();
   }
 
+  function fail(owner, missing) {
+    if (missing) noData++; else errors++;
+    consecutiveFailures++;
+    if (consecutiveFailures >= 3) {
+      onStatus('Trzy kolejne błędy odczytu lub odpowiedzi bez danych. Live zatrzymany; sprawdź adapter i ECU.');
+      // Keep the bus locked until the in-flight task settles.
+      stop();
+      return true;
+    }
+    return false;
+  }
+
   async function perform(owner, backgroundSensitive = false) {
     if (currentTask) return Object.freeze({ skipped: 'BUS_BUSY' });
     if (!isConnected()) return Object.freeze({ skipped: 'ECU_OFFLINE' });
@@ -78,23 +90,22 @@ export function createLivePerformanceController({
         if (!isConnected() || epoch !== owner || (backgroundSensitive && !isVisible())) break;
         const before = now();
         try {
-          await readPid(key);
+          const sample = await readPid(key);
           if (!isConnected() || epoch !== owner) break;
+          // Actual legacy transport returns number or null. A missing, NaN,
+          // infinite or non-numeric result is NOT a completed measurement.
+          if (typeof sample !== 'number' || !Number.isFinite(sample)) {
+            if (fail(owner, true)) break;
+            continue;
+          }
           reads++;
           completed++;
-          consecutiveErrors = 0;
+          consecutiveFailures = 0;
           const elapsed = clamp(now() - before, 0, 60_000);
           averageMs = averageMs == null ? elapsed : averageMs * 0.75 + elapsed * 0.25;
         } catch {
           if (!isConnected() || epoch !== owner) break;
-          errors++;
-          consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
-            onStatus('Trzy kolejne błędy odczytu. Live zatrzymany; sprawdź adapter i ECU.');
-            // stop() invalidates this owner but retains the bus lock.
-            stop();
-            break;
-          }
+          if (fail(owner, false)) break;
         }
       }
       if (epoch === owner && isConnected()) {
