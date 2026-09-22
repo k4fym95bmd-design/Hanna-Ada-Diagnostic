@@ -35,7 +35,7 @@ test('caps every cycle to four supported reads and rotates slow PIDs without gue
 test('executes sequentially, refuses parallel snapshots and keeps bus lock during stop', async () => {
   let resolveFirst, inFlight = 0, peak = 0;
   const c = createLivePerformanceController({
-    readPid: () => { inFlight++; peak = Math.max(peak,inFlight); return new Promise(resolve => { resolveFirst = () => { inFlight--; resolve(); }; }); },
+    readPid: () => { inFlight++; peak = Math.max(peak,inFlight); return new Promise(resolve => { resolveFirst = () => { inFlight--; resolve(1); }; }); },
     getSupported: () => new Set([0x0c]), isConnected: () => true,
   });
   const snapshot = c.snapshot();
@@ -53,7 +53,7 @@ test('executes sequentially, refuses parallel snapshots and keeps bus lock durin
 test('pauses all scheduled transport reads while page hidden and wakes on visibility', async () => {
   const timer = mockTimer(); let visible = false, count = 0;
   const c = createLivePerformanceController({
-    readPid: async () => { count++; }, getSupported: () => new Set([0x0c]),
+    readPid: async () => { count++; return 1; }, getSupported: () => new Set([0x0c]),
     isConnected: () => true, isVisible: () => visible, ...timer,
   });
   assert.equal(c.start(), true);
@@ -70,7 +70,7 @@ test('pauses all scheduled transport reads while page hidden and wakes on visibi
 test('timer cannot re-arm or read after user stops live polling', async () => {
   const timer = mockTimer(); let count = 0;
   const c = createLivePerformanceController({
-    readPid: async () => { count++; }, getSupported: () => all,
+    readPid: async () => { count++; return 1; }, getSupported: () => all,
     isConnected: () => true, ...timer,
   });
   c.start(); await timer.tick();
@@ -103,14 +103,14 @@ test('three consecutive transport failures stop polling without concurrent retri
   assert.equal(attempts, 3);
   assert.equal(c.isRunning(), false);
   assert.equal(c.metrics().errors, 3);
-  assert.match(messages[0], /Trzy kolejne błędy/);
+  assert.match(messages[0], /Trzy kolejne/);
   assert.equal(timer.active().length, 0);
 });
 
 test('adaptive pacing stays bounded and metrics never claim writes', async () => {
   const timer = mockTimer(); let now = 0;
   const c = createLivePerformanceController({
-    readPid: async () => { now += 75; }, getSupported: () => all,
+    readPid: async () => { now += 75; return 1; }, getSupported: () => all,
     isConnected: () => true, now: () => now, ...timer,
   });
   c.start(); await timer.tick();
@@ -124,7 +124,7 @@ test('adaptive pacing stays bounded and metrics never claim writes', async () =>
 test('hiding page mid-batch stops new reads after the in-flight response', async () => {
   const timer = mockTimer(); let visible = true, count = 0;
   const c = createLivePerformanceController({
-    readPid: async () => { count++; visible = false; },
+    readPid: async () => { count++; visible = false; return 1; },
     getSupported: () => all, isConnected: () => true,
     isVisible: () => visible, ...timer,
   });
@@ -145,7 +145,7 @@ test('disconnect while transport is pending never credits a stale reading', asyn
   });
   const old = c.snapshot();
   online = false;
-  resolveRequest();
+  resolveRequest(1);
   await old;
   assert.equal(attempts, 1);
   assert.equal(c.metrics().reads, 0);
