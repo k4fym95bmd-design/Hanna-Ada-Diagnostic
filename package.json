@@ -13,7 +13,7 @@
     "test:diagnostic-core": "node --test test/diagnostic-core.mjs test/protocol-evidence.mjs test/reprobe-session.mjs test/service-marker.mjs",
     "test:connection-doctor": "node --test test/connection-doctor.mjs",
     "test:workshop-fusion": "node --check public/workshop-fusion.js && node --test test/workshop-fusion.mjs",
-    "test:cable": "node --check public/cable-connection-model.js && node --check public/cable-workbench.js && node --check gateway/windows-cable-bridge.mjs && node --test test/cable-connection.mjs",
+    "test:cable": "node --check public/cable-connection-model.js && node --check public/cable-workbench.js && node --check gateway/windows-cable-bridge.mjs && node --test test/cable-connection.mjs test/cable-wiring.mjs",
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
     "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
     "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs"
