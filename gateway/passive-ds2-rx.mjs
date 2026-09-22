@@ -1,5 +1,6 @@
 // Passive BMW DS2 receive framing. No USB access and NO TX command path.
 // A correct frame may be a loopback echo or unrelated traffic: NEVER prove ECU online.
+import { PassiveKwpDecoder } from './passive-kwp-rx.mjs';
 const hex = bytes => [...bytes].map(byte => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
 
 export class PassiveDs2Decoder {
@@ -70,12 +71,23 @@ export class PassiveDs2Decoder {
   reset() { this.#pending = []; this.#rejected = 0; this.#observed = 0; this.#frames = []; }
 }
 
-export function attachPassiveRx(port, decoder = new PassiveDs2Decoder()) {
+// One physical port and ONE event listener, two independent, bounded framing
+// interpretations. Neither interpreter can declare the BMW ECU online.
+export function attachPassiveRx(port, decoder = new PassiveDs2Decoder(), kwp = new PassiveKwpDecoder()) {
   if (!port || typeof port.on !== 'function' || typeof port.removeListener !== 'function') throw new TypeError('Serial event source required');
-  const onData = chunk => { try { decoder.ingest(chunk); } catch { decoder.reset(); } };
+  const onData = chunk => {
+    // Keep protocol parser errors isolated; one bad candidate must not disable
+    // reception for the other protocol.
+    try { decoder.ingest(chunk); } catch { decoder.reset(); }
+    try { kwp.ingest(chunk); } catch { kwp.reset(); }
+  };
   port.on('data', onData);
   return Object.freeze({
-    snapshot: () => decoder.snapshot(),
-    dispose: () => { port.removeListener('data', onData); decoder.reset(); },
+    snapshot: () => {
+      const ds2 = decoder.snapshot(), k = kwp.snapshot();
+      return { ...ds2, kwpFrames: k.kwpFrames,
+        kwpRejectedCandidates: k.rejectedCandidates, ecuVerified: false };
+    },
+    dispose: () => { port.removeListener('data', onData); decoder.reset(); kwp.reset(); },
   });
 }
