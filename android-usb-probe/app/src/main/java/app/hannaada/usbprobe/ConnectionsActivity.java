@@ -17,14 +17,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * Honest transport selection screen, not a fake diagnostic dashboard.
- * USB and Bluetooth Classic smoke tests are offline and do not send commands.
- */
+/** User-facing hardware transport selection. No mock ECU data or vehicle writes. */
 public final class ConnectionsActivity extends Activity {
     private static final int BG = Color.rgb(9, 15, 26);
     private static final int PANEL = Color.rgb(20, 32, 49);
@@ -32,14 +30,26 @@ public final class ConnectionsActivity extends Activity {
     private static final int TEXT = Color.rgb(244, 249, 255);
     private static final int MUTED = Color.rgb(168, 188, 210);
     private static final int GREEN = Color.rgb(115, 225, 170);
+    private static final int AMBER = Color.rgb(255, 190, 110);
+    private static final int MAX_DISCOVERED = 12;
     private LinearLayout content;
     private UsbManager usbManager;
+    private BleLink bleLink;
+    private final List<BluetoothDevice> nearbyBle = new ArrayList<>();
     private boolean bluetoothBusy;
     private String bluetoothResult;
+    private boolean bluetoothConnected;
+    private boolean bleScanning;
+    private boolean bleBusy;
+    private String bleStatus;
+    private boolean bleConnected;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
+        bleLink = new BleLink(this);
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(BG);
@@ -56,10 +66,27 @@ public final class ConnectionsActivity extends Activity {
         if (content != null) render();
     }
 
+    @Override protected void onPause() {
+        super.onPause();
+        if (bleLink != null) bleLink.stopAll();
+        if (bleScanning || bleBusy) {
+            bleScanning = false;
+            bleBusy = false;
+            bleConnected = false;
+            bleStatus = "Test BLE przerwany po opuszczeniu ekranu.";
+        }
+    }
+
+    @Override protected void onDestroy() {
+        if (bleLink != null) bleLink.stopAll();
+        super.onDestroy();
+    }
+
     @Override public void onRequestPermissionsResult(int code, String[] permissions,
                                                       int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
-        if (code == BluetoothLink.REQUEST_CONNECT_PERMISSION) render();
+        if (code == BluetoothLink.REQUEST_CONNECT_PERMISSION
+                || code == BleLink.PERMISSION_REQUEST) render();
     }
 
     private int dp(int value) {
@@ -82,16 +109,28 @@ public final class ConnectionsActivity extends Activity {
         target.addView(label);
     }
 
-    private LinearLayout panel(String icon, String heading, String subheading) {
+    private LinearLayout panel(LinearLayout parent, String icon, String heading,
+                               String subheading, boolean columns) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(shape(PANEL, 20));
         card.setPadding(dp(18), dp(16), dp(18), dp(20));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        params.setMargins(0, dp(8), 0, dp(12));
-        content.addView(card, params);
-        text(card, icon + "   " + heading, 23, TEXT);
+        LinearLayout.LayoutParams params = columns
+                ? new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                : new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.setMargins(dp(5), dp(8), dp(5), dp(12));
+        parent.addView(card, params);
+        TextView emblem = new TextView(this);
+        emblem.setText(icon);
+        emblem.setTextSize(23);
+        emblem.setTextColor(TEXT);
+        emblem.setGravity(android.view.Gravity.CENTER);
+        emblem.setBackground(shape(BLUE, 16));
+        LinearLayout.LayoutParams emblemParams = new LinearLayout.LayoutParams(dp(66), dp(66));
+        emblemParams.bottomMargin = dp(9);
+        card.addView(emblem, emblemParams);
+        text(card, heading, 23, TEXT);
         text(card, subheading, 15, MUTED);
         return card;
     }
@@ -116,21 +155,25 @@ public final class ConnectionsActivity extends Activity {
     private void render() {
         content.removeAllViews();
         text(content, "HANNA & ADA", 29, Color.rgb(91, 164, 255));
-        text(content, "DIAGNOSTICS  /  WYBÓR POŁĄCZENIA", 16, TEXT);
+        text(content, "DIAGNOSTICS  /  WYBÓR POŁĄCZENIA", 17, TEXT);
         text(content, "Android " + Build.VERSION.RELEASE + "  ·  " + Build.MODEL,
                 14, MUTED);
-        text(content, "Statusy sprzętu są rzeczywiste. Nie ma jeszcze połączenia z ECU.",
-                15, GREEN);
+        text(content, "Połączenie z adapterem nie oznacza jeszcze diagnostyki ECU.", 15, AMBER);
 
-        LinearLayout usb = panel("USB", "KABEL USB / K+DCAN",
-                "Sterownik USB-serial · test poza samochodem");
+        boolean columns = getResources().getConfiguration().screenWidthDp >= 720;
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(columns ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        content.addView(top);
+
+        LinearLayout usb = panel(top, "USB", "KABEL USB / K+DCAN",
+                "Sterownik USB-serial · test poza samochodem", columns);
         Map<String, UsbDevice> devices = usbManager == null ? null : usbManager.getDeviceList();
         if (devices == null) {
-            text(usb, "Android nie udostępnia listy urządzeń USB.", 16, MUTED);
+            text(usb, "Android nie udostępnia listy USB.", 16, AMBER);
         } else if (devices.isEmpty()) {
-            text(usb, "Brak urządzenia USB · nie potwierdzono OTG na tym tablecie.", 16, MUTED);
+            text(usb, "Nie wykryto urządzenia USB.", 16, MUTED);
         } else {
-            text(usb, "Wykryto urządzeń USB: " + devices.size(), 18, GREEN);
+            text(usb, "Wykryto USB: " + devices.size(), 18, GREEN);
             for (UsbDevice device : devices.values()) {
                 if (device == null) continue;
                 String id = String.format(Locale.US, "%04X:%04X",
@@ -142,12 +185,12 @@ public final class ConnectionsActivity extends Activity {
         button(usb, "OTWÓRZ TEST KABLA USB", true,
                 view -> startActivity(new Intent(this, MainActivity.class)));
 
-        LinearLayout bluetooth = panel("BT", "BLUETOOTH",
-                "Android Classic SPP · sparowane adaptery · bez komend ECU");
+        LinearLayout bluetooth = panel(top, "BT", "BLUETOOTH CLASSIC",
+                "Sparowane adaptery SPP · test bez komend ECU", columns);
         if (!BluetoothLink.available()) {
-            text(bluetooth, "Ten tablet nie zgłasza adaptera Bluetooth.", 16, MUTED);
+            text(bluetooth, "Ten tablet nie zgłasza Bluetooth.", 16, AMBER);
         } else if (!BluetoothLink.hasPermission(this)) {
-            text(bluetooth, "Android wymaga zgody na połączenia Bluetooth.", 16, MUTED);
+            text(bluetooth, "Android wymaga zgody Bluetooth.", 16, AMBER);
             button(bluetooth, "UDZIEL ZGODY BLUETOOTH", true, view -> {
                 if (Build.VERSION.SDK_INT >= 31) requestPermissions(
                         new String[]{Manifest.permission.BLUETOOTH_CONNECT},
@@ -159,40 +202,104 @@ public final class ConnectionsActivity extends Activity {
                     view -> startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)));
         } else {
             List<BluetoothDevice> paired = BluetoothLink.paired(this);
-            int candidates = 0;
-            for (BluetoothDevice device : paired) {
-                String name = BluetoothLink.displayName(device);
-                String lower = name.toLowerCase(Locale.US);
-                if (!(lower.contains("obd") || lower.contains("elm")
-                        || lower.contains("vgate") || lower.contains("vlink")
-                        || lower.contains("carista") || lower.contains("konnwei"))) continue;
-                candidates++;
-                button(bluetooth, "SPRAWDŹ SPP: " + name, !bluetoothBusy,
-                        view -> testBluetooth(device));
-            }
-            if (candidates == 0) {
-                text(bluetooth, "Nie znaleziono sparowanego adaptera diagnostycznego SPP. "
-                        + "Urządzenia Carista BLE mogą nie widnieć na tej liście.", 15, MUTED);
+            if (paired.isEmpty()) {
+                text(bluetooth, "Brak sparowanych urządzeń Bluetooth Classic.", 15, MUTED);
+            } else {
+                text(bluetooth, "Sparowane urządzenia: " + paired.size()
+                        + " · wybierz swój adapter.", 15, MUTED);
+                int shown = 0;
+                for (BluetoothDevice device : paired) {
+                    if (shown++ >= MAX_DISCOVERED) break;
+                    // Do not silently hide compatible adapters with unfamiliar brand names.
+                    button(bluetooth, "TEST SPP: " + BluetoothLink.displayName(device),
+                            !bluetoothBusy, view -> testBluetooth(device));
+                }
             }
             button(bluetooth, "USTAWIENIA PAROWANIA", true,
                     view -> startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)));
         }
-        if (bluetoothBusy) text(bluetooth, "Trwa próba nawiązania i zamknięcia sesji SPP…", 15, GREEN);
-        if (bluetoothResult != null) text(bluetooth, bluetoothResult, 15, GREEN);
+        if (bluetoothBusy) text(bluetooth, "Łączę i zamykam sesję SPP…", 15, AMBER);
+        if (bluetoothResult != null) text(bluetooth, bluetoothResult, 15,
+                bluetoothConnected ? GREEN : AMBER);
 
-        LinearLayout ble = panel("BLE", "CARISTA / BLUETOOTH LE",
-                "Osobny protokół, nie jest zamienny z Bluetooth Classic SPP");
-        text(ble, "Moduł BLE działa w istniejącym kodzie iOS. Na Androidzie nie "
-                + "został jeszcze uruchomiony ani zweryfikowany — nie pokazujemy fałszywego Połącz.",
-                15, MUTED);
-        text(content, "Tryb bez zapisu · bez kodowania · bez flashowania · bez danych demonstracyjnych",
+        LinearLayout ble = panel(content, "BLE", "BLUETOOTH LE / CARISTA",
+                "Wykrywanie rzeczywistych urządzeń · test transportu GATT", false);
+        if (!BleLink.available()) {
+            text(ble, "Ten tablet nie zgłasza Bluetooth.", 16, AMBER);
+        } else if (!BluetoothLink.enabled(this) && BluetoothLink.hasPermission(this)) {
+            text(ble, "Włącz Bluetooth w ustawieniach tabletu.", 16, AMBER);
+        } else if (BleLink.missingPermissions(this).length > 0) {
+            text(ble, "Zgoda systemowa jest wymagana do wyszukania BLE."
+                    + (Build.VERSION.SDK_INT >= 23 && Build.VERSION.SDK_INT <= 30
+                    ? " Android 6–11 wymaga zgody na lokalizację do skanowania; aplikacja jej nie odczytuje."
+                    : ""), 15, AMBER);
+            button(ble, "UDZIEL ZGODY NA BLE", true, view -> {
+                if (Build.VERSION.SDK_INT >= 23) requestPermissions(
+                        BleLink.missingPermissions(this), BleLink.PERMISSION_REQUEST);
+            });
+        } else {
+            button(ble, bleScanning ? "SKANOWANIE BLE…" : "SZUKAJ URZĄDZEŃ BLE · 10 S",
+                    !bleScanning && !bleBusy, view -> startBleScan());
+            if (nearbyBle.isEmpty() && !bleScanning) {
+                text(ble, "Lista pusta. Wyszukaj w pobliżu kompatybilny adapter BLE.",
+                        15, MUTED);
+            }
+            for (BluetoothDevice device : nearbyBle) {
+                button(ble, "TEST BLE: " + BleLink.displayName(device),
+                        !bleScanning && !bleBusy, view -> testBle(device));
+            }
+        }
+        if (bleScanning) text(ble, "Wyszukiwanie trwa, maksymalnie 10 sekund…", 15, AMBER);
+        if (bleBusy) text(ble, "Trwa próba połączenia BLE, maksymalnie 12 sekund…", 15, AMBER);
+        if (bleStatus != null) text(ble, bleStatus, 15, bleConnected ? GREEN : AMBER);
+        text(content, "Tylko test transportu · bez zapisu, kodowania i flashowania · bez danych demo",
                 14, MUTED);
+    }
+
+    private void startBleScan() {
+        if (bleScanning || bleBusy) return;
+        nearbyBle.clear();
+        bleScanning = true;
+        bleConnected = false;
+        bleStatus = null;
+        render();
+        bleLink.startScan(new BleLink.ScanListener() {
+            @Override public void onDevice(BluetoothDevice device, String name) {
+                if (!bleScanning || isFinishing()) return;
+                if (nearbyBle.size() < MAX_DISCOVERED && !nearbyBle.contains(device)) {
+                    nearbyBle.add(device);
+                    render();
+                }
+            }
+            @Override public void onFinished(String message) {
+                if (isFinishing() || !bleScanning) return;
+                bleScanning = false;
+                bleStatus = message;
+                render();
+            }
+        });
+    }
+
+    private void testBle(BluetoothDevice device) {
+        if (bleBusy || bleScanning || device == null) return;
+        bleBusy = true;
+        bleStatus = null;
+        bleConnected = false;
+        render();
+        bleLink.testConnection(device, (message, connected) -> {
+            if (isFinishing()) return;
+            bleBusy = false;
+            bleConnected = connected;
+            bleStatus = message;
+            render();
+        });
     }
 
     private void testBluetooth(BluetoothDevice device) {
         if (bluetoothBusy || device == null || !BluetoothLink.hasPermission(this)) return;
         bluetoothBusy = true;
         bluetoothResult = null;
+        bluetoothConnected = false;
         render();
         new Thread(() -> {
             String result = BluetoothLink.testPairedSppConnection(this, device);
@@ -200,6 +307,7 @@ public final class ConnectionsActivity extends Activity {
                 bluetoothBusy = false;
                 if (!isFinishing()) {
                     bluetoothResult = result;
+                    bluetoothConnected = result.startsWith("SPP: połączono");
                     render();
                 }
             });
