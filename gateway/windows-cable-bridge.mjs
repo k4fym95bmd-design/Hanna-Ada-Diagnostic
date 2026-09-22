@@ -1,11 +1,12 @@
-// Windows/local serial bridge. USB enumeration and port open/close ONLY.
-// Intentionally exposes NO arbitrary TX/RX, BMW requests, actuator, DTC erase or flash endpoints.
+// Windows/local serial bridge. USB enumeration, open/close and bounded passive RX ONLY.
+// Intentionally exposes NO arbitrary TX, BMW requests, actuator, DTC erase or flash endpoints.
 // Run locally; never deploy to Railway, Vercel or another cloud host.
 import http from 'node:http';
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { attachPassiveRx } from './passive-ds2-rx.mjs';
 
 const MAX_BODY = 2048;
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
@@ -18,7 +19,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (typeof token !== 'string' || token.length < 32) throw new TypeError('A random token of at least 32 characters is required');
   if (typeof allowedOrigin !== 'string' || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError('Set an exact allowed browser origin');
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
-  let selected = null, active = null, sessionId = null, busy = false;
+  let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null;
+  const clearRx = () => { rxMonitor?.dispose(); rxMonitor = null; };
   const equalToken = candidate => {
     const provided = Buffer.from(candidate || '');
     const expected = Buffer.from(token);
@@ -59,6 +61,12 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         const ports = (await serial.list()).filter(validPort).map(safePort);
         return json(res, 200, { ports, selectedPath: selected });
       }
+      if (req.method === 'GET' && route === '/v1/rx') {
+        const status = await currentStatus();
+        const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], ecuVerified: false };
+        return json(res, 200, { version: 1, sessionId: status.sessionId, portOpen: status.portOpen, ...sample, ecuVerified: false,
+          message: 'Wyłącznie pasywny odbiór: ramka lub echo nie dowodzą odpowiedzi ECU. Brak komend TX.' });
+      }
       if (req.method === 'POST' && route === '/v1/open') {
         if (busy || active?.isOpen) return json(res, 409, { error: 'PORT_BUSY' });
         busy = true;
@@ -70,9 +78,13 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           const port = serial.createPort(matches[0].path);
           if (!port || typeof port.open !== 'function' || typeof port.close !== 'function') throw new Error('DRIVER_UNAVAILABLE');
           await new Promise((resolve, reject) => port.open(err => err ? reject(err) : resolve()));
+          clearRx();
           active = port; selected = matches[0].path; sessionId = randomBytes(20).toString('hex');
+          rxMonitor = attachPassiveRx(port);
           const localSession = sessionId;
-          port.on?.('close', () => { if (sessionId === localSession) { active = null; sessionId = null; } });
+          port.on?.('close', () => {
+            if (sessionId === localSession) { clearRx(); active = null; sessionId = null; }
+          });
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
       }
@@ -81,7 +93,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         busy = true;
         try {
           if (active?.isOpen) await new Promise((resolve, reject) => active.close(err => err ? reject(err) : resolve()));
-          active = null; selected = null; sessionId = null;
+          clearRx(); active = null; selected = null; sessionId = null;
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
       }
@@ -92,7 +104,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     }
   };
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
-  server.on('close', () => { try { if (active?.isOpen) active.close(); } catch {} });
+  server.on('close', () => { clearRx(); try { if (active?.isOpen) active.close(); } catch {} });
   return { server, host, getStatus: currentStatus };
 }
 
@@ -110,7 +122,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     const port = Number(process.env.HAA_BRIDGE_PORT || 8765);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid bridge TCP port');
-    bridge.server.listen(port, host, () => console.log(`Hanna & Ada USB bridge: ${tls ? 'https' : 'http'}://${host}:${port} (USB-only, no ECU commands)`));
+    bridge.server.listen(port, host, () => console.log(`Hanna & Ada USB bridge: ${tls ? 'https' : 'http'}://${host}:${port} (USB-only, passive RX, no ECU commands)`));
   } catch (err) {
     console.error('Bridge startup blocked:', err.message);
     process.exitCode = 1;
