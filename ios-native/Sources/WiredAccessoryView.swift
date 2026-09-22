@@ -51,8 +51,8 @@ struct WiredAccessoryView: View {
                         Label("AKCESORIA UDOSTĘPNIONE PRZEZ iOS", systemImage: "cable.connector")
                             .font(.headline)
                         Text(hardware.status).foregroundStyle(.secondary)
-                        ForEach(Array(hardware.accessoryNames.enumerated()), id: \.offset) { _, name in
-                            Label(name, systemImage: "cable.connector")
+                        ForEach(Array(hardware.accessoryNames.enumerated()), id: \.offset) { item in
+                            Label(item.element, systemImage: "cable.connector")
                                 .foregroundStyle(.orange)
                         }
                         Text("Lista odświeża się także po podłączeniu lub odłączeniu akcesorium, gdy ta zakładka jest otwarta.")
