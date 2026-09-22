@@ -14,7 +14,7 @@
     "test:connection-doctor": "node --test test/connection-doctor.mjs",
     "test:workshop-fusion": "node --check public/workshop-fusion.js && node --test test/workshop-fusion.mjs",
     "test:cable": "node --check public/cable-connection-model.js && node --check public/cable-workbench.js && node --check gateway/windows-cable-bridge.mjs && node --test test/cable-connection.mjs test/cable-wiring.mjs",
-    "test:webusb": "node --check public/webusb-cable-discovery.js && node --check public/webusb-workbench-extension.js && node --test test/webusb-cable-discovery.mjs",
+    "test:webusb": "node --check public/webusb-cable-discovery.js && node --check public/webusb-workbench-extension.js && node --test test/webusb-cable-discovery.mjs test/webusb-wiring.mjs",
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
     "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
     "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs"
