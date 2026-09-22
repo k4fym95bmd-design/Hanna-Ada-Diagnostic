@@ -1,4 +1,5 @@
 import { webUsbAvailable, chooseWebUsbDevice, probeWebUsbAccess } from './webusb-cable-discovery.js';
+import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 
 // A secondary, browser-only Android path inside the EXISTING VCI screen.
 // Nothing here can transmit USB packets, open a serial line or validate a BMW ECU.
@@ -27,7 +28,8 @@ async function choose() {
     // This call is reached immediately from the button's real user gesture.
     const { device, evidence } = await chooseWebUsbDevice(navigator.usb);
     chosenDevice = device;
-    message(`Android/USB: wybrano urządzenie ${evidence.vidPid}. Kabel K+DCAN, port szeregowy i ECU nadal NIEPOTWIERDZONE.`);
+    const candidate = identifyUsbSerialCandidate(device);
+    message(`Android/USB ${evidence.vidPid} · wskazówka chipsetu: ${candidate.candidate}. ${candidate.nextStep} Kabel K+DCAN, port szeregowy i ECU nadal NIEPOTWIERDZONE.`);
   } catch (error) {
     chosenDevice = null;
     message(error?.name === 'NotFoundError' ? 'Nie wybrano urządzenia USB.' : 'Chrome nie uzyskał dostępu do USB. Sprawdź OTG, uprawnienia i zgodność kabla.', true);
@@ -38,7 +40,8 @@ async function probe() {
   inProgress = true; updateButtons();
   try {
     const evidence = await probeWebUsbAccess(chosenDevice);
-    message(`Potwierdzono otwarcie i zamknięcie urządzenia ${evidence.vidPid}. Zero poleceń do BMW. Sterownik USB-serial, port i ECU NIEPOTWIERDZONE.`);
+    const candidate = identifyUsbSerialCandidate(chosenDevice);
+    message(`Otwarto i zamknięto urządzenie ${evidence.vidPid}. Kandydat: ${candidate.candidate}. Zero poleceń do BMW. Sterownik USB-serial, port i ECU NIEPOTWIERDZONE.`);
   } catch {
     // Rejecting close/open is not success: explicitly invalidate this discovery session.
     chosenDevice = null;
@@ -58,7 +61,7 @@ function attach() {
   section.id = 'haWebUsb';
   section.className = 'ha-cable-panel';
   section.setAttribute('aria-label', 'Android WebUSB discovery');
-  section.innerHTML = `<h3>Android Chrome · kabel USB bez komputera</h3><p>WebUSB: wybierz urządzenie, sprawdź dostęp USB i zamknij je bez transmisji. Żaden wynik nie jest dowodem obsługi K+DCAN, otwarcia portu szeregowego ani odpowiedzi ECU.</p><div class="ha-cable-actions"><button type="button" data-webusb-select>WYBIERZ USB / OTG</button><button type="button" data-webusb-probe disabled>SPRAWDŹ DOSTĘP USB</button><button type="button" data-webusb-reset disabled>WYCZYŚĆ</button></div><p role="status" aria-live="polite" data-webusb-status>Nie wybrano urządzenia. Port i ECU niepotwierdzone.</p>`;
+  section.innerHTML = `<h3>Android Chrome · kabel USB bez komputera</h3><p>WebUSB: wybierz urządzenie, sprawdź dostęp USB i zamknij je bez transmisji. Identyfikator USB może wskazać rodzinę układu, ale nie potwierdza K+DCAN, sterownika ani ECU.</p><div class="ha-cable-actions"><button type="button" data-webusb-select>WYBIERZ USB / OTG</button><button type="button" data-webusb-probe disabled>SPRAWDŹ DOSTĘP USB</button><button type="button" data-webusb-reset disabled>WYCZYŚĆ</button></div><p role="status" aria-live="polite" data-webusb-status>Nie wybrano urządzenia. Port i ECU niepotwierdzone.</p>`;
   androidPanel.appendChild(section);
   section.querySelector('[data-webusb-select]').addEventListener('click', choose);
   section.querySelector('[data-webusb-probe]').addEventListener('click', probe);
