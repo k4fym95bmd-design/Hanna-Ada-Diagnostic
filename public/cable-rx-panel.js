@@ -52,12 +52,26 @@ function attach() {
       const frames = data.frames.map(frame => {
         if (!frame || frame.ecuVerified !== false || typeof frame.frameHex !== 'string'
           || !/^(?:[0-9A-F]{2})(?: [0-9A-F]{2}){3,254}$/.test(frame.frameHex)) {
-          throw new TypeError('Nieprawidłowe ramki RX.');
+          throw new TypeError('Nieprawidłowe ramki DS2 RX.');
         }
         return frame.frameHex;
       });
+      if (!Array.isArray(data.kwpFrames) || data.kwpFrames.length > 16) throw new TypeError('Most nie dostarczył poprawnych danych KWP2000.');
+      const kwpFrames = data.kwpFrames.map(frame => {
+        if (!frame || frame.ecuVerified !== false || typeof frame.frameHex !== 'string'
+          || !/^(?:[0-9A-F]{2})(?: [0-9A-F]{2}){4,196}$/.test(frame.frameHex)
+          || !['possible-reply', 'possible-echo', 'unknown'].includes(frame.directionHint)) {
+          throw new TypeError('Nieprawidłowa ramka KWP RX.');
+        }
+        const bytes = frame.frameHex.split(' ').map(part => parseInt(part, 16));
+        if (bytes[0] !== 0xB8 || bytes[3] + 5 !== bytes.length
+          || bytes.slice(0, -1).reduce((x, b) => x ^ b, 0) !== bytes.at(-1)) {
+          throw new TypeError('Ramka KWP nie przeszła kontroli długości i XOR.');
+        }
+        return `${frame.directionHint}: ${frame.frameHex}`;
+      });
       const bytes = Number.isSafeInteger(data.observedBytes) && data.observedBytes >= 0 ? data.observedBytes : '?';
-      if (panel.isConnected) result.textContent = `Odebrano bajtów: ${bytes}; ramek zgodnych ze składnią DS2: ${frames.length}.\n${frames.join('\n') || 'Brak kompletnych ramek.'}\nUWAGA: echo lub szum mogą dać ramkę. ECU niepotwierdzone; nie wysłano komend.`;
+      if (panel.isConnected) result.textContent = `Odebrano bajtów: ${bytes}\nDS2 (kandydaci): ${frames.length}\n${frames.join('\n') || 'Brak ramek DS2.'}\nKWP2000 / ME7.2 (kandydaci): ${kwpFrames.length}\n${kwpFrames.join('\n') || 'Brak ramek KWP.'}\nUWAGA: możliwe echo/szum. ECU niepotwierdzone; nie wysłano komend.`;
     } catch (error) {
       if (panel.isConnected) result.textContent = error?.name === 'AbortError' ? 'Przekroczony czas odbioru mostu.' : (error instanceof TypeError ? error.message : 'Nasłuch RX nie powiódł się.');
     } finally { clearTimeout(timeout); button.disabled = false; }
