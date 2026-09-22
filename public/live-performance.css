@@ -1,0 +1,15 @@
+.ha-performance-stats {
+  padding: 10px 14px;
+  margin: 10px 0;
+  border: 1px solid rgba(55, 158, 255, .5);
+  border-left: 3px solid #419eff;
+  background: rgba(8, 23, 40, .75);
+  color: #bedfff;
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .ha-performance-stats { padding: 9px 11px; font-size: 11px; }
+}
