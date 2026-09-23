@@ -41,7 +41,7 @@ test('echo, stale epoch and request mismatch are rejected', () => {
 
   assert.equal(assessModuleIdentityCandidate({
     requestPlan: plan,
-    receiveEvidence: baseEvidence({ frames: [{ directionHint: 'possible-echo' }] }),
+    receiveEvidence: baseEvidence({ frames: [{ directionHint: 'possible-echo', frameHex: 'B8 12 F1 01 A2 F8' }] }),
     responseRequestId: 'identity-request-0002',
     moduleIdentity: 'ME7.2',
   }).stage, 'ECHO_REJECTED');
