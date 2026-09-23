@@ -46,7 +46,7 @@ function commitMetrics() {
   const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
   const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
   const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
-  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · backoff ${stats.pidBackoffs} · UI-yield ${stats.uiYields} · kolejka 0`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · backoff ${stats.pidBackoffs} · UI-yield ${stats.uiYields} (${stats.midCycleYields} mid) · kolejka 0`;
   if (text !== lastMetricText) {
     el.textContent = text;
     lastMetricText = text;
