@@ -8,6 +8,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { attachPassiveRx } from './passive-ds2-rx.mjs';
 import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
+import { buildCableTelemetry } from './cable-session-health.mjs';
 
 const MAX_BODY = 2048;
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
@@ -146,6 +147,11 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           flashEnabled: false,
           message: 'Atomowy snapshot read-only bieżącej sesji kabla; brak TX.'
         });
+      }
+      if (req.method === 'GET' && route === '/v1/telemetry') {
+        const status = await currentStatus();
+        const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], kwpFrames: [], ecuVerified: false };
+        return json(res, 200, buildCableTelemetry({ status, rx: sample, capturedAt: Date.now() }));
       }
       if (req.method === 'POST' && route === '/v1/open') {
         if (busy || active?.isOpen) return json(res, 409, { error: 'PORT_BUSY' });
