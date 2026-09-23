@@ -340,3 +340,37 @@ test('bounded desktop receive never promotes ECU or write state', async () => {
   await assert.rejects(() => readDesktopBounded(7, 0, 250, fake), /max bytes/i);
   await assert.rejects(() => readDesktopBounded(7, 32, 6000, fake), /timeout/i);
 });
+
+
+test('desktop inventory and snapshots reject internally inconsistent USB identity', () => {
+  assert.throws(() => validateDesktopSerialCandidates([{
+    portName:'COM7', kind:'usb', vid:0x0403, pid:null,
+    manufacturer:'FTDI', product:'USB Serial', candidateFamily:'FTDI',
+    usbIdentityOnly:true, transportVerified:false, ecuVerified:false, writesEnabled:false,
+  }]), /USB identity/i);
+
+  assert.throws(() => validateDesktopSerialCandidates([{
+    portName:'COM5', kind:'bluetooth', vid:null, pid:null,
+    manufacturer:null, product:null, candidateFamily:'FTDI',
+    usbIdentityOnly:false, transportVerified:false, ecuVerified:false, writesEnabled:false,
+  }]), /Non-USB|USB transport/i);
+
+  assert.throws(() => validateDesktopTransportSnapshot({
+    version:1, stage:'NO_CANDIDATE', epoch:0,
+    portName:'COM7', kind:'usb', vid:0x0403, pid:0x6001, candidateFamily:'FTDI',
+    transportOpen:false, configured:false, ecuVerified:false, writesEnabled:false,
+  }), /stale bound identity/i);
+
+  assert.throws(() => validateDesktopTransportSnapshot({
+    version:1, stage:'PORT_CONFIGURED', epoch:1,
+    portName:'COM5', kind:'bluetooth', vid:null, pid:null, candidateFamily:null,
+    transportOpen:true, configured:true, ecuVerified:false, writesEnabled:false,
+  }), /requires USB/i);
+});
+
+test('READ_BYTES must contain at least one byte', () => {
+  assert.throws(() => validateDesktopReadResult({
+    version:1, stage:'READ_BYTES', epoch:1, protocol:'DS2',
+    receivedBytes:0, bytes:[], ecuVerified:false, writesEnabled:false,
+  }), /cannot be empty/i);
+});
