@@ -50,6 +50,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (typeof allowedOrigin !== 'string' || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError('Set an exact allowed browser origin');
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
   if (!isLoopback(host) && !allowedOrigin.startsWith('https://')) throw new TypeError('LAN access requires an HTTPS browser origin');
+  const bridgeInstanceId = randomBytes(16).toString('hex');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   let sessionEpoch = 0;
   let stateRevision = 0;
@@ -89,7 +90,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     if (!detected && selected !== null && active?.isOpen) {
       invalidateActiveSession();
       return {
-        version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+        version: 1, bridgeInstanceId, transport: 'physical-vci', cableDetected: false, portOpen: false,
         selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
         evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
         ecuVerified: false, writesEnabled: false, flashEnabled: false,
@@ -104,7 +105,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       if (vendorId == null || productId == null) {
         invalidateActiveSession();
         return {
-          version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+          version: 1, bridgeInstanceId, transport: 'physical-vci', cableDetected: false, portOpen: false,
           selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
           evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
           ecuVerified: false, writesEnabled: false, flashEnabled: false,
@@ -117,7 +118,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       } catch {
         invalidateActiveSession();
         return {
-          version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+          version: 1, bridgeInstanceId, transport: 'physical-vci', cableDetected: false, portOpen: false,
           selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
           evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
           ecuVerified: false, writesEnabled: false, flashEnabled: false,
@@ -126,7 +127,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       }
     }
     const bound = !!cableBinding?.active;
-    return { version: 1, transport: 'physical-vci', cableDetected: detected, portOpen: opened,
+    return { version: 1, bridgeInstanceId, transport: 'physical-vci', cableDetected: detected, portOpen: opened,
       selectedPath: detected ? selected : null, sessionId: opened ? sessionId : null,
       sessionEpoch: opened ? sessionEpoch : null, stateRevision,
       cableBinding: bound ? cableBinding : null,
@@ -159,6 +160,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       if (req.method === 'GET' && route === '/v1/capabilities') return json(res, 200, {
         version: 1,
         bridge: 'hanna-ada-kdcan',
+        bridgeInstanceId,
+        stateRevision,
         evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
         readOnly: true,
         usbEnumeration: true,
@@ -179,6 +182,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         const ports = enumerated.map(safePort);
         return json(res, 200, {
           version: 1,
+          bridgeInstanceId,
+          stateRevision,
           readOnly: true,
           ports,
           selectedPath: selected,
@@ -192,12 +197,12 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       }
       if (req.method === 'GET' && route === '/v1/ports') {
         const ports = (await serial.list()).filter(validPort).map(safePort);
-        return json(res, 200, { ports, selectedPath: selected });
+        return json(res, 200, { version:1, bridgeInstanceId, stateRevision, ports, selectedPath: selected });
       }
       if (req.method === 'GET' && route === '/v1/rx') {
         const status = await currentStatus();
         const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], ecuVerified: false };
-        return json(res, 200, { version: 1, sessionId: status.sessionId, portOpen: status.portOpen, ...sample, ecuVerified: false,
+        return json(res, 200, { version: 1, bridgeInstanceId, stateRevision: status.stateRevision, sessionEpoch: status.sessionEpoch, sessionId: status.sessionId, portOpen: status.portOpen, ...sample, ecuVerified: false,
           message: 'Wyłącznie pasywny odbiór: ramka lub echo nie dowodzą odpowiedzi ECU. Brak komend TX.' });
       }
       if (req.method === 'GET' && route === '/v1/snapshot') {
@@ -206,6 +211,9 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         return json(res, 200, {
           version: 1,
           snapshotVersion: 1,
+          bridgeInstanceId,
+          stateRevision: status.stateRevision,
+          sessionEpoch: status.sessionEpoch,
           capturedAt: Date.now(),
           status,
           rx: { ...sample, ecuVerified: false },
@@ -218,7 +226,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       if (req.method === 'GET' && route === '/v1/telemetry') {
         const status = await currentStatus();
         const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], kwpFrames: [], ecuVerified: false };
-        return json(res, 200, buildCableTelemetry({ status, rx: sample, capturedAt: Date.now() }));
+        return json(res, 200, { bridgeInstanceId, ...buildCableTelemetry({ status, rx: sample, capturedAt: Date.now() }) });
       }
       if (req.method === 'POST' && route === '/v1/open') {
         if (busy || active?.isOpen) return json(res, 409, { error: 'PORT_BUSY' });
