@@ -17,6 +17,7 @@ import { listReadOnlyRequests } from './read-only-request-registry.js';
 import { TrustedCorrelationSession } from './trusted-correlation-session.js';
 import { validateTrustedIdentityCandidateEvent } from './trusted-identity-event.js';
 import { finalizeReadOnlyIdentity } from './read-only-identity-finalizer.js';
+import { getIdentityParserProfile, isIdentityParserVerified } from './identity-parser-profile.js';
 
 const state = {
   ready: false,
@@ -101,12 +102,18 @@ function render(panel) {
   const correlation = state.correlationSession?.snapshot?.() || null;
   const finalized = state.identityResult?.identityVerified === true;
   const repeatedCandidate = correlation?.repeatCandidateReady === true;
+  const parserProfile = state.requestOperationId
+    ? getIdentityParserProfile(state.requestOperationId)
+    : null;
+  const parserVerified = state.requestOperationId
+    ? isIdentityParserVerified(state.requestOperationId)
+    : false;
   panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
     ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · native broker ${state.brokerSnapshot?.stage || 'pending'} · RX receipt ${state.nativeReadReceipt || 'pending'} · TX MATERIAL NOT EXPOSED`
     : finalized
       ? `Identity chain finalized · ${state.identityResult.moduleIdentity} · attestation #${state.identityResult.attestationSequence}`
       : repeatedCandidate
-        ? `Identity chain: 2/2 · ${correlation.moduleIdentity || 'identity candidate'} · REPEATED_CORRELATED_IDENTITY_CANDIDATE · LOCAL ATTESTATION REQUIRED`
+        ? `Identity chain: 2/2 · ${correlation.moduleIdentity || 'identity candidate'} · REPEATED_CORRELATED_IDENTITY_CANDIDATE · parser ${parserProfile?.verificationState || 'UNKNOWN'} · ${parserVerified ? 'LOCAL ATTESTATION REQUIRED' : 'VERIFIED PROFILE PARSER REQUIRED'}`
         : correlation
           ? `Identity chain: ${correlation.confirmations}/2 · ${correlation.moduleIdentity || 'identity pending'} · next independent attempt required`
           : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
@@ -132,7 +139,8 @@ function render(panel) {
       && !repeatedCandidate
       && state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol),
     'cancel-identity': state.ready && configured && !!state.requestPlan,
-    'attest-identity': state.ready && configured && !state.requestPlan && repeatedCandidate && !finalized,
+    'attest-identity': state.ready && configured && !state.requestPlan
+      && repeatedCandidate && parserVerified && !finalized,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -238,6 +246,9 @@ async function action(panel, name) {
       const correlation = state.correlationSession?.snapshot?.();
       if (!correlation?.repeatCandidateReady || state.requestPlan) {
         throw new TypeError('Najpierw potrzebne są dwa niezależne, skorelowane kandydaty identity.');
+      }
+      if (!isIdentityParserVerified(correlation.operationId)) {
+        throw new TypeError('VERIFIED_PROFILE_PARSER_REQUIRED');
       }
       state.localAttestation = await attestDesktopIdentityContext(
         correlation.epoch,
@@ -361,7 +372,7 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-identity></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. 2/2 daje tylko repeated identity candidate; READ_ONLY_IDENTITY_VERIFIED wymaga native local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. 2/2 daje tylko repeated identity candidate; finalizacja wymaga VERIFIED profile parser + native local attestation.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
