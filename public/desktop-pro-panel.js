@@ -191,13 +191,6 @@ function render(panel) {
       ? 'Fuel adaptations 0x4004: gotowe do pojedynczego read-only odczytu.'
       : 'Fuel adaptations 0x4004: zablokowane do READ_ONLY_IDENTITY_VERIFIED.';
 
-  const adaptation = state.fuelAdaptation;
-  panel.querySelector('[data-desktop-pro-fuel-adaptation]').textContent = adaptation
-    ? `Fuel adaptation #${state.fuelAdaptationSequence} · add B1 ${adaptation.additiveBank1Percent.toFixed(4)}% · add B2 ${adaptation.additiveBank2Percent.toFixed(4)}% · mult B1 ${adaptation.multiplicativeBank1Percent.toFixed(6)}% · mult B2 ${adaptation.multiplicativeBank2Percent.toFixed(6)}%`
-    : finalized
-      ? 'Fuel adaptation 0x4004: gotowa do pojedynczego read-only snapshotu.'
-      : 'Fuel adaptation 0x4004: zablokowana do READ_ONLY_IDENTITY_VERIFIED.';
-
   const outputStatus = state.outputStatus;
   panel.querySelector('[data-desktop-pro-output-status]').textContent = outputStatus
     ? `Output status #${state.outputStatusSequence} · fuel pump ${outputStatus.fuelPump ? 'ON' : 'OFF'} · fan ${outputStatus.electricFan ? 'ON' : 'OFF'} · thermostat ${outputStatus.thermostat ? 'ON' : 'OFF'} · secondary-air valve ${outputStatus.secondaryAirValve ? 'ON' : 'OFF'} · pump ${outputStatus.secondaryAirPump ? 'ON' : 'OFF'} · leak pump ${outputStatus.leakDiagnosticPump ? 'ON' : 'OFF'} · O2 pre ${[outputStatus.oxygenHeaterBeforeBank1,outputStatus.oxygenHeaterBeforeBank2].filter(Boolean).length}/2 · post raw 0x40=${outputStatus.postCatHeaterBit40 ? 1 : 0} 0x80=${outputStatus.postCatHeaterBit80 ? 1 : 0} · post-bank map CONFLICT`
