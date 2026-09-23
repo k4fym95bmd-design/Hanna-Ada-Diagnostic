@@ -432,6 +432,7 @@ test('native request broker accepts canonical metadata and never exposes TX', as
   let active = null;
   let attempts = 0;
   let evidenced = 0;
+  const evidencedAttempts = [];
   const fake = {
     window: {
       __TAURI__: {
@@ -443,6 +444,10 @@ test('native request broker accepts canonical metadata and never exposes TX', as
             } else if (name === 'desktop_consume_readonly_request') {
               assert.equal(args.requestId, active.requestId);
               assert.equal(args.nativeRequestReceipt, active.receipt);
+              evidencedAttempts.push({
+                requestId: active.requestId,
+                nativeReceiveReceipt: args.nativeRequestReceipt,
+              });
               active = null;
               evidenced += 1;
             } else if (name === 'desktop_cancel_readonly_request') {
@@ -464,6 +469,7 @@ test('native request broker accepts canonical metadata and never exposes TX', as
               maxResponseBytes: active?.maxResponseBytes ?? null,
               attemptCount: attempts,
               evidencedAttemptCount: evidenced,
+              evidencedAttempts: evidencedAttempts.map(item => ({ ...item })),
               maxAttempts: 32,
               activeReceiveReceipt: active?.receipt ?? null,
               activeReceivedBytes: active?.receivedBytes ?? 0,
@@ -518,6 +524,7 @@ test('broker snapshot rejects stale active data and unsafe promotion', () => {
     maxResponseBytes: null,
     attemptCount: 1,
     evidencedAttemptCount: 0,
+    evidencedAttempts: [],
     maxAttempts: 32,
     activeReceiveReceipt: null,
     activeReceivedBytes: 0,
@@ -541,6 +548,7 @@ test('broker snapshot rejects stale active data and unsafe promotion', () => {
     maxResponseBytes: null,
     attemptCount: 1,
     evidencedAttemptCount: 0,
+    evidencedAttempts: [],
     maxAttempts: 32,
     activeReceiveReceipt: null,
     activeReceivedBytes: 0,
