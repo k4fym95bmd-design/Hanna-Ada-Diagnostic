@@ -22,6 +22,7 @@ import {
   validateDesktopTransportSnapshot,
   validateDesktopReadResult,
   validateDesktopRequestBrokerSnapshot,
+  validateDesktopLocalIdentityAttestation,
 } from '../public/desktop-host-bridge.js';
 import { instantiateReadOnlyRequest } from '../public/read-only-request-registry.js';
 
@@ -676,4 +677,40 @@ test('read-only sample provenance cannot exist without attested identity fingerp
     ecuVerified:false,
     writesEnabled:false,
   }), /sample provenance/i);
+});
+
+
+test('local attestation bridge preserves operation and fingerprint provenance', () => {
+  const fingerprint='PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021';
+  const result=validateDesktopLocalIdentityAttestation({
+    version:1,
+    evidenceContractVersion:1,
+    stage:'LOCAL_HOST_ATTESTED',
+    host:'native-desktop',
+    epoch:7,
+    sequence:1,
+    protocol:'KWP2000_BMW',
+    transportConfigured:true,
+    brokerIdle:true,
+    brokerAttemptCount:2,
+    brokerEvidencedAttemptCount:2,
+    brokerEvidencedAttempts:[
+      {operationId:'e39-dme-me72-module-identity',requestId:'identity-native-A',nativeReceiveReceipt:1,nativeIdentityFingerprint:fingerprint},
+      {operationId:'e39-dme-me72-module-identity',requestId:'identity-native-B',nativeReceiveReceipt:2,nativeIdentityFingerprint:fingerprint},
+    ],
+    nativeIdentityFingerprint:fingerprint,
+    nativeIdentityConsistent:true,
+    rawSerialWriteExposed:false,
+    identityVerified:false,
+    ecuVerified:false,
+    writesEnabled:false,
+    flashEnabled:false,
+  });
+  assert.equal(result.brokerEvidencedAttempts[0].operationId,'e39-dme-me72-module-identity');
+  assert.equal(result.brokerEvidencedAttempts[0].nativeIdentityFingerprint,fingerprint);
+
+  assert.throws(() => validateDesktopLocalIdentityAttestation({
+    ...result,
+    nativeIdentityFingerprint:'PN9999999-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
+  }),/fingerprint mismatch/i);
 });
