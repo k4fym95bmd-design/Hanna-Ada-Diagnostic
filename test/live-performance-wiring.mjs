@@ -22,10 +22,12 @@ test('performance code reuses one BLE session and does not offer extra transmit 
 });
 
 
-test('runtime coalesces view mutation work and does not query the runtime root on every visibility check', () => {
+test('runtime uses explicit app events instead of DOM mutation observers', () => {
   assert.match(runtime, /let runtimeAttached = false/);
   assert.match(runtime, /function scheduleBind\(\)/);
-  assert.match(runtime, /new MutationObserver\(scheduleBind\)/);
+  assert.match(runtime, /hannaada:module-rendered/);
+  assert.match(runtime, /hannaada:obd-runtime-mounted/);
+  assert.doesNotMatch(runtime, /new MutationObserver/);
   assert.match(runtime, /isVisible: \(\) => !document\.hidden && runtimeAttached/);
   assert.doesNotMatch(runtime, /isVisible: \(\) => !document\.hidden && !!\$\('#haRuntime'\)/);
 });
@@ -39,7 +41,8 @@ test('legacy interval polling is stopped when ultra runtime takes ownership', ()
 
 test('runtime cooperatively yields to pending user input where supported', () => {
   assert.match(runtime, /navigator\.scheduling\?\.isInputPending/);
-  assert.match(runtime, /shouldYield: inputPending/);
+  assert.match(runtime, /const shouldYield = \(\) => inputPending\(\) \|\| performance\.now\(\) < longTaskHoldUntil/);
+  assert.match(runtime, /shouldYield,/);
   assert.match(core, /if \(shouldYield\(\)\)/);
   assert.match(core, /schedule\(100, owner\)/);
 });
@@ -51,4 +54,16 @@ test('runtime also yields briefly after browser long tasks', () => {
   assert.match(runtime, /longTaskHoldUntil/);
   assert.match(runtime, /const shouldYield = \(\) => inputPending\(\) \|\| performance\.now\(\) < longTaskHoldUntil/);
   assert.match(runtime, /shouldYield,/);
+});
+
+
+test('diagnostic core delegates live polling to the one ultra scheduler', () => {
+  const diagnostic = readFileSync(new URL('../public/diagnostic-core-v2.js', import.meta.url), 'utf8');
+  assert.match(diagnostic, /ultraControllerReady/);
+  assert.match(diagnostic, /startUltraLive/);
+  assert.match(diagnostic, /stopUltraLive/);
+  assert.doesNotMatch(diagnostic, /setInterval\(cycle/);
+  assert.doesNotMatch(diagnostic, /new MutationObserver/);
+  assert.match(runtime, /obd\.startUltraLive/);
+  assert.match(runtime, /obd\.stopUltraLive/);
 });
