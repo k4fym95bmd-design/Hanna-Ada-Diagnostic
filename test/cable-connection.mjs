@@ -87,3 +87,45 @@ test('readiness endpoint keeps detection separate from ECU verification', async 
   assert.equal(body.status.ecuVerified, false);
   assert.equal(body.status.writesEnabled, false);
 });
+
+
+test('missing enumerated device invalidates an active bridge session', async t => {
+  let connected = true;
+  const serialState = {
+    activePort: null,
+    list: async () => connected
+      ? [{ path: 'COM7', manufacturer: 'Test FTDI', vendorId: '0403', productId: '6001' }]
+      : [],
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path;
+      p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      serialState.activePort = p;
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial: serialState, token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const url = `http://127.0.0.1:${bridge.server.address().port}`;
+  const ask = async (path, options={}) => {
+    const response = await fetch(url + path, {
+      method: options.method || 'GET',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type':'application/json' },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+    });
+    return { code: response.status, json: await response.json() };
+  };
+
+  const opened = await ask('/v1/open', { method:'POST', body:{ path:'COM7' } });
+  assert.equal(opened.json.portOpen, true);
+  connected = false;
+  const status = await ask('/v1/status');
+  assert.equal(status.json.cableDetected, false);
+  assert.equal(status.json.portOpen, false);
+  assert.equal(status.json.sessionId, null);
+  assert.equal(status.json.ecuVerified, false);
+  assert.equal(status.json.writesEnabled, false);
+});
