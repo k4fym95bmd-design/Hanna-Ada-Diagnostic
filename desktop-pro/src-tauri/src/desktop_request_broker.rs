@@ -19,6 +19,13 @@ struct ActiveRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DesktopEvidencedAttempt {
+    pub request_id: String,
+    pub native_receive_receipt: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DesktopRequestBrokerSnapshot {
     pub version: u8,
     pub evidence_contract_version: u8,
@@ -32,6 +39,7 @@ pub struct DesktopRequestBrokerSnapshot {
     pub max_response_bytes: Option<usize>,
     pub attempt_count: usize,
     pub evidenced_attempt_count: usize,
+    pub evidenced_attempts: Vec<DesktopEvidencedAttempt>,
     pub max_attempts: usize,
     pub active_receive_receipt: Option<u64>,
     pub active_received_bytes: usize,
@@ -49,6 +57,7 @@ pub struct DesktopReadOnlyRequestBroker {
     issued_request_ids: HashSet<String>,
     receipt_sequence: u64,
     evidenced_attempt_count: usize,
+    evidenced_attempts: Vec<DesktopEvidencedAttempt>,
 }
 
 fn canonical_operation(id: &str) -> Option<(&'static str, &'static str, u64, usize)> {
@@ -83,6 +92,7 @@ impl DesktopReadOnlyRequestBroker {
         self.active = None;
         self.issued_request_ids.clear();
         self.evidenced_attempt_count = 0;
+        self.evidenced_attempts.clear();
     }
 
     pub fn prepare(
@@ -218,8 +228,13 @@ impl DesktopReadOnlyRequestBroker {
             || active.received_bytes == 0 {
             return Err("native_receive_receipt_required".into());
         }
+        let evidenced_request_id = active.request_id.clone();
         self.active = None;
         self.evidenced_attempt_count += 1;
+        self.evidenced_attempts.push(DesktopEvidencedAttempt {
+            request_id: evidenced_request_id,
+            native_receive_receipt,
+        });
         Ok(self.snapshot())
     }
 
@@ -256,6 +271,7 @@ impl DesktopReadOnlyRequestBroker {
             max_response_bytes: active.map(|r| r.max_response_bytes),
             attempt_count: self.issued_request_ids.len(),
             evidenced_attempt_count: self.evidenced_attempt_count,
+            evidenced_attempts: self.evidenced_attempts.clone(),
             max_attempts: MAX_ATTEMPTS,
             active_receive_receipt: active.and_then(|r| r.receive_receipt),
             active_received_bytes: active.map(|r| r.received_bytes).unwrap_or(0),
@@ -388,6 +404,9 @@ mod tests {
         let done = broker.consume(7, "broker-request-receipt", first).unwrap();
         assert_eq!(done.stage, "BROKER_IDLE");
         assert_eq!(done.evidenced_attempt_count, 1);
+        assert_eq!(done.evidenced_attempts.len(), 1);
+        assert_eq!(done.evidenced_attempts[0].request_id, "broker-request-receipt");
+        assert_eq!(done.evidenced_attempts[0].native_receive_receipt, first);
         assert_eq!(done.active_receive_receipt, None);
         assert_eq!(done.active_received_bytes, 0);
     }
@@ -454,6 +473,7 @@ mod tests {
         assert_eq!(snap.stage, "BROKER_IDLE");
         assert_eq!(snap.attempt_count, 0);
         assert_eq!(snap.evidenced_attempt_count, 0);
+        assert!(snap.evidenced_attempts.is_empty());
         assert!(!snap.active_request);
         assert!(!snap.writes_enabled);
     }
