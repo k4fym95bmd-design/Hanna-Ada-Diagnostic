@@ -32,23 +32,22 @@ function attach() {
       const token = root.querySelector('[data-cable-token]')?.value || '';
       if (token.length < 32) throw new TypeError('Brak tokenu mostu (minimum 32 znaki).');
       const options = { headers: { Authorization: `Bearer ${token}` }, mode: 'cors', cache: 'no-store', credentials: 'omit', signal: controller.signal };
-      const response = await fetch(`${url}/v1/rx`, options);
-      if (!response.ok) throw new TypeError(`Most RX zwrócił HTTP ${response.status}.`);
-      const data = await response.json();
-      if (!data || data.version !== 1 || data.ecuVerified !== false || !Array.isArray(data.frames) || data.frames.length > 16) {
-        throw new TypeError('Nieprawidłowa odpowiedź mostu RX.');
+      const response = await fetch(`${url}/v1/snapshot`, options);
+      if (!response.ok) throw new TypeError(`Most snapshot zwrócił HTTP ${response.status}.`);
+      const snapshot = await response.json();
+      if (!snapshot || snapshot.version !== 1 || snapshot.snapshotVersion !== 1 || snapshot.ecuVerified !== false
+        || snapshot.writesEnabled !== false || snapshot.flashEnabled !== false
+        || !snapshot.status || !snapshot.rx) {
+        throw new TypeError('Nieprawidłowy snapshot mostu.');
       }
-      if (!data.portOpen || !/^[a-f0-9]{40}$/i.test(data.sessionId || '')) {
+      const status = snapshot.status;
+      const data = snapshot.rx;
+      if (!Array.isArray(data.frames) || data.frames.length > 16) throw new TypeError('Nieprawidłowe ramki snapshotu.');
+      if (!status.portOpen || !/^[a-f0-9]{40}$/i.test(status.sessionId || '')) {
         result.textContent = 'Port zamknięty. Brak bieżącej sesji RX.';
         return;
       }
-      const statusResponse = await fetch(`${url}/v1/status`, options);
-      if (!statusResponse.ok) throw new TypeError('Nie można ponownie potwierdzić sesji mostu.');
-      const status = await statusResponse.json();
-      if (!status.portOpen || status.sessionId !== data.sessionId || status.ecuVerified !== false) {
-        result.textContent = 'Sesja zmieniła się podczas odczytu. Stare dane odrzucone.';
-        return;
-      }
+      if (status.ecuVerified !== false || data.ecuVerified !== false) throw new TypeError('Snapshot narusza read-only evidence contract.');
       const frames = data.frames.map(frame => {
         if (!frame || frame.ecuVerified !== false || typeof frame.frameHex !== 'string'
           || !/^(?:[0-9A-F]{2})(?: [0-9A-F]{2}){3,254}$/.test(frame.frameHex)) {
