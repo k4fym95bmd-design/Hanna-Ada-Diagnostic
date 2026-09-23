@@ -18,24 +18,22 @@ export function validateBridgeUrl(value) {
 export function cableStatus(input = {}) {
   const detected = input.cableDetected === true;
   const opened = detected && input.portOpen === true;
-  const verified = opened && input.ecuEvidence?.verified === true
-    && typeof input.sessionId === 'string' && input.sessionId.length >= 16
-    && input.ecuEvidence.sessionId === input.sessionId
-    && typeof input.ecuEvidence.moduleId === 'string' && input.ecuEvidence.moduleId.length > 0
-    && typeof input.ecuEvidence.identity === 'string' && input.ecuEvidence.identity.trim().length >= 2;
-  const stage = verified ? 'ECU_VERIFIED' : opened ? 'PORT_OPEN' : detected ? 'CABLE_DETECTED' : 'NO_CABLE';
+  // The browser-side connection model is not an ECU identity authority.
+  // Until a dedicated local read-only identity validator is wired in, no caller-supplied
+  // object may promote a USB/serial session to ECU_VERIFIED.
+  const verified = false;
+  const stage = opened ? 'PORT_OPEN' : detected ? 'CABLE_DETECTED' : 'NO_CABLE';
   return Object.freeze({
     stage,
     cableDetected: detected,
     portOpen: opened,
     ecuVerified: verified,
-    bmwModulesVerified: verified ? Object.freeze([input.ecuEvidence.moduleId]) : Object.freeze([]),
+    bmwModulesVerified: Object.freeze([]),
     writesEnabled: false,
     flashEnabled: false,
     nextStep: stage === 'NO_CABLE' ? 'Wykryj kabel USB lub sprawdź most Windows.'
       : stage === 'CABLE_DETECTED' ? 'Uzyskaj zgodę i otwórz port USB-serial.'
-      : stage === 'PORT_OPEN' ? 'Port otwarty. BMW ECU wymaga zgodnego, osobno zweryfikowanego protokołu.'
-      : 'ECU potwierdzone konkretną odpowiedzią. Zapis i flash są zablokowane.',
+      : 'Port otwarty. BMW ECU wymaga osobnego lokalnego walidatora odpowiedzi read-only; przeglądarka sama nie może potwierdzić ECU.',
   });
 }
 
