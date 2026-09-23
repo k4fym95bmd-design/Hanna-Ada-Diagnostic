@@ -32,6 +32,9 @@ import { deriveMe72FuelAdaptationFromEvidence } from './me72-fuel-adaptation-par
 import { deriveMe72OutputStatusFromEvidence } from './me72-output-status-parser.js';
 import { deriveMe72ReadinessFromEvidence } from './me72-readiness-parser.js';
 import { deriveMe72DtcCountFromEvidence } from './me72-dtc-count-parser.js';
+import { summarizeMe72Capabilities } from './me72-capability-matrix.js';
+
+const me72CapabilitySummary=summarizeMe72Capabilities();
 
 const state = {
   ready: false,
@@ -95,6 +98,8 @@ function render(panel) {
   panel.querySelector('[data-desktop-pro-stage]').textContent =
     `STAN: ${snap?.stage || 'NO_CANDIDATE'} · evidence ${snap?.evidenceStage || 'NO_CABLE'} · epoch ${snap?.epoch ?? 0} · ECU NIEPOTWIERDZONE · WRITE LOCKED`;
   panel.querySelector('[data-desktop-pro-message]').textContent = state.message;
+  panel.querySelector('[data-desktop-pro-capabilities]').textContent =
+    `ME7.2 evidence · enabled ${me72CapabilitySummary.enabledCount} · reference ${me72CapabilitySummary.referenceVerified} · conflict-aware ${me72CapabilitySummary.conflictAware} · contract-only ${me72CapabilitySummary.contractVerified} · full DTC LIST BLOCKED · CLEAR DTC NOT EXPOSED · HARDWARE UNVERIFIED`;
 
   const select = panel.querySelector('[data-desktop-pro-port]');
   const before = select.value;
@@ -722,6 +727,7 @@ async function attachDesktopProPanel() {
     <h3>Desktop PRO · Native Windows / Tauri</h3>
     <p data-desktop-pro-host></p>
     <p data-desktop-pro-stage></p>
+    <p data-desktop-pro-capabilities></p>
     <div class="ha-cable-fields">
       <label>Port natywny
         <select data-desktop-pro-port aria-label="Desktop PRO port"></select>
