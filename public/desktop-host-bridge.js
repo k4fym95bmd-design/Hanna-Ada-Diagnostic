@@ -58,6 +58,53 @@ export function validateDesktopSafetyPolicy(value) {
   return Object.freeze({ ...value });
 }
 
+export function validateDesktopSerialCandidates(value) {
+  if (!Array.isArray(value)) throw new TypeError('Invalid desktop serial inventory');
+  const allowedKinds = new Set(['usb', 'bluetooth', 'pci', 'unknown']);
+  const allowedFamilies = new Set(['FTDI', 'CP210X', 'CH34X', 'PL2303']);
+
+  return Object.freeze(value.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TypeError('Invalid desktop serial candidate');
+    }
+    if ('serialNumber' in item || 'serial_number' in item) {
+      throw new TypeError('Serial number must not cross the desktop IPC boundary');
+    }
+    if (typeof item.portName !== 'string' || item.portName.length < 1 || item.portName.length > 96
+        || !allowedKinds.has(item.kind)) {
+      throw new TypeError('Invalid desktop serial identity');
+    }
+    for (const key of ['usbIdentityOnly', 'transportVerified', 'ecuVerified', 'writesEnabled']) {
+      assertBoolean(item[key], key);
+    }
+    if (item.transportVerified || item.ecuVerified || item.writesEnabled) {
+      throw new TypeError('Serial inventory attempted unsafe capability promotion');
+    }
+    for (const key of ['vid', 'pid']) {
+      const v = item[key];
+      if (v !== null && (!Number.isInteger(v) || v < 0 || v > 0xFFFF)) {
+        throw new TypeError('Invalid USB identity');
+      }
+    }
+    if (item.candidateFamily !== null && !allowedFamilies.has(item.candidateFamily)) {
+      throw new TypeError('Unknown serial family candidate');
+    }
+    for (const key of ['manufacturer', 'product']) {
+      const v = item[key];
+      if (v !== null && (typeof v !== 'string' || v.length > 128)) {
+        throw new TypeError('Invalid serial metadata');
+      }
+    }
+    return Object.freeze({ ...item });
+  }));
+}
+
+export async function listDesktopSerialCandidates(globalObject = globalThis) {
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) return Object.freeze([]);
+  return validateDesktopSerialCandidates(await invoke('desktop_list_serial_ports'));
+}
+
 export function getTauriInvoke(globalObject = globalThis) {
   const invoke = globalObject?.window?.__TAURI__?.core?.invoke;
   return typeof invoke === 'function' ? invoke : null;
