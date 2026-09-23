@@ -126,3 +126,11 @@ test('ME7.2 RUN IDENTITY is automatic and parser-derived', async () => {
   assert.match(panel, /consumeDesktopReadOnlyRequest\([\s\S]*state\.nativeReadReceipt/);
   assert.doesNotMatch(panel, /executeDesktopMe72Identity\([\s\S]{0,160}(bytes|payload|command)\s*:/);
 });
+
+
+test('Desktop PRO attach path is event-driven instead of subtree-observed', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /hannaada:cable-workbench-mounted/);
+  assert.match(panel, /hannaada:module-rendered/);
+  assert.doesNotMatch(panel, /new MutationObserver/);
+});
