@@ -55,3 +55,11 @@ test('trusted identity UI has no manual identity override or TX material field',
   assert.match(panel, /READ_ONLY_IDENTITY_VERIFIED 2\/2/);
   assert.match(panel, /ECU\/write\/flash nadal zablokowane/);
 });
+
+
+test('native open is gated to a USB candidate and canonical evidence is visible', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /evidence \$\{snap\?\.evidenceStage \|\| 'NO_CABLE'\}/);
+  assert.match(panel, /boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap\?\.kind === 'usb'/);
+  assert.doesNotMatch(panel, /\['USB_CANDIDATE_BOUND','SERIAL_CANDIDATE_BOUND'\]\.includes\(stage\)/);
+});
