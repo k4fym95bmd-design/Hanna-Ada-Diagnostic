@@ -91,3 +91,22 @@ test('stop during delayed response never credits a stale numeric measurement', a
   assert.equal(c.metrics().reads,0);
   assert.equal(c.metrics().noData,0);
 });
+
+
+test('performance metrics remain bounded and read-only under ultra scheduling', async () => {
+  let now = 0;
+  const c = createLivePerformanceController({
+    getSupported: () => supported,
+    isConnected: () => true,
+    readPid: async () => { now += 40; return 1; },
+    now: () => now,
+  });
+  await c.snapshot();
+  const m = c.metrics();
+  assert.equal(m.writesEnabled, false);
+  assert.equal(m.queuedCommands, 0);
+  assert.equal(m.lastBatchSize, 2);
+  assert.ok(m.averageMs >= 0);
+  assert.ok(m.lastCycleMs >= 0);
+  assert.ok(m.dutyCyclePct >= 0 && m.dutyCyclePct <= 100);
+});
