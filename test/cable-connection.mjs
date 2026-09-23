@@ -283,3 +283,45 @@ test('readiness uses one serial enumeration snapshot for ports and status', asyn
   assert.equal(body.ports[0].path, 'COM7');
   assert.equal(body.status.ecuVerified, false);
 });
+
+
+test('loss of VID PID metadata invalidates a previously bound session', async t => {
+  let withIdentity = true;
+  const serialState = {
+    activePort:null,
+    list: async () => [withIdentity
+      ? { path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001', serialNumber:'stable-adapter' }
+      : { path:'COM7', manufacturer:'FTDI', serialNumber:'stable-adapter' }],
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      serialState.activePort = p;
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial: serialState, token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const ask = async (path, options={}) => {
+    const response = await fetch(base + path, {
+      method: options.method || 'GET',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type':'application/json' },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+    });
+    return { code:response.status, json:await response.json() };
+  };
+
+  const opened = await ask('/v1/open', { method:'POST', body:{ path:'COM7' } });
+  assert.equal(opened.json.portOpen, true);
+  assert.equal(opened.json.cableBinding.vidPid, '0403:6001');
+
+  withIdentity = false;
+  const status = await ask('/v1/status');
+  assert.equal(status.json.portOpen, false);
+  assert.equal(status.json.sessionId, null);
+  assert.equal(status.json.cableBinding, null);
+  assert.equal(serialState.activePort.isOpen, false);
+});
