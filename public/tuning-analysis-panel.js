@@ -29,9 +29,7 @@ function patchTuningAnalysis() {
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(patchTuningAnalysis).observe(view, { childList:true, subtree:true });
+    window.addEventListener('hannaada:module-rendered', patchTuningAnalysis);
     patchTuningAnalysis();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
