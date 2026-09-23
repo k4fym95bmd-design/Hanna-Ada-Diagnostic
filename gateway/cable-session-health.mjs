@@ -29,6 +29,8 @@ export function buildCableTelemetry({ status, rx, capturedAt = Date.now() } = {}
     version: 1,
     contractVersion: evidence.contractVersion,
     capturedAt,
+    sessionEpoch: Number.isSafeInteger(status.sessionEpoch) ? status.sessionEpoch : null,
+    stateRevision: Number.isSafeInteger(status.stateRevision) ? status.stateRevision : 0,
     stage: evidence.stage,
     hardwareBound: evidence.hardwareBound,
     portOpen: evidence.portOpen,
