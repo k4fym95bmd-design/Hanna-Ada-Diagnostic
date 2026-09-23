@@ -24,6 +24,7 @@ function display() {
   const status = cableStatus({ cableDetected: work.detected, portOpen: work.opened });
   root.dataset.cablePortOpen = String(work.opened);
   root.dataset.cableModeCurrent = work.mode;
+  root.dataset.bridgeOnline = String(work.bridgeOnline);
   const modeSelected = work.mode === 'bridge' ? (Boolean(work.selectedPath) || status.cableDetected) : status.cableDetected;
   const states = [modeSelected, status.portOpen, status.ecuVerified];
   root.querySelectorAll('[data-cable-stage]').forEach((item, index) => {
@@ -124,10 +125,18 @@ async function action(name) {
     }
   } catch (error) {
     if (name.startsWith('bridge-')) {
-      work.bridgeOnline = false; work.detected = work.opened = false;
-      delete root.dataset.bridgeUsbVendorId;
-      delete root.dataset.bridgeUsbProductId;
-      report(`${errText(error)} Stan fizycznego portu Windows jest teraz nieznany.`, true);
+      const reachableClientError = Number.isInteger(error?.httpStatus)
+        && error.httpStatus >= 400 && error.httpStatus < 500
+        && ![401, 403].includes(error.httpStatus);
+      if (reachableClientError) {
+        work.bridgeOnline = true;
+        report(`${errText(error)} Most nadal odpowiada; zachowano ostatni potwierdzony stan.`, true);
+      } else {
+        work.bridgeOnline = false; work.detected = work.opened = false;
+        delete root.dataset.bridgeUsbVendorId;
+        delete root.dataset.bridgeUsbProductId;
+        report(`${errText(error)} Stan fizycznego portu Windows jest teraz nieznany.`, true);
+      }
     } else {
       if (name === 'desktop-open') work.opened = false;
       report(errText(error), true);
@@ -159,7 +168,11 @@ async function bridgeRequest(path, payload) {
       ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       signal: controller.signal, mode: 'cors', cache: 'no-store', credentials: 'omit',
     });
-    if (!result.ok) throw new TypeError(`Most zwrócił HTTP ${result.status}; sprawdź token, CORS, port lub certyfikat.`);
+    if (!result.ok) {
+      const error = new TypeError(`Most zwrócił HTTP ${result.status}; sprawdź token, CORS, port lub certyfikat.`);
+      error.httpStatus = result.status;
+      throw error;
+    }
     return result.json();
   } finally { clearTimeout(timeout); }
 }
