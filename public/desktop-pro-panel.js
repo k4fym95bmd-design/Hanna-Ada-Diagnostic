@@ -43,7 +43,7 @@ function render(panel) {
   panel.querySelector('[data-desktop-pro-host]').textContent =
     state.ready ? 'HOST: DESKTOP PRO / TAURI · OFFLINE READY' : 'HOST: NIEAKTYWNY';
   panel.querySelector('[data-desktop-pro-stage]').textContent =
-    `STAN: ${snap?.stage || 'NO_CANDIDATE'} · epoch ${snap?.epoch ?? 0} · ECU NIEPOTWIERDZONE · WRITE LOCKED`;
+    `STAN: ${snap?.stage || 'NO_CANDIDATE'} · evidence ${snap?.evidenceStage || 'NO_CABLE'} · epoch ${snap?.epoch ?? 0} · ECU NIEPOTWIERDZONE · WRITE LOCKED`;
   panel.querySelector('[data-desktop-pro-message]').textContent = state.message;
 
   const select = panel.querySelector('[data-desktop-pro-port]');
@@ -93,7 +93,7 @@ function render(panel) {
     : 'Identity evidence: 0/2 · brak zaufanej korelacji.';
 
   const stage = snap?.stage || 'NO_CANDIDATE';
-  const boundClosed = ['USB_CANDIDATE_BOUND','SERIAL_CANDIDATE_BOUND'].includes(stage);
+  const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
   const configured = stage === 'PORT_CONFIGURED';
   const actions = {
     refresh: state.ready,
