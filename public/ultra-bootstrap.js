@@ -31,14 +31,36 @@ const loadStyle = path => {
 
 const prefetchModule = path => {
   if (prefetched.has(path)) return;
+  const connection = navigator.connection;
+  if (connection?.saveData || ['slow-2g','2g'].includes(connection?.effectiveType)) return;
   prefetched.add(path);
-  const link = document.createElement('link');
-  link.rel = 'prefetch';
-  link.as = 'script';
-  link.href = path;
-  link.fetchPriority = 'low';
-  document.head.appendChild(link);
+  const probe = document.createElement('link');
+  const supportsPrefetch = probe.relList?.supports?.('prefetch') === true;
+  if (supportsPrefetch) {
+    probe.rel = 'prefetch';
+    probe.as = 'script';
+    probe.href = path;
+    probe.fetchPriority = 'low';
+    document.head.appendChild(probe);
+    return;
+  }
+  fetch(path, {
+    method: 'GET',
+    cache: 'force-cache',
+    credentials: 'same-origin',
+    priority: 'low',
+  }).catch(() => {});
 };
+
+const waitForVisible = () => new Promise(resolve => {
+  if (!document.hidden) { resolve(); return; }
+  const onVisibility = () => {
+    if (document.hidden) return;
+    document.removeEventListener('visibilitychange', onVisibility);
+    resolve();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+});
 
 const afterFirstPaint = () => new Promise(resolve => {
   if (document.hidden || typeof requestAnimationFrame !== 'function') {
@@ -100,6 +122,7 @@ window.addEventListener('hannaada:module-rendered', event => {
 });
 
 (async () => {
+  await waitForVisible();
   await afterFirstPaint();
   await loadDiagnosticCore();
   await idle();
