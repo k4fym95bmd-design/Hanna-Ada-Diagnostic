@@ -43,8 +43,9 @@ $env:HAA_BRIDGE_TOKEN = $token
 $env:HAA_BRIDGE_ORIGIN = $AllowedOrigin
 $env:HAA_BRIDGE_HOST = $BridgeHost
 $env:HAA_BRIDGE_PORT = "$BridgePort"
+$BridgeUsesTls = [bool]($TlsCert -and $TlsKey)
 
-if ($TlsCert -and $TlsKey) {
+if ($BridgeUsesTls) {
   $env:HAA_BRIDGE_TLS_CERT = (Resolve-Path $TlsCert).Path
   $env:HAA_BRIDGE_TLS_KEY = (Resolve-Path $TlsKey).Path
 } elseif ($BridgeHost -notin @("127.0.0.1","localhost","::1")) {
@@ -78,13 +79,16 @@ if (-not $ready) {
   throw "Aplikacja nie przeszła lokalnego health-checku."
 }
 
-if ($BridgeHost -in @("127.0.0.1","localhost","::1") -and -not $env:HAA_BRIDGE_TLS_CERT) {
+if ($BridgeHost -in @("127.0.0.1","localhost","::1")) {
   Write-Host "Sprawdzam capabilities mostu..."
   $headers = @{ Authorization = "Bearer $token"; Origin = $AllowedOrigin }
   $bridgeReady = $false
+  $bridgeScheme = $BridgeUsesTls ? "https" : "http"
+  $bridgeProbeHost = $BridgeHost -eq "::1" ? "[::1]" : $BridgeHost
+  $bridgeProbeUrl = ("{0}://{1}:{2}/v1/capabilities" -f $bridgeScheme,$bridgeProbeHost,$BridgePort)
   for ($i = 0; $i -lt 30; $i++) {
     try {
-      $cap = Invoke-RestMethod -Uri "http://127.0.0.1:$BridgePort/v1/capabilities" -Headers $headers -Method Get -TimeoutSec 2
+      $cap = Invoke-RestMethod -Uri $bridgeProbeUrl -Headers $headers -Method Get -TimeoutSec 2
       if ($cap.readOnly -eq $true -and $cap.arbitraryTx -eq $false -and $cap.atomicSnapshot -eq $true) { $bridgeReady = $true; break }
     } catch {}
     Start-Sleep -Milliseconds 250
