@@ -304,3 +304,30 @@ test('cycle budget sheds remaining reads on a very slow link without parallel re
   assert.equal(c.metrics().queuedCommands, 0);
   assert.equal(c.metrics().writesEnabled, false);
 });
+
+
+test('high p95 reduces future batches to three reads without increasing command pressure', async () => {
+  let now = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { now += 1000; return 1; },
+    getSupported: () => all,
+    isConnected: () => true,
+    now: () => now,
+  });
+  const first = await c.snapshot();
+  assert.equal(first.attempted, 4);
+  assert.equal(c.metrics().p95Ms, 1000);
+  assert.equal(c.metrics().batchLimit, 3);
+
+  const second = await c.snapshot();
+  assert.equal(second.attempted, 3);
+  assert.equal(c.metrics().queuedCommands, 0);
+  assert.equal(c.metrics().writesEnabled, false);
+});
+
+test('selectLiveBatch respects a bounded adaptive cap while retaining a rotating slow PID', () => {
+  const limited = selectLiveBatch(all, 0, 3);
+  assert.deepEqual(limited.keys, ['rpm','coolant','maf']);
+  assert.equal(limited.keys.length, 3);
+  assert.deepEqual(selectLiveBatch(all, 0, 99).keys, ['rpm','coolant','maf','throttle']);
+});
