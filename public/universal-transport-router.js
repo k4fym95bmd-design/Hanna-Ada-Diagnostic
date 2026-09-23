@@ -67,16 +67,6 @@ export function chooseTransportRoute(input = {}) {
   }
 
   if (platform === 'windows' || platform === 'desktop') {
-    if (secureContext && webSerial) {
-      return Object.freeze({
-        route: TransportRoute.WINDOWS_DIRECT,
-        directUsb: true,
-        requiresLaptopGateway: false,
-        readOnly: true,
-        writesEnabled: false,
-        reason: 'Direct Web Serial is available for the local Windows K+DCAN path.',
-      });
-    }
     if (bridgeReachable) {
       return Object.freeze({
         route: TransportRoute.WINDOWS_BRIDGE,
@@ -84,7 +74,17 @@ export function chooseTransportRoute(input = {}) {
         requiresLaptopGateway: true,
         readOnly: true,
         writesEnabled: false,
-        reason: 'Use the local Windows bridge when Web Serial is unavailable or unsuitable.',
+        reason: 'The local Windows bridge is the canonical path because it provides one session model, USB binding and atomic passive snapshots.',
+      });
+    }
+    if (secureContext && webSerial) {
+      return Object.freeze({
+        route: TransportRoute.WINDOWS_DIRECT,
+        directUsb: true,
+        requiresLaptopGateway: false,
+        readOnly: true,
+        writesEnabled: false,
+        reason: 'Direct Web Serial is the local fallback when the canonical bridge is unavailable.',
       });
     }
   }
