@@ -36,6 +36,13 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     const ports = (await serial.list()).filter(validPort);
     const selectedPort = selected !== null ? ports.find(p => p.path === selected) || null : null;
     const detected = selectedPort !== null;
+    if (!detected && selected !== null && active?.isOpen) {
+      clearRx();
+      kdcanSession = null;
+      try { active.close(() => {}); } catch {}
+      active = null;
+      sessionId = null;
+    }
     const opened = !!(detected && active?.isOpen);
     let cableBinding = null;
     if (opened && kdcanSession && sessionId) {
