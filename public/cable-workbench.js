@@ -22,7 +22,7 @@ function display() {
   const status = cableStatus({ cableDetected: work.detected, portOpen: work.opened });
   root.dataset.cablePortOpen = String(work.opened);
   root.dataset.cableModeCurrent = work.mode;
-  const states = [status.cableDetected, status.portOpen, status.ecuVerified];
+  const states = [Boolean(work.selectedPath) || status.cableDetected, status.portOpen, status.ecuVerified];
   root.querySelectorAll('[data-cable-stage]').forEach((item, index) => {
     item.classList.toggle('verified', states[index]);
     item.querySelector('b').textContent = states[index] ? 'POTWIERDZONE' : 'NIEPOTWIERDZONE';
@@ -103,7 +103,7 @@ async function action(name) {
     } else if (name === 'bridge-wait') {
       report('Czekam na podłączenie kabla USB…');
       const readiness = await waitForCable();
-      report(`${readiness.message} Port został wybrany, ale nie otwarty.`);
+      report(readiness.recommendedPath ? `${readiness.message} Port został wybrany, ale nie otwarty.` : readiness.message);
     } else if (name === 'bridge-open') {
       const path = requestedPort;
       if (!path || !work.ports.some(p => p.path === path)) throw new TypeError('Wybierz port z aktualnej listy.');
@@ -196,7 +196,10 @@ async function listPorts() {
     vendorId: usbId(p.vendorId),
     productId: usbId(p.productId),
   }));
-  work.selectedPath = work.ports.some(p => p.path === result.selectedPath) ? result.selectedPath : '';
+  const readiness = assessCablePlugReadiness(work.ports);
+  work.selectedPath = work.ports.some(p => p.path === result.selectedPath)
+    ? result.selectedPath
+    : readiness.recommendedPath || '';
 }
 function attach() {
   const view = document.querySelector('#view');
