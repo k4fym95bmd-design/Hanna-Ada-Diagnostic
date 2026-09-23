@@ -15,6 +15,7 @@ public final class KdcanTransportSession {
         public final String stage;
         public final long epoch;
         public final String driverFamily;
+        public final String evidenceStage;
         public final boolean portOpen;
         public final boolean configured;
         public final boolean requestBound;
@@ -27,6 +28,7 @@ public final class KdcanTransportSession {
             this.stage = stage;
             this.epoch = epoch;
             this.driverFamily = driverFamily;
+            this.evidenceStage = UnifiedEvidenceContract.transportStage(active, portOpen);
             this.portOpen = portOpen;
             this.configured = configured;
             this.requestBound = requestBound;
