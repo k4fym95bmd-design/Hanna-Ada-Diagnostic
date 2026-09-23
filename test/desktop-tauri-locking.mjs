@@ -45,3 +45,12 @@ test('roughness provenance failure is fail-closed after RX', async () => {
     /record_me72_readonly_sample\(epoch\)[\s\S]*Err\(error\)[\s\S]*native\.close_any\(\)[\s\S]*coordinator\.mark_closed\(epoch\)[\s\S]*broker\.reset\(epoch\)[\s\S]*attestation\.reset_authority\(\)[\s\S]*return Err\(error\)/
   );
 });
+
+
+test('Desktop PRO hot RX loops reuse fixed stack scratch buffers', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/desktop_native_serial.rs', import.meta.url), 'utf8');
+  const matches = source.match(/let mut chunk = \[0u8; 64\];/g) || [];
+  assert.ok(matches.length >= 2, 'identity and roughness loops should reuse fixed 64-byte scratch buffers');
+  assert.doesNotMatch(source, /let mut chunk = vec!\[0u8; chunk_len\]/);
+  assert.match(source, /port\.read\(&mut chunk\[\.\.chunk_len\]\)/);
+});
