@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const bootstrap = readFileSync(new URL('../public/ultra-bootstrap.js', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../public/cable-workbench.js', import.meta.url), 'utf8');
 const bridge = readFileSync(new URL('../gateway/windows-cable-bridge.mjs', import.meta.url), 'utf8');
 
