@@ -25,6 +25,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test desktop host contract
         run: node --test test/desktop-host-bridge.mjs
+      - name: Test native Rust transport policy
+        working-directory: desktop-pro/src-tauri
+        run: cargo test
       - name: Install Tauri CLI
         working-directory: desktop-pro
         run: npm install --no-audit --no-fund
