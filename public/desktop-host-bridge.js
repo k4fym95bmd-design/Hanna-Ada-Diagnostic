@@ -169,6 +169,48 @@ export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globa
   );
 }
 
+export function validateDesktopReadResult(value) {
+  if (!value || typeof value !== 'object' || value.version !== 1
+      || !['READ_BYTES', 'READ_EMPTY', 'READ_TIMEOUT'].includes(value.stage)
+      || !Number.isInteger(value.epoch) || value.epoch < 1
+      || !['DS2', 'KWP2000_BMW'].includes(value.protocol)
+      || !Number.isInteger(value.receivedBytes) || value.receivedBytes < 0
+      || !Array.isArray(value.bytes)) {
+    throw new TypeError('Invalid desktop read result');
+  }
+  if (value.ecuVerified !== false || value.writesEnabled !== false) {
+    throw new TypeError('Read result attempted unsafe capability promotion');
+  }
+  const hardMax = value.protocol === 'DS2' ? 255 : 197;
+  if (value.bytes.length !== value.receivedBytes || value.bytes.length > hardMax) {
+    throw new TypeError('Invalid read length');
+  }
+  for (const byte of value.bytes) {
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new TypeError('Invalid read byte');
+    }
+  }
+  if (value.stage !== 'READ_BYTES' && value.bytes.length !== 0) {
+    throw new TypeError('Non-data read stage carried bytes');
+  }
+  return Object.freeze({ ...value, bytes: Object.freeze([...value.bytes]) });
+}
+
+export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 255) {
+    throw new TypeError('Invalid max bytes');
+  }
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 10 || timeoutMs > 5000) {
+    throw new TypeError('Invalid timeout');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_read_bounded', { epoch, maxBytes, timeoutMs })
+  );
+}
+
 export async function closeDesktopPort(epoch, globalObject = globalThis) {
   if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
   const invoke = getTauriInvoke(globalObject);
