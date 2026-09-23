@@ -35,6 +35,7 @@ const RUNTIME = new Set([
   '/universal-platform-panel.js',
   '/live-performance-core.js',
   '/live-performance-runtime.js',
+  '/tuning-view.js',
   '/tuning-stage-extension.js',
   '/tuning-analysis-core.js',
   '/tuning-analysis-panel.js',
