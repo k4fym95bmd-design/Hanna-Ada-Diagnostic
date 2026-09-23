@@ -281,3 +281,12 @@ test('capability matrix keeps full DTC list and clear-DTC visibly blocked', asyn
   assert.match(panel,/CLEAR DTC NOT EXPOSED/);
   assert.match(panel,/HARDWARE UNVERIFIED/);
 });
+
+
+test('DTC count is visibly contract-only until a real hardware vector exists', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/contract-only count/);
+  assert.match(panel,/HARDWARE UNVERIFIED/);
+  assert.match(panel,/brak captured hardware vector/);
+  assert.match(panel,/CLEAR DTC LOCKED/);
+});
