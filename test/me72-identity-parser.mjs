@@ -7,6 +7,15 @@ import {
 
 const sample = 'B8 F1 12 2B E2 37 35 30 36 33 36 36 30 46 30 31 41 38 36 30 30 38 30 30 30 30 31 30 32 31 33 35 31 30 FF FF FF FF 30 30 30 30 38 33 38 32 38 99';
 
+function mutateFrameAndRepairChecksum(frameHex, mutate) {
+  const bytes = frameHex.split(' ').map(value => Number.parseInt(value, 16));
+  mutate(bytes);
+  bytes[bytes.length - 1] = bytes
+    .slice(0, -1)
+    .reduce((checksum, byte) => checksum ^ byte, 0);
+  return bytes.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+}
+
 test('clean-room ME7.2 parser derives structured identity from reference frame', () => {
   const result = parseMe72IdentityFrame(sample);
   assert.equal(result.protocol, 'KWP2000_BMW');
@@ -34,7 +43,7 @@ test('checksum, header, length and service mismatches fail closed', () => {
   const badLength = sample.replace('B8 F1 12 2B', 'B8 F1 12 2A');
   assert.throws(() => parseMe72IdentityFrame(badLength), /length/i);
 
-  const badService = sample.replace('2B E2', '2B E1');
+  const badService = mutateFrameAndRepairChecksum(sample, bytes => { bytes[4] = 0xE1; });
   assert.throws(() => parseMe72IdentityFrame(badService), /E2/i);
 });
 
