@@ -396,3 +396,25 @@ test('pending user input defers a live cycle without touching the transport', as
   assert.equal(c.metrics().queuedCommands, 0);
   await c.stop();
 });
+
+
+test('mid-cycle pending input stops new reads after the current response', async () => {
+  const timer = mockTimer();
+  let reads = 0;
+  let pending = false;
+  const c = createLivePerformanceController({
+    readPid: async () => { reads++; pending = true; return 1; },
+    getSupported: () => all,
+    isConnected: () => true,
+    isVisible: () => true,
+    shouldYield: () => pending,
+    ...timer,
+  });
+  c.start();
+  await timer.tick();
+  assert.equal(reads, 1);
+  assert.equal(c.metrics().midCycleYields, 1);
+  assert.equal(c.metrics().queuedCommands, 0);
+  assert.equal(c.metrics().writesEnabled, false);
+  await c.stop();
+});
