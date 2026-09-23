@@ -7,6 +7,7 @@ const base = () => ({
   requestId: 'identity-request-5001',
   responseRequestId: 'identity-request-5001',
   protocol: 'KWP2000_BMW',
+  nativeReadReceipt: 41,
   moduleIdentity: 'ME7.2',
   receiveEvidence: {
     epoch: 5,
@@ -14,6 +15,7 @@ const base = () => ({
     stage: 'FRAME_CANDIDATE',
     candidateFrames: 1,
     frames: [{ directionHint: 'possible-reply', frameHex: 'B8 F1 12 00 5B' }],
+    nativeReadReceipt: 41,
     ecuVerified: false,
     writesEnabled: false,
     flashEnabled: false,
@@ -24,6 +26,8 @@ const expected = {
   epoch: 5,
   requestId: 'identity-request-5001',
   protocol: 'KWP2000_BMW',
+  nativeReadReceipt: 41,
+  expectedFrameHexes: ['B8 F1 12 00 5B'],
 };
 
 test('trusted identity event requires exact epoch/request/protocol match', () => {
@@ -88,4 +92,22 @@ test('validated event owns frozen sanitized evidence instead of caller reference
   assert.equal(Object.isFrozen(valid.receiveEvidence), true);
   assert.equal(Object.isFrozen(valid.receiveEvidence.frames), true);
   assert.equal(Object.isFrozen(valid.receiveEvidence.frames[0]), true);
+});
+
+
+test('receipt or frame provenance mismatch is rejected', () => {
+  assert.throws(() => validateTrustedIdentityCandidateEvent({
+    ...base(),
+    nativeReadReceipt: 42,
+  }, expected), /mismatch/i);
+
+  assert.throws(() => validateTrustedIdentityCandidateEvent({
+    ...base(),
+    receiveEvidence: { ...base().receiveEvidence, nativeReadReceipt: 42 },
+  }, expected), /receive evidence/i);
+
+  assert.throws(() => validateTrustedIdentityCandidateEvent(base(), {
+    ...expected,
+    expectedFrameHexes: ['B8 F1 12 00 00'],
+  }), /provenance/i);
 });
