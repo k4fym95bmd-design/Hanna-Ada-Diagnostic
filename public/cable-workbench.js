@@ -2,6 +2,7 @@ import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-co
 import { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';
 import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 import { assessCablePlugReadiness, findNewCablePorts } from './cable-plug-readiness.js';
+import { classifyBridgeFailure } from './bridge-error-policy.js';
 
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
@@ -125,10 +126,8 @@ async function action(name) {
     }
   } catch (error) {
     if (name.startsWith('bridge-')) {
-      const reachableClientError = Number.isInteger(error?.httpStatus)
-        && error.httpStatus >= 400 && error.httpStatus < 500
-        && ![401, 403].includes(error.httpStatus);
-      if (reachableClientError) {
+      const failure = classifyBridgeFailure(error);
+      if (failure.preservePhysicalState) {
         work.bridgeOnline = true;
         report(`${errText(error)} Most nadal odpowiada; zachowano ostatni potwierdzony stan.`, true);
       } else {
