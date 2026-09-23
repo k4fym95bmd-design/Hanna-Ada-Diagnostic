@@ -114,8 +114,23 @@ export function validateDesktopTransportSnapshot(value) {
   for (const key of ['transportOpen', 'configured', 'ecuVerified', 'writesEnabled']) {
     assertBoolean(value[key], key);
   }
-  if (value.transportOpen || value.configured || value.ecuVerified || value.writesEnabled) {
+  if (value.ecuVerified || value.writesEnabled) {
     throw new TypeError('Transport snapshot attempted unsafe capability promotion');
+  }
+  const allowedStages = new Set([
+    'NO_CANDIDATE',
+    'USB_CANDIDATE_BOUND',
+    'SERIAL_CANDIDATE_BOUND',
+    'PORT_OPEN',
+    'PORT_CONFIGURED',
+  ]);
+  if (!allowedStages.has(value.stage)) throw new TypeError('Invalid transport stage');
+  if (value.stage === 'PORT_CONFIGURED') {
+    if (!value.transportOpen || !value.configured) throw new TypeError('Invalid configured state');
+  } else if (value.stage === 'PORT_OPEN') {
+    if (!value.transportOpen || value.configured) throw new TypeError('Invalid open state');
+  } else if (value.transportOpen || value.configured) {
+    throw new TypeError('Unexpected transport-open state');
   }
   if (value.portName !== null && (typeof value.portName !== 'string'
       || value.portName.length < 1 || value.portName.length > 96)) {
@@ -139,6 +154,26 @@ export async function clearDesktopSerialCandidate(globalObject = globalThis) {
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopTransportSnapshot(await invoke('desktop_clear_serial_candidate'));
+}
+
+export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (!['DS2', 'KWP2000_BMW'].includes(protocol)) throw new TypeError('Invalid protocol');
+  if (!Number.isInteger(baudRate) || baudRate < 300 || baudRate > 1000000) {
+    throw new TypeError('Invalid baud rate');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopTransportSnapshot(
+    await invoke('desktop_open_configured_port', { epoch, protocol, baudRate })
+  );
+}
+
+export async function closeDesktopPort(epoch, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopTransportSnapshot(await invoke('desktop_close_port', { epoch }));
 }
 
 export async function getDesktopTransportSnapshot(globalObject = globalThis) {
