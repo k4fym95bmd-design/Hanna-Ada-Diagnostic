@@ -7,13 +7,13 @@ import {
   requireVerifiedIdentityParserProfile,
 } from '../public/identity-parser-profile.js';
 
-test('current E39 identity parser profiles are explicit and unverified', () => {
+test('ME7.2 parser is reference-verified while legacy DS2 remains blocked', () => {
   const me72 = getIdentityParserProfile('e39-dme-me72-module-identity');
   assert.equal(me72.protocol, 'KWP2000_BMW');
   assert.equal(me72.moduleFamily, 'DME_ME72');
-  assert.equal(me72.verificationState, 'UNVERIFIED');
-  assert.equal(me72.implementationState, 'NOT_IMPLEMENTED');
-  assert.equal(isIdentityParserVerified(me72.operationId), false);
+  assert.equal(me72.verificationState, 'REFERENCE_VERIFIED');
+  assert.equal(me72.implementationState, 'IMPLEMENTED');
+  assert.equal(isIdentityParserVerified(me72.operationId), true);
 
   const ds2 = getIdentityParserProfile('e39-legacy-module-identity');
   assert.equal(ds2.protocol, 'DS2');
@@ -22,12 +22,13 @@ test('current E39 identity parser profiles are explicit and unverified', () => {
   assert.equal(listIdentityParserProfiles().length, 2);
 });
 
-test('verified-parser gate fails closed for ME7.2 and legacy DS2 today', () => {
-  assert.throws(() => requireVerifiedIdentityParserProfile({
+test('verified-parser gate accepts ME7.2 profile and still blocks legacy DS2', () => {
+  const me72 = requireVerifiedIdentityParserProfile({
     operationId: 'e39-dme-me72-module-identity',
     protocol: 'KWP2000_BMW',
     moduleFamily: 'DME_ME72',
-  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
+  });
+  assert.equal(me72.id, 'e39-me72-identity-parser');
 
   assert.throws(() => requireVerifiedIdentityParserProfile({
     operationId: 'e39-legacy-module-identity',
