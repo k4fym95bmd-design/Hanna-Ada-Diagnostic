@@ -232,6 +232,11 @@ export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globa
   );
 }
 
+const READONLY_SAMPLE_PROFILE_IDS = Object.freeze([
+  'e39-me72-roughness-4003',
+  'e39-me72-engine-snapshot-4000',
+]);
+
 export function validateDesktopReadResult(value) {
   if (!value || typeof value !== 'object' || value.version !== 1
       || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
@@ -263,7 +268,7 @@ export function validateDesktopReadResult(value) {
     throw new TypeError('Incomplete read-only sample provenance');
   }
   if (readonlyProfileId !== null) {
-    if (readonlyProfileId !== 'e39-me72-roughness-4003'
+    if (!READONLY_SAMPLE_PROFILE_IDS.includes(readonlyProfileId)
         || !Number.isSafeInteger(readonlySampleSequence)
         || readonlySampleSequence < 1
         || value.protocol !== 'KWP2000_BMW'
@@ -342,6 +347,15 @@ export async function executeDesktopMe72Roughness(epoch, globalObject = globalTh
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
     await invoke('desktop_execute_me72_roughness', { epoch })
+  );
+}
+
+export async function executeDesktopMe72EngineSnapshot(epoch, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_execute_me72_engine_snapshot', { epoch })
   );
 }
 
