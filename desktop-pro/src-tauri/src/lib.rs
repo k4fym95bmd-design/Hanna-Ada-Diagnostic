@@ -2,6 +2,7 @@ mod desktop_serial_inventory;
 mod desktop_native_serial;
 mod desktop_transport_coordinator;
 mod desktop_request_broker;
+mod desktop_local_attestation;
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -228,6 +229,25 @@ fn desktop_request_broker_snapshot(
 }
 
 #[tauri::command]
+fn desktop_local_identity_attestation(
+    epoch: u64,
+    protocol: String,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
+) -> Result<desktop_local_attestation::DesktopLocalAttestation, String> {
+    let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    let broker_snapshot = broker.snapshot();
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.attest(&transport, &native_snapshot, &broker_snapshot, epoch, &protocol)
+}
+
+#[tauri::command]
 fn desktop_transport_snapshot(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
@@ -257,6 +277,7 @@ pub fn run() {
         .manage(Mutex::new(desktop_transport_coordinator::DesktopTransportCoordinator::default()))
         .manage(Mutex::new(desktop_native_serial::DesktopNativeSerialState::default()))
         .manage(Mutex::new(desktop_request_broker::DesktopReadOnlyRequestBroker::default()))
+        .manage(Mutex::new(desktop_local_attestation::DesktopLocalAttestationState::default()))
         .invoke_handler(tauri::generate_handler![
             desktop_host_status,
             desktop_list_serial_ports,
@@ -269,6 +290,7 @@ pub fn run() {
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
             desktop_request_broker_snapshot,
+            desktop_local_identity_attestation,
             desktop_transport_snapshot,
             desktop_safety_policy
         ])
