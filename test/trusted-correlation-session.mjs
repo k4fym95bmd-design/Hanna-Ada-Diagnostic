@@ -130,3 +130,25 @@ test('third request is blocked once repeated candidate evidence is complete', ()
   assert.equal(session.snapshot().identityVerified, false);
   assert.throws(() => session.prepareAttempt('corr-bound-0003'), /local attestation/i);
 });
+
+
+test('correlation session caps request-token growth for a noisy epoch', () => {
+  const session = new TrustedCorrelationSession({
+    epoch:12,
+    operationId:'e39-dme-me72-module-identity',
+  });
+  for (let i=0; i<32; i++) {
+    const id = `corr-noise-${String(i).padStart(2,'0')}`;
+    const plan = session.prepareAttempt(id);
+    session.consumeAttempt({
+      receiveEvidence:evidence(plan.requestId, {
+        frames:[{ directionHint:'possible-echo', frameHex:'B8 12 F1 01 A2 F8' }],
+      }),
+      responseRequestId:plan.requestId,
+      moduleIdentity:'ME7.2',
+    });
+  }
+  assert.equal(session.snapshot().attemptCount, 32);
+  assert.equal(session.snapshot().maxAttempts, 32);
+  assert.throws(() => session.prepareAttempt('corr-noise-overflow'), /attempt limit/i);
+});
