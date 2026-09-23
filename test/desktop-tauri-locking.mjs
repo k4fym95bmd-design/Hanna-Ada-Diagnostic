@@ -180,7 +180,9 @@ test('all named ME7.2 live-data commands delegate to fixed internal enum variant
     ['desktop_execute_me72_roughness','Roughness'],
     ['desktop_execute_me72_engine_snapshot','EngineSnapshot'],
     ['desktop_execute_me72_fuel_adaptation','FuelAdaptation'],
+    ['desktop_execute_me72_output_status','OutputStatus'],
     ['desktop_execute_me72_readiness','Readiness'],
+    ['desktop_execute_me72_dtc_count','DtcCount'],
   ];
   for(const [name,variant] of expected){
     const start=source.indexOf(`fn ${name}`);
@@ -192,7 +194,7 @@ test('all named ME7.2 live-data commands delegate to fixed internal enum variant
   assert.doesNotMatch(source,/#\[tauri::command\][\s\S]{0,80}fn desktop_execute_me72_readonly/);
 });
 
-test('ME7.2 internal operation enum maps only the four named read-only profiles', async () => {
+test('ME7.2 internal operation enum maps only the six named read-only profiles', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
   const enumBlock=source.slice(
     source.indexOf('enum Me72ReadonlyOperation'),
@@ -202,11 +204,34 @@ test('ME7.2 internal operation enum maps only the four named read-only profiles'
     'Roughness',
     'EngineSnapshot',
     'FuelAdaptation',
+    'OutputStatus',
     'Readiness',
+    'DtcCount',
     'e39-me72-roughness-4003',
     'e39-me72-engine-snapshot-4000',
     'e39-me72-fuel-adaptation-4004',
+    'e39-me72-output-status-4005',
     'e39-me72-readiness-4007',
+    'e39-me72-dtc-count-a200',
   ]) assert.match(enumBlock,new RegExp(token));
   assert.doesNotMatch(enumBlock,/payload|request_bytes|raw_write|did\s*:/i);
+});
+
+test('output status cannot alias readiness in the native operation enum', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const start=source.indexOf('fn desktop_execute_me72_output_status');
+  const next=source.indexOf('#[tauri::command]',start+5);
+  const block=source.slice(start,next<0?source.length:next);
+  assert.match(block,/Me72ReadonlyOperation::OutputStatus/);
+  assert.doesNotMatch(block,/Me72ReadonlyOperation::Readiness/);
+});
+
+test('DTC-count is named read-only only and no clear-DTC Tauri command exists', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const start=source.indexOf('fn desktop_execute_me72_dtc_count');
+  const next=source.indexOf('#[tauri::command]',start+5);
+  const block=source.slice(start,next<0?source.length:next);
+  assert.match(block,/Me72ReadonlyOperation::DtcCount/);
+  assert.doesNotMatch(source,/fn desktop_(?:clear|erase)_.*dtc/i);
+  assert.doesNotMatch(source,/clear_dtc|erase_dtc|delete_dtc/i);
 });
