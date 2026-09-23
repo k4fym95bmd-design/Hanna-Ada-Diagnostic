@@ -81,6 +81,8 @@ test('output status profile is native-attestation-gated and not actuation', () =
   assert.equal(profile.operation,'STATUS_SNAPSHOT');
   assert.equal(profile.dataIdentifier,'0x4005');
   assert.equal(profile.parserId,'e39-me72-output-status-4005-v1');
+  assert.equal(profile.verificationState,'REFERENCE_CONFLICT_AWARE');
+  assert.equal(profile.mappingConflict,'POST_CAT_HEATER_BANK_0x40_0x80');
   assert.equal(profile.executorId,'desktop_execute_me72_output_status');
   assert.equal(profile.executionEnabled,true);
   assert.equal(profile.requiresVerifiedIdentity,true);
