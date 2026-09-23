@@ -1,6 +1,24 @@
-import { USER_KDCAN_CABLE, assessUserKdcanCable } from './kdcan-cable-profile.js';
+import { KDCAN_INPA_SWITCH_TARGET, kdcanRuntimeStatus } from './kdcan-cable-profile.js';
 
 const hexToInt = value => /^[0-9A-F]{4}$/i.test(value || '') ? Number.parseInt(value, 16) : null;
+
+function currentUsbIdentity(root) {
+  const mode = root.dataset.cableModeCurrent || 'desktop';
+  if (mode === 'bridge') {
+    const vendorId = hexToInt(root.dataset.bridgeUsbVendorId);
+    const productId = hexToInt(root.dataset.bridgeUsbProductId);
+    if (vendorId != null && productId != null) return { vendorId, productId };
+  }
+
+  const directVendor = hexToInt(root.dataset.directUsbVendorId);
+  const directProduct = hexToInt(root.dataset.directUsbProductId);
+  if (directVendor != null && directProduct != null) return { vendorId: directVendor, productId: directProduct };
+
+  const option = root.querySelector('[data-cable-port]')?.selectedOptions?.[0];
+  const vendorId = hexToInt(option?.dataset?.vendorId);
+  const productId = hexToInt(option?.dataset?.productId);
+  return vendorId != null && productId != null ? { vendorId, productId } : {};
+}
 
 function attachKdcanCard() {
   const root = document.querySelector('#haCableWorkbench');
@@ -10,14 +28,14 @@ function attachKdcanCard() {
   card.dataset.userKdcanCard = '';
   card.className = 'ha-cable-panel';
   card.innerHTML = `
-    <h3>Twój kabel · K+DCAN USB / INPA · Android-first</h3>
-    <p><strong>Rozpoznane ze zdjęcia:</strong> ${USER_KDCAN_CABLE.visibleLabel}. Widoczny jest fizyczny przełącznik 2-pozycyjny.</p>
+    <h3>Twój kabel · K+DCAN USB / INPA Compatible</h3>
+    <p><strong>Profil:</strong> ${KDCAN_INPA_SWITCH_TARGET.label}. Ze zdjęcia potwierdzony jest fizyczny przełącznik, ale jego znaczenie elektryczne nadal pozostaje niezweryfikowane.</p>
     <div class="ha-cable-fields">
       <label>Pozycja przełącznika
         <select data-user-kdcan-selector>
-          <option value="unknown">Nie wiem / nie zapisano</option>
-          <option value="position-1">Pozycja 1</option>
-          <option value="position-2">Pozycja 2</option>
+          <option value="UNKNOWN">Nie wiem / nie zapisano</option>
+          <option value="A">Pozycja A</option>
+          <option value="B">Pozycja B</option>
         </select>
       </label>
     </div>
@@ -25,7 +43,7 @@ function attachKdcanCard() {
       <button type="button" data-user-kdcan-refresh>ODŚWIEŻ PROFIL KABLA</button>
     </div>
     <p role="status" aria-live="polite" data-user-kdcan-status>
-      Chipset USB, sterownik, protokół BMW i ECU są niepotwierdzone.
+      Czekam na rzeczywisty VID:PID z wybranego urządzenia USB.
     </p>
   `;
 
@@ -33,28 +51,39 @@ function attachKdcanCard() {
   const selector = card.querySelector('[data-user-kdcan-selector]');
 
   const render = () => {
-    const portSelect = root.querySelector('[data-cable-port]');
-    const option = portSelect?.selectedOptions?.[0];
-    const vendorId = hexToInt(option?.dataset?.vendorId);
-    const productId = hexToInt(option?.dataset?.productId);
-    const args = { selectorPosition: selector.value };
-    if (vendorId != null && productId != null) {
-      args.vendorId = vendorId;
-      args.productId = productId;
-    }
-    const result = assessUserKdcanCable(args);
-    status.textContent = [
-      `Profil: ${result.visibleLabel}.`,
-      result.vidPid ? `USB VID:PID ${result.vidPid}.` : 'VID:PID jeszcze nieodczytany z urządzenia USB.',
-      `Chipset: ${result.chipsetCandidate}.`,
-      `Przełącznik: ${result.selectorPosition}.`,
-      'To nadal nie potwierdza sterownika BMW, K-Line/KWP/DS2, ECU ani możliwości zapisu.'
-    ].join(' ');
+    const usb = currentUsbIdentity(root);
+    const runtime = kdcanRuntimeStatus({
+      usb,
+      portOpen: root.dataset.cablePortOpen === 'true',
+      switchEvidence: { position: selector.value },
+      connector: {},
+    });
+
+    const parts = [
+      `Profil: ${runtime.target.label}.`,
+      runtime.usb.vidPid ? `USB VID:PID ${runtime.usb.vidPid}.` : 'VID:PID jeszcze nieodczytany.',
+      `Port: ${runtime.portOpen ? 'otwarty' : 'zamknięty'}.`,
+      `Przełącznik: ${runtime.switch.position}; znaczenie: ${runtime.switch.meaningVerified ? 'zweryfikowane' : 'niezweryfikowane'}.`,
+      `Następna bramka: ${runtime.nextGate}`,
+      'ECU, zapis, kodowanie i flash pozostają zablokowane.'
+    ];
+    status.textContent = parts.join(' ');
   };
 
   card.querySelector('[data-user-kdcan-refresh]').addEventListener('click', render);
   selector.addEventListener('change', render);
   root.querySelector('[data-cable-port]')?.addEventListener('change', render);
+
+  const observer = new MutationObserver(render);
+  observer.observe(root, { attributes: true, attributeFilter: [
+    'data-cable-port-open',
+    'data-cable-mode-current',
+    'data-direct-usb-vendor-id',
+    'data-direct-usb-product-id',
+    'data-bridge-usb-vendor-id',
+    'data-bridge-usb-product-id',
+  ]});
+
   root.appendChild(card);
   render();
 }
