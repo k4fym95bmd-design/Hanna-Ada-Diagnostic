@@ -31,3 +31,13 @@ test('workbench avoids rebuilding identical port options and deduplicates state 
   assert.match(ui, /root\.dataset\.broadcastStateKey !== stateKey/);
   assert.match(ui, /hannaada:cable-workbench-state/);
 });
+
+
+test('long cable wait is aborted when the VCI view is left', () => {
+  assert.match(ui, /let cableWaitAbort = null/);
+  assert.match(ui, /new AbortController\(\)/);
+  assert.match(ui, /waitForCable\(30000, owner\.signal\)/);
+  assert.match(ui, /event\.detail\?\.module !== 'vci'/);
+  assert.match(ui, /cableWaitAbort\?\.abort\(\)/);
+  assert.match(ui, /bridgeRequest\('\/v1\/readiness', undefined, \{ signal \}\)/);
+});
