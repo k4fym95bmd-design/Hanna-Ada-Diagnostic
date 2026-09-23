@@ -37,6 +37,8 @@ try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
 $token = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
 
 $env:PORT = "$AppPort"
+$server = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command","Set-Location '$RepoRoot'; `$env:PORT='$AppPort'; node server.mjs"
+
 $env:HAA_BRIDGE_TOKEN = $token
 $env:HAA_BRIDGE_ORIGIN = $AllowedOrigin
 $env:HAA_BRIDGE_HOST = $BridgeHost
@@ -46,16 +48,21 @@ if ($TlsCert -and $TlsKey) {
   $env:HAA_BRIDGE_TLS_CERT = (Resolve-Path $TlsCert).Path
   $env:HAA_BRIDGE_TLS_KEY = (Resolve-Path $TlsKey).Path
 } elseif ($BridgeHost -notin @("127.0.0.1","localhost","::1")) {
+  Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
   throw "Dostęp LAN wymaga certyfikatu TLS. Podaj -TlsCert i -TlsKey albo użyj 127.0.0.1."
 }
 
-$server = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command","Set-Location '$RepoRoot'; `$env:PORT='$AppPort'; node server.mjs"
-$bridgeCommand = "Set-Location '$RepoRoot'; `$env:HAA_BRIDGE_TOKEN='$token'; `$env:HAA_BRIDGE_ORIGIN='$AllowedOrigin'; `$env:HAA_BRIDGE_HOST='$BridgeHost'; `$env:HAA_BRIDGE_PORT='$BridgePort';"
-if ($env:HAA_BRIDGE_TLS_CERT) {
-  $bridgeCommand += " `$env:HAA_BRIDGE_TLS_CERT='$($env:HAA_BRIDGE_TLS_CERT)'; `$env:HAA_BRIDGE_TLS_KEY='$($env:HAA_BRIDGE_TLS_KEY)';"
-}
-$bridgeCommand += " node gateway/windows-cable-bridge.mjs"
+# Child processes inherit environment variables. Keep the token OUT of command-line arguments.
+$bridgeCommand = "Set-Location '$RepoRoot'; node gateway/windows-cable-bridge.mjs"
 $bridge = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command",$bridgeCommand
+
+# Drop sensitive bridge environment from the launcher after the child inherited it.
+Remove-Item Env:HAA_BRIDGE_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_ORIGIN -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_HOST -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_TLS_CERT -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_TLS_KEY -ErrorAction SilentlyContinue
 
 Write-Host "Sprawdzam health aplikacji..."
 $ready = $false
