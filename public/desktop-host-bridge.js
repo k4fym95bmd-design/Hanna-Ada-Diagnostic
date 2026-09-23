@@ -105,6 +105,61 @@ export async function listDesktopSerialCandidates(globalObject = globalThis) {
   return validateDesktopSerialCandidates(await invoke('desktop_list_serial_ports'));
 }
 
+export function validateDesktopTransportSnapshot(value) {
+  if (!value || typeof value !== 'object' || value.version !== 1
+      || typeof value.stage !== 'string'
+      || !Number.isInteger(value.epoch) || value.epoch < 0) {
+    throw new TypeError('Invalid desktop transport snapshot');
+  }
+  for (const key of ['transportOpen', 'configured', 'ecuVerified', 'writesEnabled']) {
+    assertBoolean(value[key], key);
+  }
+  if (value.transportOpen || value.configured || value.ecuVerified || value.writesEnabled) {
+    throw new TypeError('Transport snapshot attempted unsafe capability promotion');
+  }
+  if (value.portName !== null && (typeof value.portName !== 'string'
+      || value.portName.length < 1 || value.portName.length > 96)) {
+    throw new TypeError('Invalid bound port');
+  }
+  return Object.freeze({ ...value });
+}
+
+export async function bindDesktopSerialCandidate(portName, globalObject = globalThis) {
+  if (typeof portName !== 'string' || portName.length < 1 || portName.length > 96) {
+    throw new TypeError('Invalid port name');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopTransportSnapshot(
+    await invoke('desktop_bind_serial_candidate', { portName })
+  );
+}
+
+export async function clearDesktopSerialCandidate(globalObject = globalThis) {
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopTransportSnapshot(await invoke('desktop_clear_serial_candidate'));
+}
+
+export async function getDesktopTransportSnapshot(globalObject = globalThis) {
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) return Object.freeze({
+    version: 1,
+    stage: 'NO_CANDIDATE',
+    epoch: 0,
+    portName: null,
+    kind: null,
+    vid: null,
+    pid: null,
+    candidateFamily: null,
+    transportOpen: false,
+    configured: false,
+    ecuVerified: false,
+    writesEnabled: false,
+  });
+  return validateDesktopTransportSnapshot(await invoke('desktop_transport_snapshot'));
+}
+
 export function getTauriInvoke(globalObject = globalThis) {
   const invoke = globalObject?.window?.__TAURI__?.core?.invoke;
   return typeof invoke === 'function' ? invoke : null;
