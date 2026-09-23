@@ -43,3 +43,12 @@ test('runtime cooperatively yields to pending user input where supported', () =>
   assert.match(core, /if \(shouldYield\(\)\)/);
   assert.match(core, /schedule\(100, owner\)/);
 });
+
+
+test('runtime also yields briefly after browser long tasks', () => {
+  assert.match(runtime, /PerformanceObserver/);
+  assert.match(runtime, /entry\.duration >= 50/);
+  assert.match(runtime, /longTaskHoldUntil/);
+  assert.match(runtime, /const shouldYield = \(\) => inputPending\(\) \|\| performance\.now\(\) < longTaskHoldUntil/);
+  assert.match(runtime, /shouldYield,/);
+});
