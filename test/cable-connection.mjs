@@ -21,10 +21,12 @@ test('USB port never implies ECU identity or write capability', () => {
   assert.equal(cableStatus({ cableDetected: true, portOpen: true }).ecuVerified, false);
   const oldSession = { verified: true, sessionId: 'old-session-xxxxxxxxxx', moduleId: 'dme', identity: 'Bosch ME7.2' };
   assert.equal(cableStatus({ cableDetected: true, portOpen: true, sessionId: 'new-session-xxxxxxxxxx', ecuEvidence: oldSession }).ecuVerified, false);
-  const verified = cableStatus({ cableDetected: true, portOpen: true, sessionId: oldSession.sessionId, ecuEvidence: oldSession });
-  assert.equal(verified.ecuVerified, true);
-  assert.equal(verified.writesEnabled, false);
-  assert.equal(verified.flashEnabled, false);
+  const forged = cableStatus({ cableDetected: true, portOpen: true, sessionId: oldSession.sessionId, ecuEvidence: oldSession });
+  assert.equal(forged.ecuVerified, false);
+  assert.equal(forged.stage, 'PORT_OPEN');
+  assert.deepEqual(forged.bmwModulesVerified, []);
+  assert.equal(forged.writesEnabled, false);
+  assert.equal(forged.flashEnabled, false);
   assert.throws(() => validateBridgeStatus({ version: 1, transport: 'physical-vci', cableDetected: true, portOpen: true, ecuVerified: true, writesEnabled: false, flashEnabled: false }));
 });
 
