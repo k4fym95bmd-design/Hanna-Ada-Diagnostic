@@ -227,7 +227,7 @@ public final class MainActivity extends Activity {
         action("Kopiuj bezpieczny raport USB do ChatGPT", view -> copyReport());
         label("Raport: tylko API Androida, USB Host, VID:PID, liczba interfejsów i zgoda. "
                 + "Test portu NIE komunikuje się z BMW i NIE uruchamia INPA/ISTA. "
-                + "Działanie z konkretnym Fire HD 10 i kablem pozostaje do sprawdzenia.",
+                + "Działanie z konkretnym urządzeniem Android i tym kablem pozostaje do sprawdzenia.",
                 13, Color.LTGRAY);
     }
 
