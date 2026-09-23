@@ -244,15 +244,45 @@ fn desktop_execute_me72_identity(
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
-    // Lock order is coordinator -> native -> broker -> attestation.
-    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
-    let transport = coordinator.snapshot();
-    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
-        return Err("transport_not_configured_for_epoch".into());
+    // Phase 1: validate transport and exact request without holding locks through serial I/O.
+    {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let transport = coordinator.snapshot();
+        if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+            return Err("transport_not_configured_for_epoch".into());
+        }
+    }
+    {
+        let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+        broker.authorize_native_execution(
+            epoch,
+            &request_id,
+            "e39-dme-me72-module-identity",
+            "KWP2000_BMW",
+        )?;
     }
 
+    // Phase 2: only the native serial state is locked during the physical I/O window.
+    let io_result = {
+        let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+        native.execute_me72_identity(epoch, 197, 750)
+    };
+
+    // Phase 3: canonical lock order and full revalidation before accepting evidence.
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured || native_snapshot.protocol != Some("KWP2000_BMW") {
+        return Err("transport_changed_after_io".into());
+    }
+
+    // A user cancellation or lifecycle reset during I/O invalidates this result.
     broker.authorize_native_execution(
         epoch,
         &request_id,
@@ -260,7 +290,7 @@ fn desktop_execute_me72_identity(
         "KWP2000_BMW",
     )?;
 
-    match native.execute_me72_identity(epoch, 197, 750) {
+    match io_result {
         Ok(mut result) => {
             if result.received_bytes > 0 {
                 let fingerprint = match result.native_identity_fingerprint.as_deref() {
@@ -269,7 +299,6 @@ fn desktop_execute_me72_identity(
                         native.close_any();
                         let _ = coordinator.mark_closed(epoch);
                         broker.reset(epoch);
-                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
                         attestation.reset_authority();
                         return Err("me72_identity_reply_not_verified".into());
                     }
@@ -285,7 +314,6 @@ fn desktop_execute_me72_identity(
                         native.close_any();
                         let _ = coordinator.mark_closed(epoch);
                         broker.reset(epoch);
-                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
                         attestation.reset_authority();
                         return Err(error);
                     }
@@ -297,7 +325,6 @@ fn desktop_execute_me72_identity(
             native.close_any();
             let _ = coordinator.mark_closed(epoch);
             broker.reset(epoch);
-            let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
             attestation.reset_authority();
             Err(error)
         }
@@ -312,24 +339,58 @@ fn desktop_execute_me72_roughness(
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
-    // Lock order: coordinator -> native -> broker -> attestation.
+    // Phase 1: validate provenance, then reserve a broker lease without holding its mutex.
+    {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let transport = coordinator.snapshot();
+        if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+            return Err("transport_not_configured_for_epoch".into());
+        }
+    }
+    {
+        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+        attestation.authorize_me72_readonly(epoch)?;
+    }
+    {
+        let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+        broker.begin_readonly_sample(epoch)?;
+    }
+
+    // Phase 2: physical serial I/O holds only the native serial mutex.
+    let io_result = match native.lock() {
+        Ok(mut native) => native.execute_me72_roughness(epoch, 197, 750),
+        Err(_) => {
+            if let Ok(mut broker) = broker.lock() {
+                let _ = broker.finish_readonly_sample(epoch);
+            }
+            return Err("native_serial_state_poisoned".into());
+        }
+    };
+
+    // Phase 3: revalidate every authority before promoting RX bytes to evidence.
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let transport = coordinator.snapshot();
-    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
-        return Err("transport_not_configured_for_epoch".into());
-    }
-
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
-    let broker_snapshot = broker.snapshot();
-    if broker_snapshot.active_request {
-        return Err("readonly_sample_requires_idle_broker".into());
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured || native_snapshot.protocol != Some("KWP2000_BMW") {
+        if broker.snapshot().epoch == epoch {
+            let _ = broker.finish_readonly_sample(epoch);
+        }
+        return Err("transport_changed_after_io".into());
     }
 
-    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    let broker_snapshot = broker.snapshot();
+    if !broker_snapshot.readonly_sample_active || broker_snapshot.active_request {
+        return Err("readonly_sample_lease_lost".into());
+    }
     attestation.authorize_me72_readonly(epoch)?;
 
-    match native.execute_me72_roughness(epoch, 197, 750) {
+    match io_result {
         Ok(mut result) => {
             let (sample_sequence, fingerprint) =
                 match attestation.record_me72_readonly_sample(epoch) {
@@ -342,6 +403,7 @@ fn desktop_execute_me72_roughness(
                         return Err(error);
                     }
                 };
+            broker.finish_readonly_sample(epoch)?;
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
