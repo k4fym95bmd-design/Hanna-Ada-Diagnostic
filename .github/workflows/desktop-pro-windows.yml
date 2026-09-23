@@ -1,0 +1,41 @@
+name: Desktop PRO Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop-pro/**'
+      - 'public/desktop-host-bridge.js'
+      - 'test/desktop-host-bridge.mjs'
+      - '.github/workflows/desktop-pro-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-pro:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test desktop host contract
+        run: node --test test/desktop-host-bridge.mjs
+      - name: Install Tauri CLI
+        working-directory: desktop-pro
+        run: npm install --no-audit --no-fund
+      - name: Build Windows installers
+        working-directory: desktop-pro
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanna-ada-desktop-pro-windows
+          path: |
+            desktop-pro/src-tauri/target/release/bundle/nsis/*
+            desktop-pro/src-tauri/target/release/bundle/msi/*
+          if-no-files-found: error
+          retention-days: 7
