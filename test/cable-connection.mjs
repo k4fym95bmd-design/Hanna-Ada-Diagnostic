@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { cableStatus, validateBridgeUrl, validateBridgeStatus } from '../public/cable-connection-model.js';
+import { cableStatus, nextBridgeFreshness, validateBridgeUrl, validateBridgeStatus } from '../public/cable-connection-model.js';
 import { createCableBridge } from '../gateway/windows-cable-bridge.mjs';
 
 const token = 'test-token-' + 'a'.repeat(40);
@@ -324,4 +324,84 @@ test('loss of VID PID metadata invalidates a previously bound session', async t 
   assert.equal(status.json.sessionId, null);
   assert.equal(status.json.cableBinding, null);
   assert.equal(serialState.activePort.isOpen, false);
+});
+
+
+test('bridge validator enforces evidence contract and monotonic freshness', () => {
+  const instance = 'a'.repeat(32);
+  const base = {
+    version:1,
+    transport:'physical-vci',
+    bridgeInstanceId:instance,
+    evidenceContractVersion:1,
+    stateRevision:4,
+    cableDetected:true,
+    portOpen:true,
+    sessionId:'b'.repeat(40),
+    sessionEpoch:2,
+    cableBinding:{ active:true, vidPid:'0403:6001' },
+    evidence:{
+      contractVersion:1,
+      stage:'PORT_OPEN',
+      nextGate:'COLLECT_RX',
+      flags:[],
+      cableDetected:true,
+      hardwareBound:true,
+      portOpen:true,
+      qualifiedPortOpen:true,
+      observedBytes:0,
+      candidateFrames:0,
+      ecuVerified:false,
+      writesEnabled:false,
+      flashEnabled:false,
+    },
+    ecuVerified:false,
+    writesEnabled:false,
+    flashEnabled:false,
+  };
+  const accepted = validateBridgeStatus(base);
+  assert.equal(accepted.evidenceStage, 'PORT_OPEN');
+  const fresh = nextBridgeFreshness(null, base);
+  assert.equal(fresh.stateRevision, 4);
+  assert.throws(() => nextBridgeFreshness(fresh, { ...base, stateRevision:3 }), /przestarzały/i);
+  const restarted = nextBridgeFreshness(fresh, { ...base, bridgeInstanceId:'c'.repeat(32), stateRevision:0, sessionEpoch:1 });
+  assert.equal(restarted.stateRevision, 0);
+  assert.throws(() => validateBridgeStatus({ ...base, evidence:{ ...base.evidence, stage:'READ_ONLY_IDENTITY_VERIFIED' } }), /dowod|status|transport/i);
+});
+
+test('failed passive monitor initialization closes the serial port and leaves no session', async t => {
+  const serialState = {
+    activePort:null,
+    list: async () => [{ path:'COM7', manufacturer:'broken-source', vendorId:'0403', productId:'6001' }],
+    createPort: path => {
+      const p = {
+        path,
+        isOpen:false,
+        on() {},
+        open(cb) { this.isOpen = true; cb(null); },
+        close(cb) { this.isOpen = false; cb?.(null); },
+      };
+      serialState.activePort = p;
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial:serialState, token, allowedOrigin:origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const ask = async (path, options={}) => {
+    const response = await fetch(base + path, {
+      method:options.method || 'GET',
+      headers:{ Origin:origin, Authorization:`Bearer ${token}`, 'Content-Type':'application/json' },
+      ...(options.body === undefined ? {} : { body:JSON.stringify(options.body) }),
+    });
+    return { code:response.status, json:await response.json() };
+  };
+  const opened = await ask('/v1/open', { method:'POST', body:{ path:'COM7' } });
+  assert.equal(opened.code, 503);
+  assert.equal(serialState.activePort.isOpen, false);
+  const status = await ask('/v1/status');
+  assert.equal(status.json.portOpen, false);
+  assert.equal(status.json.sessionId, null);
+  assert.equal(status.json.ecuVerified, false);
 });
