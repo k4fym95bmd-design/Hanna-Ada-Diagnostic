@@ -9,6 +9,7 @@ final class WiredAccessoryState: ObservableObject {
     @Published private(set) var status = "Nie sprawdzono akcesoriów."
     @Published private(set) var accessoryObserved = false
     @Published private(set) var evidenceStage: EvidenceStage = .noCable
+    private var watching = false
 
     func refresh() {
         let accessories = EAAccessoryManager.shared().connectedAccessories
@@ -27,16 +28,27 @@ final class WiredAccessoryState: ObservableObject {
     }
 
     func startWatching() {
-        EAAccessoryManager.shared().registerForLocalNotifications()
+        if !watching {
+            watching = true
+            EAAccessoryManager.shared().registerForLocalNotifications()
+        }
         refresh()
     }
 
     func stopWatching() {
+        guard watching else { return }
+        watching = false
         EAAccessoryManager.shared().unregisterForLocalNotifications()
+    }
+
+    func refreshFromNotification() {
+        guard watching else { return }
+        refresh()
     }
 }
 
 struct WiredAccessoryView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var hardware = WiredAccessoryState()
     private let background = Color(red: 0.025, green: 0.035, blue: 0.05)
     private let panelColor = Color(red: 0.055, green: 0.075, blue: 0.105)
@@ -113,11 +125,18 @@ struct WiredAccessoryView: View {
         .background(background.ignoresSafeArea())
         .onAppear { hardware.startWatching() }
         .onDisappear { hardware.stopWatching() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                hardware.startWatching()
+            } else {
+                hardware.stopWatching()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .EAAccessoryDidConnect)) { _ in
-            hardware.refresh()
+            hardware.refreshFromNotification()
         }
         .onReceive(NotificationCenter.default.publisher(for: .EAAccessoryDidDisconnect)) { _ in
-            hardware.refresh()
+            hardware.refreshFromNotification()
         }
     }
 
