@@ -1,5 +1,6 @@
 // Shared evidence model for USB direct and authenticated Windows bridge modes.
 // Opening USB serial NEVER proves an E39 ECU or any BMW protocol capability.
+import { classifyBridgeEnvelope } from './bridge-state-ordering.js';
 import {
   EVIDENCE_CONTRACT_VERSION,
   deriveTransportEvidence,
@@ -92,19 +93,26 @@ export function validateBridgeStatus(value) {
 
 export function nextBridgeFreshness(previous, rawStatus) {
   const current = validateBridgeStatus(rawStatus);
-  if (previous && previous.bridgeInstanceId === current.bridgeInstanceId) {
-    if (!safeRevision(previous.stateRevision) || current.stateRevision < previous.stateRevision) {
-      throw new TypeError('Odrzucono przestarzały status mostu.');
-    }
-    if (current.stateRevision === previous.stateRevision
-        && previous.sessionEpoch != null && current.sessionEpoch != null
-        && current.sessionEpoch !== previous.sessionEpoch) {
-      throw new TypeError('Niespójna epoka sesji przy tej samej rewizji mostu.');
-    }
+  const order = classifyBridgeEnvelope({
+    knownInstanceId: previous?.bridgeInstanceId ?? null,
+    lastRevision: previous?.stateRevision ?? -1,
+  }, {
+    bridgeInstanceId: current.bridgeInstanceId,
+    stateRevision: current.stateRevision,
+  });
+
+  if (order.action === 'STALE') throw new TypeError('Odrzucono przestarzały status mostu.');
+
+  if (previous && order.action === 'ACCEPT'
+      && current.stateRevision === previous.stateRevision
+      && current.sessionEpoch !== previous.sessionEpoch) {
+    throw new TypeError('Niespójna epoka sesji przy tej samej rewizji mostu.');
   }
+
   return Object.freeze({
     bridgeInstanceId: current.bridgeInstanceId,
     stateRevision: current.stateRevision,
     sessionEpoch: current.sessionEpoch,
+    resetLocalState: order.resetLocalState === true,
   });
 }
