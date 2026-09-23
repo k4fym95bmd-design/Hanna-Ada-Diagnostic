@@ -34,3 +34,14 @@ test('empty list remains safe and gives plug-in guidance', () => {
   assert.match(r.message, /Podłącz kabel USB/);
   assert.equal(r.writesEnabled, false);
 });
+
+
+test('unknown VID PID alone is not strong enough for automatic selection', () => {
+  const r = assessCablePlugReadiness([
+    { path: 'COM9', manufacturer: 'Unknown Device', vendorId: '1234', productId: '5678' },
+  ]);
+  assert.equal(r.detectedCount, 1);
+  assert.equal(r.recommendedPath, null);
+  assert.equal(r.readyToSelect, false);
+  assert.equal(r.ecuVerified, false);
+});
