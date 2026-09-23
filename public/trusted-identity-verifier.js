@@ -1,6 +1,8 @@
 import { validateReadOnlyRequestPlan } from './read-only-request-registry.js';
 import { assessModuleIdentityCandidate } from './module-identity-evidence.js';
 
+const MAX_VERIFIER_ATTEMPTS = 32;
+
 export class TrustedIdentityVerifier {
   #epoch;
   #operationId;
@@ -35,8 +37,17 @@ export class TrustedIdentityVerifier {
         || plan.moduleFamily !== this.#moduleFamily) {
       return blocked('VERIFIER_PLAN_MISMATCH', this.#confirmations);
     }
+    if (this.#confirmations >= 2) {
+      return Object.freeze({
+        ...blocked('LOCAL_ATTESTATION_REQUIRED', this.#confirmations),
+        repeatCandidateReady: true,
+      });
+    }
     if (this.#seenRequestIds.has(plan.requestId)) {
       return blocked('REPLAY_REJECTED', this.#confirmations);
+    }
+    if (this.#seenRequestIds.size >= MAX_VERIFIER_ATTEMPTS) {
+      return blocked('ATTEMPT_LIMIT_REACHED', this.#confirmations);
     }
 
     this.#seenRequestIds.add(plan.requestId);
@@ -122,6 +133,8 @@ export class TrustedIdentityVerifier {
       moduleFamily: this.#moduleFamily,
       confirmations: this.#confirmations,
       moduleIdentity: this.#acceptedIdentity,
+      attemptCount: this.#seenRequestIds.size,
+      maxAttempts: MAX_VERIFIER_ATTEMPTS,
       repeatCandidateReady: this.#confirmations >= 2,
       localAttestationRequired: true,
       identityVerified: false,
