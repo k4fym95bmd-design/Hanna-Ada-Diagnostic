@@ -15,9 +15,15 @@ test('Android prefers native USB Host over browser discovery', () => {
   assert.equal(r.readOnly, true);
 });
 
-test('Android can fall back to WebUSB discovery or Windows bridge', () => {
-  assert.equal(chooseTransportRoute({ platform: 'android', webUsb: true, secureContext: true }).route, TransportRoute.ANDROID_WEBUSB);
-  assert.equal(chooseTransportRoute({ platform: 'android', bridgeReachable: true }).route, TransportRoute.WINDOWS_BRIDGE);
+test('Android prefers canonical Windows bridge over WebUSB discovery when native USB Host is unavailable', () => {
+  assert.equal(
+    chooseTransportRoute({ platform: 'android', bridgeReachable: true, webUsb: true, secureContext: true }).route,
+    TransportRoute.WINDOWS_BRIDGE
+  );
+  assert.equal(
+    chooseTransportRoute({ platform: 'android', bridgeReachable: false, webUsb: true, secureContext: true }).route,
+    TransportRoute.ANDROID_WEBUSB
+  );
 });
 
 test('Windows prefers the canonical bridge when it is reachable', () => {
