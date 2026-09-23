@@ -10,6 +10,9 @@ export function validateDesktopLocalAttestation(value) {
       || value.transportConfigured !== true
       || value.brokerIdle !== true
       || !Number.isInteger(value.brokerAttemptCount) || value.brokerAttemptCount < 2
+      || !Number.isInteger(value.brokerEvidencedAttemptCount)
+      || value.brokerEvidencedAttemptCount < 2
+      || value.brokerEvidencedAttemptCount > value.brokerAttemptCount
       || value.rawSerialWriteExposed !== false
       || value.identityVerified !== false
       || value.ecuVerified !== false
