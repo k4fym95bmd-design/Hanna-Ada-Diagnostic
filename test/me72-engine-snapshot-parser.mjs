@@ -19,6 +19,8 @@ test('ME7.2 0x4000 parser decodes reference engine snapshot',()=>{
   assert.equal(r.dataIdentifier,'0x4000');
   assert.equal(r.rpm,699);
   assert.equal(r.targetRpm,700);
+  assert.ok(Math.abs(r.camshaftIntakeBank1Deg-(-0.0585))<1e-12);
+  assert.ok(Math.abs(r.camshaftIntakeBank2Deg-0.1287)<1e-12);
   assert.equal(r.coolantTempC,99);
   assert.equal(r.intakeAirTempC,28.5);
   assert.equal(r.ignitionAngleDeg,12.75);
