@@ -45,6 +45,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var central: CBCentralManager!
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var peripheral: CBPeripheral?
+    private var disconnectingPeripheral: CBPeripheral?
+    private var pendingConnection: (peripheral: CBPeripheral, name: String)?
     private var writeCharacteristic: CBCharacteristic?
     private var notifyCharacteristic: CBCharacteristic?
     private var discoveryRemaining = 0
@@ -52,6 +54,9 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var receiveBuffer = ""
     private var pendingContinuation: CheckedContinuation<String, Error>?
     private var pendingTimer: Timer?
+    private var pendingCommandEpoch: Int?
+    private var pendingCommandToken: UInt64 = 0
+    private var commandSequence: UInt64 = 0
     private var handshakeStarted = false
     private var selectedOBDProtocolNumber: String?
 
@@ -66,7 +71,12 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
             status = "Bluetooth is not available"
             return
         }
-        disconnect()
+        central.stopScan()
+        pendingConnection = nil
+        if let old = peripheral {
+            disconnectingPeripheral = old
+            central.cancelPeripheralConnection(old)
+        }
         resetSession(keepDevices: false)
         let scanEpoch = epoch
         state = .scanning
@@ -83,21 +93,74 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     func connect(to device: Device) {
         guard let candidate = peripherals[device.id] else { return }
         central.stopScan()
-        if let old = peripheral { central.cancelPeripheralConnection(old) }
-        resetSession(keepDevices: true)
-        peripheral = candidate
-        candidate.delegate = self
-        state = .ble
-        status = "Connecting to \(device.name)…"
-        central.connect(candidate, options: nil)
+
+        if let old = peripheral {
+            pendingConnection = (candidate, device.name)
+            disconnectingPeripheral = old
+            central.cancelPeripheralConnection(old)
+            resetSession(keepDevices: true)
+            state = .ble
+            status = "Closing previous BLE session before reconnect…"
+            return
+        }
+
+        if disconnectingPeripheral != nil {
+            pendingConnection = (candidate, device.name)
+            state = .ble
+            status = "Waiting for previous BLE session to close…"
+            return
+        }
+
+        startConnection(candidate, name: device.name)
     }
 
     func disconnect() {
         central.stopScan()
-        if let old = peripheral { central.cancelPeripheralConnection(old) }
+        pendingConnection = nil
+        if let old = peripheral {
+            disconnectingPeripheral = old
+            central.cancelPeripheralConnection(old)
+        }
         resetSession(keepDevices: true)
         state = .disconnected
-        status = "Disconnected"
+        status = disconnectingPeripheral == nil ? "Disconnected" : "Disconnecting…"
+    }
+
+    func suspendForBackground() {
+        central.stopScan()
+        pendingConnection = nil
+        if let old = peripheral {
+            disconnectingPeripheral = old
+            central.cancelPeripheralConnection(old)
+        }
+        resetSession(keepDevices: true)
+        state = .disconnected
+        status = "Paused while app is not active"
+    }
+
+    private func startConnection(_ candidate: CBPeripheral, name: String) {
+        guard central.state == .poweredOn, disconnectingPeripheral == nil else {
+            pendingConnection = (candidate, name)
+            return
+        }
+        pendingConnection = nil
+        peripheral = candidate
+        candidate.delegate = self
+        state = .ble
+        status = "Connecting to \(name)…"
+        central.connect(candidate, options: nil)
+    }
+
+    private func finishDisconnect(_ disconnected: CBPeripheral, error: Error?) {
+        guard disconnectingPeripheral === disconnected else { return }
+        disconnectingPeripheral = nil
+        if let pending = pendingConnection {
+            pendingConnection = nil
+            startConnection(pending.peripheral, name: pending.name)
+        } else if state != .scanning {
+            state = .disconnected
+            status = error?.localizedDescription ?? "Disconnected"
+        }
     }
 
     func readLive() async {
@@ -149,17 +212,25 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         guard notifyCharacteristic.isNotifying else {
             throw OBDParserError.adapterError("Notifications are not active")
         }
+
+        let commandEpoch = epoch
+        commandSequence = commandSequence == UInt64.max ? 1 : commandSequence + 1
+        let commandToken = commandSequence
         receiveBuffer = ""
         appendLog("TX  \(command)")
+
         return try await withCheckedThrowingContinuation { continuation in
             pendingContinuation = continuation
+            pendingCommandEpoch = commandEpoch
+            pendingCommandToken = commandToken
             pendingTimer?.invalidate()
             pendingTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
                 Task { @MainActor in
-                    guard let self, let pending = self.pendingContinuation else { return }
-                    self.pendingContinuation = nil
-                    self.pendingTimer = nil
-                    self.receiveBuffer = ""
+                    guard let self,
+                          self.epoch == commandEpoch,
+                          self.pendingCommandEpoch == commandEpoch,
+                          self.pendingCommandToken == commandToken,
+                          let pending = self.clearPendingCommand() else { return }
                     self.appendLog("ERR Timeout: \(command)")
                     pending.resume(throwing: OBDParserError.adapterError("Timeout waiting for \(command)"))
                 }
@@ -245,12 +316,20 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         peripheral.setNotifyValue(true, for: notify)
     }
 
-    private func resetSession(keepDevices: Bool) {
-        epoch &+= 1
+    private func clearPendingCommand() -> CheckedContinuation<String, Error>? {
         pendingTimer?.invalidate()
         pendingTimer = nil
         let pending = pendingContinuation
         pendingContinuation = nil
+        pendingCommandEpoch = nil
+        pendingCommandToken = 0
+        receiveBuffer = ""
+        return pending
+    }
+
+    private func resetSession(keepDevices: Bool) {
+        epoch &+= 1
+        let pending = clearPendingCommand()
         pending?.resume(throwing: OBDParserError.adapterError("Session reset"))
         peripheral = nil
         writeCharacteristic = nil
@@ -282,6 +361,8 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
     nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
         Task { @MainActor in
             if central.state != .poweredOn {
+                self.pendingConnection = nil
+                self.disconnectingPeripheral = nil
                 self.resetSession(keepDevices: true)
                 self.state = .disconnected
                 self.status = "Bluetooth unavailable: \(String(describing: central.state))"
@@ -314,6 +395,10 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            if self.disconnectingPeripheral === peripheral {
+                self.finishDisconnect(peripheral, error: error)
+                return
+            }
             guard self.peripheral === peripheral else { return }
             self.resetSession(keepDevices: true)
             self.state = .error
@@ -323,6 +408,10 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
+            if self.disconnectingPeripheral === peripheral {
+                self.finishDisconnect(peripheral, error: error)
+                return
+            }
             guard self.peripheral === peripheral else { return }
             self.resetSession(keepDevices: true)
             self.state = .disconnected
@@ -387,47 +476,43 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
-            guard self.peripheral === peripheral, let selected = self.writeCharacteristic, characteristic === selected, let error else { return }
-            self.pendingTimer?.invalidate()
-            self.pendingTimer = nil
-            let pending = self.pendingContinuation
-            self.pendingContinuation = nil
-            self.receiveBuffer = ""
+            guard self.peripheral === peripheral,
+                  let selected = self.writeCharacteristic,
+                  characteristic === selected,
+                  let error,
+                  self.pendingCommandEpoch == self.epoch,
+                  self.pendingCommandToken != 0,
+                  let pending = self.clearPendingCommand() else { return }
             self.appendLog("ERR GATT write: \(error.localizedDescription)")
-            pending?.resume(throwing: error)
+            pending.resume(throwing: error)
         }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         Task { @MainActor in
-            guard self.peripheral === peripheral, let selected = self.notifyCharacteristic, characteristic === selected else { return }
+            guard self.peripheral === peripheral,
+                  let selected = self.notifyCharacteristic,
+                  characteristic === selected,
+                  self.pendingCommandEpoch == self.epoch,
+                  self.pendingCommandToken != 0 else { return }
             if let error {
-                self.pendingTimer?.invalidate()
-                self.pendingTimer = nil
-                let pending = self.pendingContinuation
-                self.pendingContinuation = nil
-                self.receiveBuffer = ""
+                let pending = self.clearPendingCommand()
                 pending?.resume(throwing: error)
                 return
             }
-            guard self.pendingContinuation != nil, let data = characteristic.value, let chunk = String(data: data, encoding: .utf8) else { return }
+            guard self.pendingContinuation != nil,
+                  let data = characteristic.value,
+                  let chunk = String(data: data, encoding: .utf8) else { return }
             self.receiveBuffer += chunk
             self.appendLog("RX  \(OBDParser.clean(chunk))")
             if self.receiveBuffer.utf8.count > 16384 {
-                self.pendingTimer?.invalidate()
-                self.pendingTimer = nil
-                let pending = self.pendingContinuation
-                self.pendingContinuation = nil
-                self.receiveBuffer = ""
+                let pending = self.clearPendingCommand()
                 pending?.resume(throwing: OBDParserError.adapterError("Oversized BLE response"))
                 return
             }
-            guard let prompt = self.receiveBuffer.firstIndex(of: ">"), let pending = self.pendingContinuation else { return }
+            guard let prompt = self.receiveBuffer.firstIndex(of: ">") else { return }
             let response = String(self.receiveBuffer[...prompt])
-            self.receiveBuffer = ""
-            self.pendingTimer?.invalidate()
-            self.pendingTimer = nil
-            self.pendingContinuation = nil
+            guard let pending = self.clearPendingCommand() else { return }
             pending.resume(returning: response)
         }
     }
