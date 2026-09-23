@@ -16,17 +16,19 @@ public final class KdcanTransportSession {
         public final long epoch;
         public final String driverFamily;
         public final boolean portOpen;
+        public final boolean configured;
         public final boolean requestBound;
         public final boolean ecuVerified;
         public final boolean writesEnabled;
 
         private Snapshot(boolean active, String stage, long epoch, String driverFamily,
-                         boolean portOpen, boolean requestBound) {
+                         boolean portOpen, boolean configured, boolean requestBound) {
             this.active = active;
             this.stage = stage;
             this.epoch = epoch;
             this.driverFamily = driverFamily;
             this.portOpen = portOpen;
+            this.configured = configured;
             this.requestBound = requestBound;
             this.ecuVerified = false;
             this.writesEnabled = false;
@@ -42,6 +44,7 @@ public final class KdcanTransportSession {
     private int productId = -1;
     private boolean active;
     private boolean portOpen;
+    private boolean configured;
     private long lastSeenAt;
     private String pendingRequestId;
     private String terminalStage = "IDLE";
@@ -73,6 +76,7 @@ public final class KdcanTransportSession {
         driverFamily = family;
         active = true;
         portOpen = false;
+        configured = false;
         pendingRequestId = null;
         lastSeenAt = safeNow();
         terminalStage = "BOUND";
@@ -82,9 +86,20 @@ public final class KdcanTransportSession {
     public synchronized Snapshot markPortOpen(String expectedSessionId, long expectedEpoch) {
         requireFresh(expectedSessionId, expectedEpoch);
         portOpen = true;
+        configured = false;
         pendingRequestId = null;
         lastSeenAt = safeNow();
         terminalStage = "PORT_OPEN";
+        return snapshot();
+    }
+
+    public synchronized Snapshot markConfigured(String expectedSessionId, long expectedEpoch) {
+        requireFresh(expectedSessionId, expectedEpoch);
+        if (!portOpen) throw new IllegalStateException("Port is not open");
+        if (pendingRequestId != null) throw new IllegalStateException("Request already bound");
+        configured = true;
+        lastSeenAt = safeNow();
+        terminalStage = "PORT_CONFIGURED";
         return snapshot();
     }
 
@@ -92,6 +107,7 @@ public final class KdcanTransportSession {
                                              String requestId) {
         requireFresh(expectedSessionId, expectedEpoch);
         if (!portOpen) throw new IllegalStateException("Port is not open");
+        if (!configured) throw new IllegalStateException("Port is not configured");
         if (!validRequestId(requestId)) throw new IllegalArgumentException("Invalid request id");
         if (pendingRequestId != null) throw new IllegalStateException("Request already bound");
         pendingRequestId = requestId;
@@ -125,6 +141,7 @@ public final class KdcanTransportSession {
     public synchronized Snapshot markPortClosed(String expectedSessionId, long expectedEpoch) {
         requireFresh(expectedSessionId, expectedEpoch);
         portOpen = false;
+        configured = false;
         pendingRequestId = null;
         lastSeenAt = safeNow();
         terminalStage = "PORT_CLOSED";
@@ -144,15 +161,17 @@ public final class KdcanTransportSession {
     public synchronized Snapshot snapshot() {
         expireIfNeeded();
         if (!active) {
-            return new Snapshot(false, terminalStage, epoch, driverFamily, false, false);
+            return new Snapshot(false, terminalStage, epoch, driverFamily, false, false, false);
         }
         String stage = pendingRequestId != null ? "REQUEST_BOUND"
+                : configured ? "PORT_CONFIGURED"
                 : portOpen ? "PORT_OPEN" : "BOUND";
         if (!"BOUND".equals(terminalStage) && !"PORT_OPEN".equals(terminalStage)
+                && !"PORT_CONFIGURED".equals(terminalStage)
                 && !"REQUEST_BOUND".equals(terminalStage)) {
             stage = terminalStage;
         }
-        return new Snapshot(true, stage, epoch, driverFamily, portOpen,
+        return new Snapshot(true, stage, epoch, driverFamily, portOpen, configured,
                 pendingRequestId != null);
     }
 
@@ -173,6 +192,7 @@ public final class KdcanTransportSession {
     private void invalidate(String stage) {
         active = false;
         portOpen = false;
+        configured = false;
         pendingRequestId = null;
         sessionId = null;
         vendorId = -1;
