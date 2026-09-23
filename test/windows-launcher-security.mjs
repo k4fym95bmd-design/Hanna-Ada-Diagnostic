@@ -38,3 +38,21 @@ test('preflight runs before any child process or bridge token creation', () => {
   assert.ok(preflightIndex < tokenIndex);
   assert.ok(preflightIndex < serverIndex);
 });
+
+
+test('launcher builds a bounded exact-origin allowlist and exports it only to the bridge child', () => {
+  assert.match(script, /\[string\[\]\]\$AdditionalAllowedOrigins = @\(\)/);
+  assert.match(script, /\$TrustedOrigins = @\(\$AllowedOrigin\) \+ @\(\$AdditionalAllowedOrigins\)/);
+  assert.match(script, /\$TrustedOrigins\.Count -lt 1 -or \$TrustedOrigins\.Count -gt 4/);
+  assert.match(script, /HAA_BRIDGE_ORIGINS = \(\$TrustedOrigins -join ","\)/);
+  assert.match(script, /Remove-Item Env:HAA_BRIDGE_ORIGINS/);
+  assert.doesNotMatch(script, /access-control-allow-origin.*\*/i);
+});
+
+test('launcher rejects remote HTTP origins before child processes start', () => {
+  const validationIndex = script.indexOf('$isLoopbackOrigin');
+  const serverIndex = script.indexOf('$server = Start-Process');
+  assert.ok(validationIndex >= 0);
+  assert.ok(validationIndex < serverIndex);
+  assert.match(script, /Zdalny origin musi używać HTTPS/);
+});
