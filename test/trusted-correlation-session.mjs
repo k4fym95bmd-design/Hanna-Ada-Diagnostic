@@ -8,6 +8,7 @@ const evidence = (requestId, overrides = {}) => ({
   stage: 'FRAME_CANDIDATE',
   candidateFrames: 1,
   frames: [{ directionHint: 'possible-reply', frameHex: 'B8 F1 12 00 5B' }],
+  nativeReadReceipt: 500,
   ecuVerified: false,
   writesEnabled: false,
   flashEnabled: false,
@@ -42,14 +43,14 @@ test('second independent token reaches repeated candidate but not verified ident
 
   const first = session.prepareAttempt('corr-request-A');
   session.consumeAttempt({
-    receiveEvidence: evidence(first.requestId),
+    receiveEvidence: evidence(first.requestId, { nativeReadReceipt: 511 }),
     responseRequestId: first.requestId,
     moduleIdentity: 'ME7.2',
   });
 
   const second = session.prepareAttempt('corr-request-B');
   const verified = session.consumeAttempt({
-    receiveEvidence: evidence(second.requestId),
+    receiveEvidence: evidence(second.requestId, { nativeReadReceipt: 512 }),
     responseRequestId: second.requestId,
     moduleIdentity: 'ME7.2',
   });
@@ -118,15 +119,17 @@ test('third request is blocked once repeated candidate evidence is complete', ()
     epoch:12,
     operationId:'e39-dme-me72-module-identity',
   });
-  for (const id of ['corr-bound-0001','corr-bound-0002']) {
+  for (const [index, id] of ['corr-bound-0001','corr-bound-0002'].entries()) {
     const plan = session.prepareAttempt(id);
     session.consumeAttempt({
-      receiveEvidence:evidence(plan.requestId),
+      receiveEvidence:evidence(plan.requestId, { nativeReadReceipt: 520 + index }),
       responseRequestId:plan.requestId,
       moduleIdentity:'ME7.2',
     });
   }
   assert.equal(session.snapshot().repeatCandidateReady, true);
+  assert.deepEqual(session.snapshot().confirmedRequestIds, ['corr-bound-0001','corr-bound-0002']);
+  assert.deepEqual(session.snapshot().confirmedNativeReceipts, [520,521]);
   assert.equal(session.snapshot().identityVerified, false);
   assert.throws(() => session.prepareAttempt('corr-bound-0003'), /local attestation/i);
 });
