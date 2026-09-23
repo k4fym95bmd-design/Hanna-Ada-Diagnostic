@@ -36,3 +36,18 @@ test('Bluetooth smoke tests remain transport-only and never send ECU commands', 
   assert.doesNotMatch(spp + ble, /\.write\s*\(/);
   assert.doesNotMatch(spp + ble, /0100|010C|ATI|ATDP|Mode 03|clear DTC/i);
 });
+
+
+test('SPP cancellation actively closes the blocking Bluetooth socket', async () => {
+  const spp = await source('android-usb-probe/app/src/main/java/app/hannaada/usbprobe/BluetoothLink.java');
+  const activity = await source('android-usb-probe/app/src/main/java/app/hannaada/usbprobe/ConnectionsActivity.java');
+  assert.match(spp, /private static BluetoothSocket activeProbeSocket/);
+  assert.match(spp, /static long beginProbe\(\)/);
+  assert.match(spp, /static void cancelActiveProbe\(\)/);
+  assert.match(spp, /closeQuietly\(socket\)/);
+  assert.match(spp, /testPairedSppConnection\(Context context, BluetoothDevice device, long probeToken\)/);
+  assert.match(spp, /currentProbe\(probeToken\)/);
+  assert.match(activity, /BluetoothLink\.cancelActiveProbe\(\)/);
+  assert.match(activity, /final long probeToken = BluetoothLink\.beginProbe\(\)/);
+  assert.match(activity, /testPairedSppConnection\(this, device, probeToken\)/);
+});
