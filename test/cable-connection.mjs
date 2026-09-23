@@ -48,6 +48,13 @@ test('authenticated bridge lists and opens only enumerated ports and never expos
   }
   assert.equal((await ask('/v1/ports', { auth: 'wrong' })).code, 401);
   assert.equal((await ask('/v1/ports', { source: 'https://evil.test' })).code, 403);
+  const capabilities = await ask('/v1/capabilities');
+  assert.equal(capabilities.code, 200);
+  assert.equal(capabilities.json.readOnly, true);
+  assert.equal(capabilities.json.atomicSnapshot, true);
+  assert.equal(capabilities.json.arbitraryTx, false);
+  assert.equal(capabilities.json.dtcErase, false);
+  assert.equal(capabilities.json.flashing, false);
   assert.equal((await ask('/v1/ports')).json.ports[0].path, 'COM7');
   assert.equal((await ask('/v1/open', { method: 'POST', body: { path: 'COM99' } })).code, 404);
   const opened = await ask('/v1/open', { method: 'POST', body: { path: 'COM7' } });
