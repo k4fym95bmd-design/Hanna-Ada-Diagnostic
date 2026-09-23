@@ -70,10 +70,10 @@ struct WiredAccessoryView: View {
                 }
                 panel {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("KABEL K+DCAN · 0403:6001", systemImage: "exclamationmark.triangle")
+                        Label("KABEL K+DCAN · VID:PID NIEZWERYFIKOWANY", systemImage: "exclamationmark.triangle")
                             .font(.headline)
                             .foregroundStyle(.orange)
-                        Text("Wykrycie FTDI na Androidzie nie oznacza, że iPhone udostępni jego port. Sama przejściówka Lightning lub USB-C nie dostarcza naszej aplikacji sterownika FTDI.")
+                        Text("Rodzina USB-serial wykryta na innym urządzeniu nie oznacza, że iPhone udostępni ten sam port. iOS nie może zakładać VID:PID ani sterownika tego egzemplarza kabla bez własnego dowodu.")
                             .foregroundStyle(.secondary)
                         Text("Połączenie przewodowe wymaga akcesorium zgodnego z iOS, udokumentowanego protokołu i odpowiednich uprawnień aplikacji. Nie pokazujemy przycisku Połącz bez tej weryfikacji.")
                             .foregroundStyle(.secondary)
