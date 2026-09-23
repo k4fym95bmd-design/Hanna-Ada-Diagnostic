@@ -76,3 +76,40 @@ test('invalid identity never becomes eligible', () => {
   assert.equal(result.moduleIdentityEligible, false);
   assert.equal(result.ecuVerified, false);
 });
+
+
+test('malformed frame evidence cannot become an identity candidate', () => {
+  const plan = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch:3,
+    requestId:'identity-request-0004',
+  });
+
+  assert.equal(assessModuleIdentityCandidate({
+    requestPlan:plan,
+    receiveEvidence:baseEvidence({ candidateFrames:2 }),
+    responseRequestId:'identity-request-0004',
+    moduleIdentity:'ME7.2',
+  }).stage, 'FRAME_CANDIDATE_REQUIRED');
+
+  assert.equal(assessModuleIdentityCandidate({
+    requestPlan:plan,
+    receiveEvidence:baseEvidence({ frames:[{ directionHint:'possible-reply' }] }),
+    responseRequestId:'identity-request-0004',
+    moduleIdentity:'ME7.2',
+  }).stage, 'FRAME_METADATA_REQUIRED');
+});
+
+test('eligible identity is labeled as externally correlated and still not ECU verified', () => {
+  const plan = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch:3,
+    requestId:'identity-request-0005',
+  });
+  const result = assessModuleIdentityCandidate({
+    requestPlan:plan,
+    receiveEvidence:baseEvidence(),
+    responseRequestId:'identity-request-0005',
+    moduleIdentity:'ME7.2',
+  });
+  assert.equal(result.identitySource, 'EXTERNAL_CORRELATED_READ_ONLY');
+  assert.equal(result.ecuVerified, false);
+});
