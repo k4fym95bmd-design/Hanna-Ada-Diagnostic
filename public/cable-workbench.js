@@ -1,4 +1,4 @@
-import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
+import { cableStatus, nextBridgeFreshness, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
 import { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';
 import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 import { assessCablePlugReadiness, findNewCablePorts } from './cable-plug-readiness.js';
@@ -6,7 +6,7 @@ import { classifyBridgeFailure } from './bridge-error-policy.js';
 
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
-const work = { mode: 'desktop', serialPort: null, bridgeUrl: null, bridgeToken: null, ports: [], selectedPath: '', bridgeOnline: false, detected: false, opened: false, busy: false, message: 'Nie wybrano portu.' };
+const work = { mode: 'desktop', serialPort: null, bridgeUrl: null, bridgeToken: null, bridgeFreshness: null, ports: [], selectedPath: '', bridgeOnline: false, detected: false, opened: false, busy: false, message: 'Nie wybrano portu.' };
 const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
 const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Windows/i.test(navigator.userAgent) ? 'windows' : 'desktop';
@@ -144,6 +144,7 @@ async function action(name) {
 }
 function useBridgeStatus(raw) {
   const state = validateBridgeStatus(raw);
+  work.bridgeFreshness = nextBridgeFreshness(work.bridgeFreshness, raw);
   work.detected = state.cableDetected; work.opened = state.portOpen; work.bridgeOnline = true;
   const root = rootNow();
   if (root) {
@@ -263,6 +264,7 @@ function attach() {
     if (work.mode !== button.dataset.cableMode && work.mode === 'bridge') {
       work.selectedPath = '';
       work.ports = [];
+      work.bridgeFreshness = null;
       delete section.dataset.bridgeUsbVendorId;
       delete section.dataset.bridgeUsbProductId;
     }
