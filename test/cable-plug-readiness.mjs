@@ -74,3 +74,18 @@ test('unchanged port evidence does not look like a new cable', () => {
   const ports = [{ path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001' }];
   assert.deepEqual(findNewCablePorts(ports, ports), []);
 });
+
+
+test('same COM and VID PID with changed hashed hardware fingerprint is new evidence', () => {
+  const before = [{
+    path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001',
+    hardwareFingerprint:'111111111111111111111111'
+  }];
+  const after = [{
+    path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001',
+    hardwareFingerprint:'222222222222222222222222'
+  }];
+  const appeared = findNewCablePorts(before, after);
+  assert.equal(appeared.length, 1);
+  assert.notEqual(cablePortEvidenceKey(before[0]), cablePortEvidenceKey(after[0]));
+});
