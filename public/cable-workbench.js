@@ -1,13 +1,14 @@
 import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
 import { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';
 import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
+import { assessCablePlugReadiness } from './cable-plug-readiness.js';
 
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
 const work = { mode: 'desktop', serialPort: null, bridgeUrl: null, bridgeToken: null, ports: [], selectedPath: '', bridgeOnline: false, detected: false, opened: false, busy: false, message: 'Nie wybrano portu.' };
 const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
-const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 'desktop';
+const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Windows/i.test(navigator.userAgent) ? 'windows' : 'desktop';
 const errText = e => e instanceof TypeError ? e.message : 'Operacja nie powiodła się. Sprawdź uprawnienia, sterownik i połączenie.';
 const usbId = value => {
   if (Number.isInteger(value) && value >= 0 && value <= 0xFFFF) return value.toString(16).toUpperCase().padStart(4, '0');
@@ -96,6 +97,13 @@ async function action(name) {
       await listPorts();
     } else if (name === 'bridge-list') {
       await listPorts(); report(`Wykryto ${work.ports.length} portów szeregowych. Nie jest to dowód zgodności kabla BMW.`);
+    } else if (name === 'bridge-ready') {
+      const readiness = await applyBridgeReadiness(await bridgeRequest('/v1/readiness'));
+      report(readiness.message);
+    } else if (name === 'bridge-wait') {
+      report('Czekam na podłączenie kabla USB…');
+      const readiness = await waitForCable();
+      report(`${readiness.message} Port został wybrany, ale nie otwarty.`);
     } else if (name === 'bridge-open') {
       const path = requestedPort;
       if (!path || !work.ports.some(p => p.path === path)) throw new TypeError('Wybierz port z aktualnej listy.');
@@ -151,6 +159,34 @@ async function bridgeRequest(path, payload) {
     return result.json();
   } finally { clearTimeout(timeout); }
 }
+async function applyBridgeReadiness(result) {
+  if (!result || result.version !== 1 || result.readOnly !== true || result.arbitraryTx !== false
+    || !result.status || !Array.isArray(result.ports) || result.ports.length > 100) {
+    throw new TypeError('Nieprawidłowy pakiet gotowości mostu.');
+  }
+  useBridgeStatus(result.status);
+  work.ports = result.ports.filter(p => p && typeof p.path === 'string' && p.path.length <= 240).map(p => ({
+    path: p.path,
+    manufacturer: String(p.manufacturer || '').slice(0, 100),
+    vendorId: usbId(p.vendorId),
+    productId: usbId(p.productId),
+  }));
+  const readiness = assessCablePlugReadiness(work.ports);
+  work.selectedPath = readiness.recommendedPath
+    || (work.ports.some(p => p.path === result.selectedPath) ? result.selectedPath : '');
+  return readiness;
+}
+async function waitForCable(maxMs = 30000) {
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    const result = await bridgeRequest('/v1/readiness');
+    const readiness = await applyBridgeReadiness(result);
+    display();
+    if (readiness.detectedCount > 0) return readiness;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new TypeError('Nie wykryto kabla USB w ciągu 30 sekund.');
+}
 async function listPorts() {
   const result = await bridgeRequest('/v1/ports');
   if (!result || !Array.isArray(result.ports) || result.ports.length > 100) throw new TypeError('Nieprawidłowa lista portów mostu.');
@@ -166,15 +202,18 @@ function attach() {
   const view = document.querySelector('#view');
   if (!view || ![...view.querySelectorAll('.hero h1')].some(el => /VCI \/ Connection/.test(el.textContent))) return;
   if (rootNow()) return;
+  if (platform() === 'windows') work.mode = 'bridge';
   const section = document.createElement('section'); section.id = 'haCableWorkbench'; section.className = 'ha-cable';
   section.innerHTML = `<div class="ha-cable-header"><div><small>HANNA & ADA · CABLE WORKBENCH</small><h2>Połączenie przewodowe / K+DCAN</h2><p>Jeden ekran dla Windows USB, mostu do telefonu i Android USB. Bez symulowanych odczytów ECU.</p></div><span class="ha-cable-lock">READ-ONLY · WRITE LOCKED</span></div>
     <div class="ha-cable-steps"><div data-cable-stage><span>01 · Port wybrany</span><b>NIEPOTWIERDZONE</b></div><div data-cable-stage><span>02 · Port otwarty</span><b>NIEPOTWIERDZONE</b></div><div data-cable-stage><span>03 · ECU BMW</span><b>NIEPOTWIERDZONE</b></div></div>
     <div class="ha-cable-tabs" role="tablist" aria-label="Tryb kabla"><button type="button" role="tab" data-cable-mode="desktop" aria-selected="true">Windows / Web Serial</button><button type="button" role="tab" data-cable-mode="bridge" aria-selected="false">Telefon ↔ Windows</button><button type="button" role="tab" data-cable-mode="android" aria-selected="false">Android USB</button></div>
     <div class="ha-cable-panel" data-cable-panel="desktop"><h3>Twój kabel · K+DCAN USB / INPA Compatible</h3><p><strong>Profil docelowy:</strong> kabel ze zdjęcia z fizycznym przełącznikiem. Aplikacja nie zgaduje, co oznacza pozycja przełącznika — potwierdzimy ją na konkretnym egzemplarzu.</p><p data-cable-usb-support></p><p>Przeglądarka na komputerze może uzyskać zgodę na port. Otwarcie na 9600 baud jest wyłącznie próbą portu, nie konfiguracją protokołu BMW.</p><div class="ha-cable-actions"><button type="button" data-cable-action="desktop-select">1. WYBIERZ USB</button><button type="button" data-cable-action="desktop-open">2. OTWÓRZ PORT</button><button type="button" data-cable-action="desktop-close">ZAMKNIJ</button></div></div>
-    <div class="ha-cable-panel" data-cable-panel="bridge" hidden><h3>iPhone / Android ↔ Windows ↔ kabel</h3><p>Agent działa lokalnie na Windows. Telefon łączy się przez HTTPS z zaufanym certyfikatem; token nie jest zapisywany ani umieszczany w URL.</p><div class="ha-cable-fields"><label>Adres mostu (HTTPS w sieci, HTTP tylko localhost)<input data-cable-url type="url" inputmode="url" placeholder="https://adres-komputera:8765" autocomplete="off"></label><label>Token dostępu<input data-cable-token type="password" placeholder="Wpisz token lokalnego agenta" autocomplete="off"></label><label>Port USB<select data-cable-port aria-label="Port USB"></select><small data-cable-port-empty>Lista pusta — połącz i wyszukaj porty.</small></label></div><div class="ha-cable-actions"><button type="button" data-cable-action="bridge-connect">POŁĄCZ MOST</button><button type="button" data-cable-action="bridge-list">ODŚWIEŻ PORTY</button><button type="button" data-cable-action="bridge-open">OTWÓRZ KABEL</button><button type="button" data-cable-action="bridge-refresh">STATUS</button><button type="button" data-cable-action="bridge-close">ZAMKNIJ PORT</button></div><div class="ha-cable-foot" data-cable-bridge-state>MOST NIEPOŁĄCZONY</div></div>
+    <div class="ha-cable-panel" data-cable-panel="bridge" hidden><h3>iPhone / Android ↔ Windows ↔ kabel</h3><p>Agent działa lokalnie na Windows. Telefon łączy się przez HTTPS z zaufanym certyfikatem; token nie jest zapisywany ani umieszczany w URL.</p><div class="ha-cable-fields"><label>Adres mostu (HTTPS w sieci, HTTP tylko localhost)<input data-cable-url type="url" inputmode="url" placeholder="https://adres-komputera:8765" autocomplete="off"></label><label>Token dostępu<input data-cable-token type="password" placeholder="Wpisz token lokalnego agenta" autocomplete="off"></label><label>Port USB<select data-cable-port aria-label="Port USB"></select><small data-cable-port-empty>Lista pusta — połącz i wyszukaj porty.</small></label></div><div class="ha-cable-actions"><button type="button" data-cable-action="bridge-connect">POŁĄCZ MOST</button><button type="button" data-cable-action="bridge-ready">SPRAWDŹ GOTOWOŚĆ</button><button type="button" data-cable-action="bridge-wait">CZEKAJ NA KABEL 30 s</button><button type="button" data-cable-action="bridge-list">ODŚWIEŻ PORTY</button><button type="button" data-cable-action="bridge-open">OTWÓRZ KABEL</button><button type="button" data-cable-action="bridge-refresh">STATUS</button><button type="button" data-cable-action="bridge-close">ZAMKNIJ PORT</button></div><div class="ha-cable-foot" data-cable-bridge-state>MOST NIEPOŁĄCZONY</div></div>
     <div class="ha-cable-panel" data-cable-panel="android" hidden><h3>Android · USB Host / OTG</h3><p data-cable-android></p><p>Natywny moduł USB Probe w repozytorium wykonuje odczyt VID:PID, zgodę Androida oraz otwarcie/zamknięcie portu. Integracja tego modułu z webowym ekranem i protokół BMW nie są jeszcze wdrożone. Sam Chrome nie gwarantuje obsługi konkretnego kabla.</p></div>
     <div class="ha-cable-result" role="status" aria-live="polite"><strong data-cable-message>Nie wybrano portu.</strong><span data-cable-next></span></div><p class="ha-cable-disclaimer">BMW E39 1999 z okrągłym złączem: zgodność adaptera 20-pin ↔ 16-pin i dostęp do linii modułów trzeba potwierdzić dla konkretnego egzemplarza. Żaden tryb nie udostępnia kodowania, kasowania błędów ani flashowania.</p>`;
   view.appendChild(section);
+  const urlInput = section.querySelector('[data-cable-url]');
+  if (platform() === 'windows' && urlInput && !urlInput.value) urlInput.value = 'http://127.0.0.1:8765';
   section.querySelector('[data-cable-port]').addEventListener('change', event => { work.selectedPath = event.target.value; });
   section.querySelectorAll('[data-cable-mode]').forEach(button => button.addEventListener('click', () => {
     if (work.opened && work.mode !== button.dataset.cableMode) { report('Najpierw zamknij aktywny port kabla.', true); return; }
