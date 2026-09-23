@@ -3,6 +3,8 @@ const MODULES=[
 ];
 const CAP={SUPPORTED:'SUPPORTED',HARDWARE:'HARDWARE REQUIRED',PROTOCOL:'PROTOCOL REQUIRED',NA:'NOT AVAILABLE FOR THIS VEHICLE',EXPERIMENTAL:'EXPERIMENTAL'};
 const state={module:'home',session:{ble:false,adapter:false,ecu:false,vin:null,ecuId:null,protocol:null,voltage:null},vehicle:{profile:'bmw-e39-540i-v8-tu',label:'BMW E39 540i V8',years:'1999–2003',engine:'M62TUB44',dme:'Bosch ME7.2',vanos:true},trace:['SYS  Hanna & Ada ready','SYS  No vehicle session. Write/flash locked.'],tuning:null};
+const TRACE_LIMIT=160;
+function appendTrace(...entries){for(const entry of entries)state.trace.push(String(entry));if(state.trace.length>TRACE_LIMIT)state.trace.splice(0,state.trace.length-TRACE_LIMIT)}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const $=q=>document.querySelector(q);
 let tuningRequest=null;
@@ -41,7 +43,7 @@ function flash(){return `${hero('Flash / Recovery','Resolve → precheck → aud
 function remote(){return generic('Remote Garage','Secure remote diagnostics requires a local VCI/gateway, authenticated relay, consent and audit.',[capRow('Remote read-only session model',CAP.EXPERIMENTAL),capRow('Authenticated local VCI gateway',CAP.HARDWARE),capRow('Remote write/flash',CAP.NA,'Not enabled in this build')]);}
 const R={home,scan,'control-units':controls,dtc,'live-data':live,'active-test':activeTest,service,adaptations,'coding-studio':coding,'bmw-expert':bmwExpert,tuning,advanced,'ai-mechanic':ai,reports,vci,workshop,wiring,flash,remote};
 let renderEpoch=0,viewEventsReady=false;
-function bindViewEvents(){const root=$('#view');if(!root||viewEventsReady)return;root.addEventListener('click',event=>{const jump=event.target.closest('[data-jump]');if(jump&&root.contains(jump)){state.module=jump.dataset.jump;void render();return;}if(event.target.closest('#demoBle')){state.session.ble=true;state.session.adapter=true;state.session.ecu=false;state.trace.push('SYS  UI simulation only — no real BLE device connected','TX   ATI','RX   ELM327 identity would appear here after a real adapter reply');void render();return;}if(event.target.closest('#resetSession')){state.session={ble:false,adapter:false,ecu:false,vin:null,ecuId:null,protocol:null,voltage:null};state.trace=['SYS  Hanna & Ada ready','SYS  No vehicle session. Write/flash locked.'];void render();}});viewEventsReady=true;}
+function bindViewEvents(){const root=$('#view');if(!root||viewEventsReady)return;root.addEventListener('click',event=>{const jump=event.target.closest('[data-jump]');if(jump&&root.contains(jump)){state.module=jump.dataset.jump;void render();return;}if(event.target.closest('#demoBle')){state.session.ble=true;state.session.adapter=true;state.session.ecu=false;appendTrace('SYS  UI simulation only — no real BLE device connected','TX   ATI','RX   ELM327 identity would appear here after a real adapter reply');void render();return;}if(event.target.closest('#resetSession')){state.session={ble:false,adapter:false,ecu:false,vin:null,ecuId:null,protocol:null,voltage:null};state.trace=['SYS  Hanna & Ada ready','SYS  No vehicle session. Write/flash locked.'];void render();}});viewEventsReady=true;}
 async function render(){const owner=++renderEpoch;nav();status();const renderer=R[state.module]||home;const html=await renderer();if(owner!==renderEpoch)return;const root=$('#view');root.dataset.module=state.module;root.innerHTML=html;window.dispatchEvent(new CustomEvent('hannaada:module-rendered',{detail:{module:state.module}}));}
 bindViewEvents();
 void render();
