@@ -59,8 +59,13 @@ test('pauses all scheduled transport reads while page hidden and wakes on visibi
   assert.equal(c.start(), true);
   await timer.tick();
   assert.equal(count, 0);
-  assert.equal(timer.active()[0].ms, 2000);
-  visible = true; c.wake();
+  assert.equal(timer.active().length, 0, 'hidden Live must not keep a periodic wake timer alive');
+  assert.equal(c.metrics().backgroundPauses, 1);
+  assert.equal(c.wake(), false, 'wake while still hidden must stay dormant');
+  assert.equal(timer.active().length, 0);
+  visible = true;
+  assert.equal(c.wake(), true);
+  assert.equal(timer.active()[0].ms, 0);
   await timer.tick();
   assert.equal(count, 2);
   assert.equal(c.metrics().cycles, 1);
