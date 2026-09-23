@@ -235,6 +235,7 @@ export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globa
 const READONLY_SAMPLE_PROFILE_IDS = Object.freeze([
   'e39-me72-roughness-4003',
   'e39-me72-engine-snapshot-4000',
+  'e39-me72-fuel-adaptation-4004',
 ]);
 
 export function validateDesktopReadResult(value) {
@@ -356,6 +357,15 @@ export async function executeDesktopMe72EngineSnapshot(epoch, globalObject = glo
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
     await invoke('desktop_execute_me72_engine_snapshot', { epoch })
+  );
+}
+
+export async function executeDesktopMe72FuelAdaptation(epoch, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_execute_me72_fuel_adaptation', { epoch })
   );
 }
 
