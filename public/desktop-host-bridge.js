@@ -89,6 +89,19 @@ export function validateDesktopSerialCandidates(value) {
     if (item.candidateFamily !== null && !allowedFamilies.has(item.candidateFamily)) {
       throw new TypeError('Unknown serial family candidate');
     }
+    const hasVid = Number.isInteger(item.vid);
+    const hasPid = Number.isInteger(item.pid);
+    if (hasVid !== hasPid) throw new TypeError('Incomplete USB identity');
+    if (item.kind === 'usb') {
+      if (!hasVid || item.usbIdentityOnly !== true) throw new TypeError('USB candidate requires VID PID evidence');
+    } else {
+      if (item.usbIdentityOnly !== false || hasVid || hasPid || item.candidateFamily !== null) {
+        throw new TypeError('Non-USB candidate carried USB-only evidence');
+      }
+    }
+    if (item.candidateFamily !== null && item.kind !== 'usb') {
+      throw new TypeError('Serial family candidate requires USB transport');
+    }
     for (const key of ['manufacturer', 'product']) {
       const v = item[key];
       if (v !== null && (typeof v !== 'string' || v.length > 128)) {
@@ -132,9 +145,42 @@ export function validateDesktopTransportSnapshot(value) {
   } else if (value.transportOpen || value.configured) {
     throw new TypeError('Unexpected transport-open state');
   }
-  if (value.portName !== null && (typeof value.portName !== 'string'
-      || value.portName.length < 1 || value.portName.length > 96)) {
-    throw new TypeError('Invalid bound port');
+  const allowedKinds = new Set(['usb','bluetooth','pci','unknown']);
+  const allowedFamilies = new Set(['FTDI','CP210X','CH34X','PL2303']);
+  const hasPort = typeof value.portName === 'string' && value.portName.length >= 1 && value.portName.length <= 96;
+  if (value.portName !== null && !hasPort) throw new TypeError('Invalid bound port');
+  if (value.kind !== null && !allowedKinds.has(value.kind)) throw new TypeError('Invalid bound transport kind');
+  for (const key of ['vid','pid']) {
+    if (value[key] !== null && (!Number.isInteger(value[key]) || value[key] < 0 || value[key] > 0xFFFF)) {
+      throw new TypeError('Invalid bound USB identity');
+    }
+  }
+  if ((value.vid === null) !== (value.pid === null)) throw new TypeError('Incomplete bound USB identity');
+  if (value.candidateFamily !== null && !allowedFamilies.has(value.candidateFamily)) {
+    throw new TypeError('Invalid bound serial family');
+  }
+
+  if (value.stage === 'NO_CANDIDATE') {
+    if (value.portName !== null || value.kind !== null || value.vid !== null || value.pid !== null || value.candidateFamily !== null) {
+      throw new TypeError('NO_CANDIDATE carried stale bound identity');
+    }
+  } else {
+    if (!hasPort || value.kind === null || value.epoch < 1) throw new TypeError('Bound stage missing candidate identity');
+    if (value.kind === 'usb' && (value.vid === null || value.pid === null)) {
+      throw new TypeError('USB bound stage missing VID PID');
+    }
+    if (value.kind !== 'usb' && (value.vid !== null || value.pid !== null || value.candidateFamily !== null)) {
+      throw new TypeError('Non-USB bound stage carried USB identity');
+    }
+    if (value.stage === 'USB_CANDIDATE_BOUND' && value.kind !== 'usb') {
+      throw new TypeError('USB candidate stage requires USB kind');
+    }
+    if (value.stage === 'SERIAL_CANDIDATE_BOUND' && value.kind === 'usb') {
+      throw new TypeError('Serial candidate stage cannot represent USB kind');
+    }
+    if (['PORT_OPEN','PORT_CONFIGURED'].includes(value.stage) && value.kind !== 'usb') {
+      throw new TypeError('Native legacy port open requires USB candidate');
+    }
   }
   return Object.freeze({ ...value });
 }
@@ -189,6 +235,9 @@ export function validateDesktopReadResult(value) {
     if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
       throw new TypeError('Invalid read byte');
     }
+  }
+  if (value.stage === 'READ_BYTES' && value.bytes.length === 0) {
+    throw new TypeError('READ_BYTES cannot be empty');
   }
   if (value.stage !== 'READ_BYTES' && value.bytes.length !== 0) {
     throw new TypeError('Non-data read stage carried bytes');
