@@ -8,7 +8,7 @@ const base = () => ({
   responseRequestId: 'identity-request-5001',
   protocol: 'KWP2000_BMW',
   nativeReadReceipt: 41,
-  moduleIdentity: 'ME7.2',
+  moduleIdentity: 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
   receiveEvidence: {
     epoch: 5,
     protocol: 'KWP2000_BMW',
@@ -28,11 +28,12 @@ const expected = {
   protocol: 'KWP2000_BMW',
   nativeReadReceipt: 41,
   expectedFrameHexes: ['B8 F1 12 00 5B'],
+  expectedModuleIdentity: 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
 };
 
 test('trusted identity event requires exact epoch/request/protocol match', () => {
   const valid = validateTrustedIdentityCandidateEvent(base(), expected);
-  assert.equal(valid.moduleIdentity, 'ME7.2');
+  assert.equal(valid.moduleIdentity, 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021');
   assert.equal(valid.identityVerified, false);
 
   assert.throws(() => validateTrustedIdentityCandidateEvent({
@@ -110,4 +111,12 @@ test('receipt or frame provenance mismatch is rejected', () => {
     ...expected,
     expectedFrameHexes: ['B8 F1 12 00 00'],
   }), /provenance/i);
+});
+
+
+test('parser-derived identity mismatch is rejected', () => {
+  assert.throws(() => validateTrustedIdentityCandidateEvent({
+    ...base(),
+    moduleIdentity: 'PN0000000-HW00-CI00-DI00-BI00-BW00-BY00-SP000000',
+  }, expected), /parser-derived identity/i);
 });
