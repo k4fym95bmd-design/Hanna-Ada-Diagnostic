@@ -20,6 +20,8 @@ pub struct DesktopSerialOpenPlan {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopNativeSerialSnapshot {
     pub version: u8,
+    pub evidence_contract_version: u8,
+    pub evidence_stage: &'static str,
     pub stage: &'static str,
     pub epoch: u64,
     pub port_name: Option<String>,
@@ -35,6 +37,8 @@ pub struct DesktopNativeSerialSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopReadResult {
     pub version: u8,
+    pub evidence_contract_version: u8,
+    pub evidence_stage: &'static str,
     pub stage: &'static str,
     pub epoch: u64,
     pub protocol: &'static str,
@@ -89,6 +93,8 @@ impl DesktopNativeSerialState {
     pub fn snapshot(&self) -> DesktopNativeSerialSnapshot {
         DesktopNativeSerialSnapshot {
             version: 1,
+            evidence_contract_version: 1,
+            evidence_stage: if self.port.is_some() { "PORT_OPEN" } else { "NO_CABLE" },
             stage: if self.port.is_some() { "PORT_CONFIGURED" } else { "PORT_CLOSED" },
             epoch: self.epoch,
             port_name: self.port_name.clone(),
@@ -183,6 +189,8 @@ impl DesktopNativeSerialState {
                 buffer.truncate(count);
                 Ok(DesktopReadResult {
                     version: 1,
+                    evidence_contract_version: 1,
+                    evidence_stage: if count == 0 { "PORT_OPEN" } else { "RX_ACTIVITY" },
                     stage: if count == 0 { "READ_EMPTY" } else { "READ_BYTES" },
                     epoch: expected_epoch,
                     protocol,
@@ -195,6 +203,8 @@ impl DesktopNativeSerialState {
             Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
                 Ok(DesktopReadResult {
                     version: 1,
+                    evidence_contract_version: 1,
+                    evidence_stage: "PORT_OPEN",
                     stage: "READ_TIMEOUT",
                     epoch: expected_epoch,
                     protocol,
@@ -257,6 +267,8 @@ mod tests {
         let state = DesktopNativeSerialState::default();
         let snap = state.snapshot();
         assert_eq!(snap.stage, "PORT_CLOSED");
+        assert_eq!(snap.evidence_contract_version, 1);
+        assert_eq!(snap.evidence_stage, "NO_CABLE");
         assert!(!snap.transport_open);
         assert!(!snap.configured);
         assert!(!snap.ecu_verified);
