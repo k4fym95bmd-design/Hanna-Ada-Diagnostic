@@ -28,7 +28,7 @@ public final class LegacyFrameEvidenceTest {
         check("possible-reply".equals(k.directionHint), "KWP direction is only a hint");
         check(!k.ecuVerified, "KWP candidate never verifies ECU");
 
-        byte[] kwpEcho = new byte[] {(byte)0xB8, 0x12, (byte)0xF1, 0x01, (byte)0xA2, (byte)0xFA};
+        byte[] kwpEcho = new byte[] {(byte)0xB8, 0x12, (byte)0xF1, 0x01, (byte)0xA2, (byte)0xF8};
         LegacyFrameEvidence.Result e = LegacyFrameEvidence.parseKwp(kwpEcho);
         check(e.valid, "valid KWP echo candidate accepted");
         check("possible-echo".equals(e.directionHint), "echo not confused with response");
