@@ -74,17 +74,22 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   function startLive() {
     const h = H();
     if (!h?.ecu) return;
-    stopLive();
     const el = document.querySelector('#haPollState');
-    if (el) el.textContent = 'LIVE';
-    void cycle();
-    h.poll = setInterval(cycle, 2500);
+    if (h.ultraControllerReady !== true || typeof h.startUltraLive !== 'function') {
+      if (el) el.textContent = 'ULTRA WAIT';
+      return;
+    }
+    h.startUltraLive();
+    if (el) el.textContent = 'ULTRA';
   }
 
   function stopLive() {
     const h = H();
     if (h?.poll) clearInterval(h.poll);
     if (h) h.poll = null;
+    if (h?.ultraControllerReady === true && typeof h.stopUltraLive === 'function') {
+      void h.stopUltraLive();
+    }
     const el = document.querySelector('#haPollState');
     if (el) el.textContent = 'IDLE';
     const button = document.querySelector('#haLiveToggle');
@@ -129,8 +134,8 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     }
   }
 
-  new MutationObserver(ensurePanel).observe(document.documentElement, { childList: true, subtree: true });
-  setInterval(ensurePanel, 700);
+  window.addEventListener('hannaada:obd-runtime-mounted', ensurePanel);
+  window.addEventListener('hannaada:module-rendered', ensurePanel);
   ensurePanel();
   window.HannaAdaDiagV2 = { startLive, stopLive, readProtocol };
 })();
