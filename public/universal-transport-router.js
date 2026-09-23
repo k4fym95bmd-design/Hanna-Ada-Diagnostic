@@ -44,16 +44,6 @@ export function chooseTransportRoute(input = {}) {
         reason: 'Native Android USB Host is the preferred direct cable path.',
       });
     }
-    if (secureContext && webUsb) {
-      return Object.freeze({
-        route: TransportRoute.ANDROID_WEBUSB,
-        directUsb: true,
-        requiresLaptopGateway: false,
-        readOnly: true,
-        writesEnabled: false,
-        reason: 'WebUSB can identify/probe USB access, but does not by itself prove serial or BMW protocol support.',
-      });
-    }
     if (bridgeReachable) {
       return Object.freeze({
         route: TransportRoute.WINDOWS_BRIDGE,
@@ -61,7 +51,17 @@ export function chooseTransportRoute(input = {}) {
         requiresLaptopGateway: true,
         readOnly: true,
         writesEnabled: false,
-        reason: 'Android falls back to the Windows laptop gateway.',
+        reason: 'Android uses the canonical Windows gateway when native USB Host is unavailable.',
+      });
+    }
+    if (secureContext && webUsb) {
+      return Object.freeze({
+        route: TransportRoute.ANDROID_WEBUSB,
+        directUsb: true,
+        requiresLaptopGateway: false,
+        readOnly: true,
+        writesEnabled: false,
+        reason: 'WebUSB is discovery-only fallback and does not prove serial or BMW protocol support.',
       });
     }
   }
