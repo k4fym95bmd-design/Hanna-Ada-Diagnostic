@@ -87,3 +87,33 @@ test('BLE disconnect clears stale pending command state before reconnect', async
   assert.match(runtime, /disconnect\(\)\{stopLive\(\);abortPending\('BLE disconnected'\)/);
   assert.match(runtime, /HA\.buffer=''/);
 });
+
+
+test('BLE reconnect path is epoch-guarded and refuses duplicate connect storms', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /sessionEpoch:0/);
+  assert.match(runtime, /connectInFlight:false/);
+  assert.match(runtime, /if\(HA\.connectInFlight\)/);
+  assert.match(runtime, /const owner=\+\+HA\.sessionEpoch/);
+  assert.match(runtime, /if\(owner!==HA\.sessionEpoch\)return/);
+  assert.match(runtime, /const notifyHandler=ev=>onNotify\(ev,owner\)/);
+  assert.match(runtime, /const disconnectHandler=\(\)=>\{if\(owner===HA\.sessionEpoch\)disconnect\(\)\}/);
+});
+
+test('old BLE timeout or write failure cannot clear a newer pending command', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /pending=\{resolve,reject,timer,started,epoch:owner\}/);
+  assert.match(runtime, /if\(HA\.pending!==pending\|\|owner!==HA\.sessionEpoch\)return/);
+  assert.match(runtime, /if\(HA\.pending===pending\)HA\.pending=null/);
+  assert.match(runtime, /HA\.pending\?\.epoch===owner/);
+});
+
+test('BLE disconnect invalidates session and detaches old listeners before reconnect', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /function detachBleListeners\(\)/);
+  assert.match(runtime, /removeEventListener\('characteristicvaluechanged',HA\.activeNotifyHandler\)/);
+  assert.match(runtime, /removeEventListener\('gattserverdisconnected',HA\.activeDisconnectHandler\)/);
+  assert.match(runtime, /function disconnect\(\)\{stopLive\(\);HA\.sessionEpoch\+\+/);
+  assert.match(runtime, /HA\.server=HA\.write=HA\.notify=null/);
+  assert.match(runtime, /HA\.device=null/);
+});
