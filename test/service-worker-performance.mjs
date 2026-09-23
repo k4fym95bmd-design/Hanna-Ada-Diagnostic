@@ -7,6 +7,7 @@ const mobile = readFileSync(new URL('../public/mobile-shell.js', import.meta.url
 const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../public/app.css', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const bootstrap = readFileSync(new URL('../public/ultra-bootstrap.js', import.meta.url), 'utf8');
 
 test('mobile shell registers one local service worker after initial load', () => {
   assert.match(mobile, /serviceWorker\s*\.register\('\/sw\.js', \{ updateViaCache: 'none' \}\)/);
@@ -17,7 +18,8 @@ test('mobile shell registers one local service worker after initial load', () =>
 test('service worker caches only explicit same-origin GET shell assets', () => {
   assert.match(sw, /request\.method !== 'GET'/);
   assert.match(sw, /url\.origin !== self\.location\.origin/);
-  assert.match(sw, /CORE\.includes\(url\.pathname\)/);
+  assert.match(sw, /PRECACHE\.includes\(url\.pathname\)/);
+  assert.match(sw, /RUNTIME\.has\(url\.pathname\)/);
   assert.match(sw, /Promise\.allSettled/);
   assert.match(sw, /CACHE_PREFIX/);
 });
@@ -42,7 +44,9 @@ test('main shell avoids rebuilding navigation on every render and drops stale as
   assert.match(app, /if\(lastNavModule!==state\.module\)/);
   assert.match(app, /const owner=\+\+renderEpoch/);
   assert.match(app, /if\(owner!==renderEpoch\)return/);
-  assert.doesNotMatch(app, /root\.querySelectorAll\('button'\)\.forEach\(b=>b\.onclick/);
+  assert.match(app, /function bindViewEvents\(\)/);
+  assert.match(app, /hannaada:module-rendered/);
+  assert.doesNotMatch(app, /root\.querySelectorAll\('\[data-jump\]'\)/);
 });
 
 
@@ -62,4 +66,16 @@ test('offscreen panels use content-visibility and mobile drops expensive backdro
 
 test('index contains no literal escaped newline between module scripts', () => {
   assert.doesNotMatch(html, /<\/script>\\n\s*<script/);
+});
+
+
+test('critical shell is small and heavy modules are staged after first paint', () => {
+  assert.match(html, /src="\/ultra-bootstrap\.js"/);
+  assert.doesNotMatch(html, /src="\/(?:obd-runtime|cable-workbench|desktop-pro-panel|webusb-workbench-extension|live-performance-runtime)\.js"/);
+  assert.match(bootstrap, /afterFirstPaint/);
+  assert.match(bootstrap, /await importOnce\('\/obd-runtime\.js'\)/);
+  assert.match(bootstrap, /await loadDiagnosticCore\(\)/);
+  assert.match(bootstrap, /await idle\(\)/);
+  assert.match(bootstrap, /window\.__TAURI_INTERNALS__/);
+  assert.match(bootstrap, /'usb' in navigator/);
 });
