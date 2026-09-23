@@ -166,3 +166,20 @@ test('Desktop serial open revalidates epoch and native protocol before promotion
   assert.match(open, /transport_changed_during_open/);
   assert.match(open, /Never leave a native handle open if coordinator promotion fails/);
 });
+
+
+test('engine and fuel samples use broker lease and post-I/O revalidation', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  for (const [startName,endName] of [
+    ['fn desktop_execute_me72_engine_snapshot','fn desktop_execute_me72_fuel_adaptation'],
+    ['fn desktop_execute_me72_fuel_adaptation','fn desktop_consume_readonly_request'],
+  ]) {
+    const block = source.slice(source.indexOf(startName), source.indexOf(endName));
+    assert.match(block,/begin_readonly_sample\(epoch\)/);
+    assert.match(block,/readonly_sample_active/);
+    assert.match(block,/native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
+    assert.match(block,/authorize_me72_readonly\(epoch\)/);
+    assert.match(block,/finish_readonly_sample\(epoch\)/);
+    assert.doesNotMatch(block,/raw_write|request_bytes|payload:/i);
+  }
+});
