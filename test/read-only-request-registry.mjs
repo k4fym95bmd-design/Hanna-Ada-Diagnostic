@@ -15,7 +15,10 @@ test('registry is metadata-only and contains no raw TX material', () => {
     assert.equal(entry.writeLike, false);
     assert.equal(entry.ecuVerified, false);
     assert.equal(entry.writesEnabled, false);
-    assert.equal(entry.requestMaterial, 'EXTERNAL_VERIFIED_PROFILE_REQUIRED');
+    const expectedRequestMaterial = entry.id === 'e39-dme-me72-module-identity'
+      ? 'NATIVE_ALLOWLISTED_PROFILE'
+      : 'EXTERNAL_VERIFIED_PROFILE_REQUIRED';
+    assert.equal(entry.requestMaterial, expectedRequestMaterial);
     assert.equal('bytes' in entry, false);
     assert.equal('payload' in entry, false);
     assert.equal('command' in entry, false);
@@ -36,7 +39,10 @@ test('instantiated request is epoch and request-id bound', () => {
   assert.equal(plan.epoch, 7);
   assert.equal(plan.requestId, 'request-identity-0001');
   assert.equal(plan.txBytesExposed, false);
-  assert.equal(validateReadOnlyRequestPlan(plan), plan);
+  const validated = validateReadOnlyRequestPlan(plan);
+  assert.deepEqual(validated, plan);
+  assert.notEqual(validated, plan);
+  assert.equal(Object.isFrozen(validated), true);
 });
 
 test('unknown or modified request plans fail closed', () => {
