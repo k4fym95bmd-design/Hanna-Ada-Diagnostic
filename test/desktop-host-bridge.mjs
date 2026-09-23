@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  bindDesktopSerialCandidate,
+  clearDesktopSerialCandidate,
+  getDesktopTransportSnapshot,
   getTauriInvoke,
   listDesktopSerialCandidates,
   probeDesktopHost,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
+  validateDesktopTransportSnapshot,
 } from '../public/desktop-host-bridge.js';
 
 test('plain browser stays a safe fallback', async () => {
@@ -152,4 +156,73 @@ test('desktop serial inventory rejects serial numbers and fake verification', ()
     ecuVerified: false,
     writesEnabled: false,
   }]), /unsafe/i);
+});
+
+
+test('desktop candidate binding is epoch-scoped and remains unopened', async () => {
+  let epoch = 0;
+  let selected = null;
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async (name, args) => {
+            if (name === 'desktop_bind_serial_candidate') {
+              epoch += 1;
+              selected = args.portName;
+            } else if (name === 'desktop_clear_serial_candidate') {
+              epoch += 1;
+              selected = null;
+            } else if (name !== 'desktop_transport_snapshot') {
+              throw new Error('unexpected command');
+            }
+            return {
+              version: 1,
+              stage: selected ? 'USB_CANDIDATE_BOUND' : 'NO_CANDIDATE',
+              epoch,
+              portName: selected,
+              kind: selected ? 'usb' : null,
+              vid: selected ? 0x0403 : null,
+              pid: selected ? 0x6001 : null,
+              candidateFamily: selected ? 'FTDI' : null,
+              transportOpen: false,
+              configured: false,
+              ecuVerified: false,
+              writesEnabled: false,
+            };
+          },
+        },
+      },
+    },
+  };
+
+  const first = await bindDesktopSerialCandidate('COM7', fake);
+  assert.equal(first.epoch, 1);
+  assert.equal(first.portName, 'COM7');
+  assert.equal(first.transportOpen, false);
+
+  const cleared = await clearDesktopSerialCandidate(fake);
+  assert.equal(cleared.epoch, 2);
+  assert.equal(cleared.stage, 'NO_CANDIDATE');
+
+  const snapshot = await getDesktopTransportSnapshot(fake);
+  assert.equal(snapshot.epoch, 2);
+  assert.equal(snapshot.writesEnabled, false);
+});
+
+test('desktop transport snapshot rejects fake open/configured state', () => {
+  assert.throws(() => validateDesktopTransportSnapshot({
+    version: 1,
+    stage: 'USB_CANDIDATE_BOUND',
+    epoch: 1,
+    portName: 'COM7',
+    kind: 'usb',
+    vid: 0x0403,
+    pid: 0x6001,
+    candidateFamily: 'FTDI',
+    transportOpen: true,
+    configured: false,
+    ecuVerified: false,
+    writesEnabled: false,
+  }), /unsafe/i);
 });
