@@ -10,6 +10,20 @@ const inputPending = () => {
   try { return navigator.scheduling?.isInputPending?.({ includeContinuous: true }) === true; }
   catch { return false; }
 };
+let longTaskHoldUntil = 0;
+if ('PerformanceObserver' in window) {
+  try {
+    const longTaskObserver = new PerformanceObserver(list => {
+      for (const entry of list.getEntries()) {
+        if (entry.duration >= 50) {
+          longTaskHoldUntil = Math.max(longTaskHoldUntil, performance.now() + 120);
+        }
+      }
+    });
+    longTaskObserver.observe({ type: 'longtask', buffered: false });
+  } catch {}
+}
+const shouldYield = () => inputPending() || performance.now() < longTaskHoldUntil;
 const say = (text, error = false) => {
   const el = $('#haRuntimeStatus');
   if (el) { el.textContent = text; el.classList.toggle('bad', error); }
@@ -56,7 +70,7 @@ const controller = createLivePerformanceController({
   getSupported: () => obd.supported,
   isConnected: () => obd.connected === true && obd.adapter === true && obd.ecu === true,
   isVisible: () => !document.hidden && runtimeAttached,
-  shouldYield: inputPending,
+  shouldYield,
   onMetrics: updateMetrics,
   onStatus: message => say(message, true),
 });
