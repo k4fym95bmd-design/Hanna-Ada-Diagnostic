@@ -113,3 +113,29 @@ test('Desktop broker lease blocks request prepare while roughness sample is in f
   assert.match(broker, /READONLY_SAMPLE_ACTIVE/);
   assert.match(broker, /self\.readonly_sample_active = false/);
 });
+
+
+test('Desktop bounded read releases coordinator and broker during blocking I/O', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const bounded = source.slice(
+    source.indexOf('fn desktop_read_bounded'),
+    source.indexOf('fn desktop_close_port')
+  );
+  assert.match(bounded, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+  const io = bounded.slice(bounded.indexOf('// Phase 2:'), bounded.indexOf('// Phase 3:'));
+  assert.match(io, /native\.lock\(\)/);
+  assert.doesNotMatch(io, /state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
+});
+
+test('Desktop bounded read never correlates RX bytes to a request that appeared mid-I/O', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const bounded = source.slice(
+    source.indexOf('fn desktop_read_bounded'),
+    source.indexOf('fn desktop_close_port')
+  );
+  assert.match(bounded, /let expected_request_id =/);
+  assert.match(bounded, /current\.active_request_id\.as_deref\(\) != Some\(expected\)/);
+  assert.match(bounded, /request_changed_after_io/);
+  assert.match(bounded, /transport_changed_after_io/);
+  assert.match(bounded, /native_snapshot\.epoch != epoch/);
+});
