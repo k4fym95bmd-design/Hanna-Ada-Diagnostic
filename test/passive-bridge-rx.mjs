@@ -66,6 +66,10 @@ test('only authorized session receives bounded passive RX; close clears stale fr
   assert.equal(snapshot.value.status.portOpen, true);
   assert.equal(snapshot.value.rx.observedBytes, 4);
   assert.equal(snapshot.value.rx.frames[0].frameHex, '12 04 00 16');
+  assert.equal(snapshot.value.telemetry.contractVersion, 1);
+  assert.equal(snapshot.value.telemetry.stateRevision, snapshot.value.status.stateRevision);
+  assert.equal(snapshot.value.telemetry.sessionEpoch, snapshot.value.status.sessionEpoch);
+  assert.equal(snapshot.value.telemetry.ecuVerified, false);
   assert.equal(snapshot.value.ecuVerified, false);
   assert.equal(snapshot.value.writesEnabled, false);
   assert.equal(snapshot.value.flashEnabled, false);
