@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const bootstrap = readFileSync(new URL('../public/ultra-bootstrap.js', import.meta.url), 'utf8');
 const runtime = readFileSync(new URL('../public/live-performance-runtime.js', import.meta.url), 'utf8');
 const core = readFileSync(new URL('../public/live-performance-core.js', import.meta.url), 'utf8');
 
 test('one existing application loads performance enhancement after legacy runtime', () => {
-  assert.equal((html.match(/src="\/live-performance-runtime\.js"/g) || []).length, 1);
-  assert.equal((html.match(/src="\/obd-runtime\.js"/g) || []).length, 1);
-  assert.ok(html.indexOf('/obd-runtime.js') < html.indexOf('/live-performance-runtime.js'));
+  assert.equal((bootstrap.match(/importOnce\('\/live-performance-runtime\.js'\)/g) || []).length, 1);
+  assert.equal((bootstrap.match(/importOnce\('\/obd-runtime\.js'\)/g) || []).length, 1);
+  assert.ok(bootstrap.indexOf("await importOnce('/obd-runtime.js')") < bootstrap.indexOf("importOnce('/live-performance-runtime.js')"));
   assert.equal((html.match(/href="\/live-performance\.css"/g) || []).length, 1);
 });
 
