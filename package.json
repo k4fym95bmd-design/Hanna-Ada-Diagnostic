@@ -18,7 +18,7 @@
     "test:performance": "node --check public/live-performance-core.js && node --check public/live-performance-runtime.js && node --check public/sw.js && node --check public/ultra-bootstrap.js && node --check public/tuning-view.js && node --test test/live-performance-core.mjs test/live-performance-quality.mjs test/live-performance-wiring.mjs test/service-worker-performance.mjs",
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
     "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
-    "test:tablet-usb": "node --check public/android-usb-readiness.js && node --check public/android-kdcan-route.js && node --test test/android-usb-readiness.mjs test/android-kdcan-route.mjs test/android-usb-lifecycle.mjs",
+    "test:tablet-usb": "node --check public/android-usb-readiness.js && node --check public/android-kdcan-route.js && node --test test/android-usb-readiness.mjs test/android-kdcan-route.mjs test/android-usb-lifecycle.mjs test/android-connections-lifecycle.mjs",
     "doctor:windows": "node gateway/windows-gateway-doctor.mjs",
     "start:windows": "powershell -ExecutionPolicy Bypass -File scripts/start-windows-gateway.ps1",
     "test:release-critical": "npm run test:cable && npm run test:webusb && npm run test:performance && npm run test:diagnostic-core && npm run test:web-runtime && npm run test:tablet-usb && npm run test:desktop-pro",
