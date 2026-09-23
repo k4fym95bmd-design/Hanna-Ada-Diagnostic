@@ -34,7 +34,7 @@ test('correlation session allows one active token and consumes it on every attem
   assert.equal(session.snapshot().confirmations, 1);
 });
 
-test('second independent token can verify identity but still not ECU/write state', () => {
+test('second independent token reaches repeated candidate but not verified identity', () => {
   const session = new TrustedCorrelationSession({
     epoch: 12,
     operationId: 'e39-dme-me72-module-identity',
@@ -54,8 +54,10 @@ test('second independent token can verify identity but still not ECU/write state
     moduleIdentity: 'ME7.2',
   });
 
-  assert.equal(verified.stage, 'READ_ONLY_IDENTITY_VERIFIED');
-  assert.equal(verified.identityVerified, true);
+  assert.equal(verified.stage, 'REPEATED_CORRELATED_IDENTITY_CANDIDATE');
+  assert.equal(verified.repeatCandidateReady, true);
+  assert.equal(verified.localAttestationRequired, true);
+  assert.equal(verified.identityVerified, false);
   assert.equal(verified.ecuVerified, false);
   assert.equal(verified.writesEnabled, false);
   assert.equal(verified.txBytesExposed, false);
@@ -108,4 +110,23 @@ test('consume without an active request fails closed', () => {
   assert.equal(result.stage, 'NO_ACTIVE_REQUEST');
   assert.equal(result.identityVerified, false);
   assert.equal(result.writesEnabled, false);
+});
+
+
+test('third request is blocked once repeated candidate evidence is complete', () => {
+  const session = new TrustedCorrelationSession({
+    epoch:12,
+    operationId:'e39-dme-me72-module-identity',
+  });
+  for (const id of ['corr-bound-0001','corr-bound-0002']) {
+    const plan = session.prepareAttempt(id);
+    session.consumeAttempt({
+      receiveEvidence:evidence(plan.requestId),
+      responseRequestId:plan.requestId,
+      moduleIdentity:'ME7.2',
+    });
+  }
+  assert.equal(session.snapshot().repeatCandidateReady, true);
+  assert.equal(session.snapshot().identityVerified, false);
+  assert.throws(() => session.prepareAttempt('corr-bound-0003'), /local attestation/i);
 });
