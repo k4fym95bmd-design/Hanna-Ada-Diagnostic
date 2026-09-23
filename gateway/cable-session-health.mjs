@@ -1,3 +1,4 @@
+import { deriveTransportEvidence } from '../public/evidence-contract.js';
 // Privacy-preserving cable telemetry for Hanna & Ada.
 // Counts and state only: no raw diagnostic bytes, no module identity, no TX.
 export function buildCableTelemetry({ status, rx, capturedAt = Date.now() } = {}) {
@@ -12,33 +13,25 @@ export function buildCableTelemetry({ status, rx, capturedAt = Date.now() } = {}
   const candidateFrames = ds2FrameCount + kwpFrameCount;
   const hardwareBound = !!status.cableBinding?.active && typeof status.cableBinding?.vidPid === 'string';
 
-  let stage = 'NO_CABLE';
-  if (status.cableDetected) stage = 'ENUMERATED';
-  if (status.portOpen) stage = 'PORT_OPEN';
-  if (status.portOpen && observedBytes > 0) stage = 'RX_ACTIVITY';
-  if (status.portOpen && candidateFrames > 0) stage = 'FRAME_CANDIDATES';
+  const evidence = deriveTransportEvidence({
+    cableDetected: status.cableDetected === true,
+    hardwareBound,
+    portOpen: status.portOpen === true,
+    observedBytes,
+    candidateFrames,
+  });
 
-  const flags = [];
-  if (status.portOpen && !hardwareBound) flags.push('PORT_OPEN_WITHOUT_USB_BINDING');
-  if (observedBytes > 0 && candidateFrames === 0) flags.push('RX_ACTIVITY_WITHOUT_VALID_FRAME');
+  const flags = [...evidence.flags];
+  if (observedBytes > 0 && candidateFrames === 0 && status.portOpen) flags.push('RX_ACTIVITY_WITHOUT_VALID_FRAME');
   if (candidateFrames > 0) flags.push('FRAME_CANDIDATES_UNVERIFIED');
-
-  const nextGate = !status.cableDetected
-    ? 'ENUMERATE_USB'
-    : !status.portOpen
-      ? 'OPEN_SERIAL_TRANSPORT'
-      : !hardwareBound
-        ? 'BIND_USB_IDENTITY'
-        : candidateFrames === 0
-          ? 'COLLECT_PASSIVE_EVIDENCE'
-          : 'MATCH_READ_ONLY_IDENTITY_RESPONSE';
 
   return Object.freeze({
     version: 1,
+    contractVersion: evidence.contractVersion,
     capturedAt,
-    stage,
-    hardwareBound,
-    portOpen: status.portOpen === true,
+    stage: evidence.stage,
+    hardwareBound: evidence.hardwareBound,
+    portOpen: evidence.portOpen,
     observedBytes,
     ds2FrameCount,
     kwpFrameCount,
@@ -46,7 +39,7 @@ export function buildCableTelemetry({ status, rx, capturedAt = Date.now() } = {}
     rejectedCandidates,
     kwpRejectedCandidates,
     flags: Object.freeze(flags),
-    nextGate,
+    nextGate: evidence.nextGate,
     ecuVerified: false,
     writesEnabled: false,
     flashEnabled: false,
