@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HannaAdaDiagApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var obd = BluetoothOBDManager()
 
     var body: some Scene {
@@ -46,6 +47,11 @@ struct HannaAdaDiagApp: App {
             }
             .tint(.blue)
             .preferredColorScheme(.dark)
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active {
+                    obd.suspendForBackground()
+                }
+            }
         }
     }
 }
