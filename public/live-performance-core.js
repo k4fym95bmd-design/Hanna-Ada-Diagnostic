@@ -44,7 +44,7 @@ export function createLivePerformanceController({
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0, budgetStops = 0;
-  let cycleSerial = 0, pidBackoffs = 0, uiYields = 0, midCycleYields = 0;
+  let cycleSerial = 0, pidBackoffs = 0, uiYields = 0, midCycleYields = 0, backgroundPauses = 0;
   const pidFailureStreak = new Map();
   const pidCooldownUntil = new Map();
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
@@ -125,6 +125,7 @@ export function createLivePerformanceController({
       coolingPids: coolingKeys().size,
       uiYields,
       midCycleYields,
+      backgroundPauses,
       inFlight: !!currentTask,
       queuedCommands: 0,
       writesEnabled: false,
@@ -257,7 +258,14 @@ export function createLivePerformanceController({
   async function cycle(owner) {
     if (!running || epoch !== owner) return;
     if (!isConnected()) { onStatus('ECU rozłączone; zatrzymano Live.'); stop(); return; }
-    if (!isVisible()) { schedule(2000, owner); return; }
+    if (!isVisible()) {
+      // True background pause: do not keep a 2 s wake-up timer alive.
+      // The runtime visibilitychange/pageshow handler calls wake() when visible again.
+      backgroundPauses++;
+      lastDelayMs = null;
+      publish();
+      return;
+    }
     if (currentTask) { schedule(150, owner); return; }
     if (shouldYield()) {
       uiYields++;
