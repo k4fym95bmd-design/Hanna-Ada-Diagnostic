@@ -331,7 +331,17 @@ fn desktop_execute_me72_roughness(
 
     match native.execute_me72_roughness(epoch, 197, 750) {
         Ok(mut result) => {
-            let (sample_sequence, fingerprint) = attestation.record_me72_readonly_sample(epoch)?;
+            let (sample_sequence, fingerprint) =
+                match attestation.record_me72_readonly_sample(epoch) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        native.close_any();
+                        let _ = coordinator.mark_closed(epoch);
+                        broker.reset(epoch);
+                        attestation.reset_authority();
+                        return Err(error);
+                    }
+                };
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
