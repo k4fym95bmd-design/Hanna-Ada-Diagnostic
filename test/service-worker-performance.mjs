@@ -79,3 +79,20 @@ test('critical shell is small and heavy modules are staged after first paint', (
   assert.match(bootstrap, /window\.__TAURI_INTERNALS__/);
   assert.match(bootstrap, /'usb' in navigator/);
 });
+
+
+test('background startup waits for visibility and optional prefetch respects save-data', () => {
+  assert.match(bootstrap, /const waitForVisible = \(\) =>/);
+  assert.match(bootstrap, /await waitForVisible\(\)/);
+  assert.match(bootstrap, /connection\?\.saveData/);
+  assert.match(bootstrap, /\['slow-2g','2g'\]\.includes/);
+  assert.match(bootstrap, /relList\?\.supports\?\.\('prefetch'\)/);
+  assert.match(bootstrap, /cache: 'force-cache'/);
+});
+
+test('service worker runtime-caches imported JS and CSS dependencies without caching APIs', () => {
+  assert.match(sw, /request\.destination === 'script'/);
+  assert.match(sw, /request\.destination === 'style'/);
+  assert.match(sw, /url\.pathname\.startsWith\('\/api\/'\)/);
+  assert.match(sw, /url\.pathname\.startsWith\('\/config\/'\)/);
+});
