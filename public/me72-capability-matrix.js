@@ -20,7 +20,7 @@ const blocked=Object.freeze([
     txBytesExposed:false,
     writeLike:false,
     clearDtcEnabled:false,
-    reason:'DS2PlusPlus ME7.2 dtc_load_bank1 duplicates dtc_count A2 00 across every known revision; no distinct, trustworthy DTC-list response contract is available.',
+    reason:'Pinned DS2PlusPlus ME7.2 profile (file_version 5, commit e67b2371) defines both dtc_count and dtc_load_bank1 as A2 00 and exposes only error_code.count; no distinct trustworthy full-DTC-list contract is available.',
   }),
   Object.freeze({
     id:'e39-me72-clear-dtc',
