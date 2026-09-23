@@ -64,3 +64,15 @@ test('iOS BLE channel fails closed after timeout, overflow, or GATT error', asyn
   assert.match(manager, /markCommandChannelDesynced\("Oversized BLE response"\)/);
   assert.match(manager, /commandChannelDesynced = false/);
 });
+
+
+test('iOS ExternalAccessory notifications are foreground-owned and idempotent', async () => {
+  const wired = await source('ios-native/Sources/WiredAccessoryView.swift');
+  assert.match(wired, /private var watching = false/);
+  assert.match(wired, /if !watching \{[\s\S]*registerForLocalNotifications\(\)/);
+  assert.match(wired, /guard watching else \{ return \}[\s\S]*unregisterForLocalNotifications\(\)/);
+  assert.match(wired, /func refreshFromNotification\(\)[\s\S]*guard watching else \{ return \}/);
+  assert.match(wired, /@Environment\(\\\.scenePhase\) private var scenePhase/);
+  assert.match(wired, /if phase == \.active \{[\s\S]*hardware\.startWatching\(\)[\s\S]*hardware\.stopWatching\(\)/);
+  assert.match(wired, /hardware\.refreshFromNotification\(\)/);
+});
