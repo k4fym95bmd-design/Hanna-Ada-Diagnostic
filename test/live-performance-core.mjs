@@ -371,3 +371,28 @@ test('empty supported PID evidence never falls through to adapter voltage pollin
   assert.equal(calls, 0);
   assert.equal(c.metrics().reads, 0);
 });
+
+
+test('pending user input defers a live cycle without touching the transport', async () => {
+  const timer = mockTimer();
+  let reads = 0;
+  let pending = true;
+  const c = createLivePerformanceController({
+    readPid: async () => { reads++; return 1; },
+    getSupported: () => new Set([0x0c]),
+    isConnected: () => true,
+    isVisible: () => true,
+    shouldYield: () => pending,
+    ...timer,
+  });
+  c.start();
+  await timer.tick();
+  assert.equal(reads, 0);
+  assert.equal(c.metrics().uiYields, 1);
+  assert.equal(timer.active()[0].ms, 100);
+  pending = false;
+  await timer.tick();
+  assert.equal(reads, 2);
+  assert.equal(c.metrics().queuedCommands, 0);
+  await c.stop();
+});
