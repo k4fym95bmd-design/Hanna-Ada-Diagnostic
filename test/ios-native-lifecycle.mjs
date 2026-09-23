@@ -135,3 +135,35 @@ test('iOS Scan Disconnect and background invalidate any older disconnect watchdo
     assert.match(body, /abandonDisconnectOwnership\(\)/);
   }
 });
+
+
+test('iOS handshake uses protocol-number evidence before descriptive fallback', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  const handshake = manager.slice(
+    manager.indexOf('private func startHandshake() async'),
+    manager.indexOf('private func chooseSerialCharacteristics')
+  );
+
+  const pidIndex = handshake.indexOf('command("0100"');
+  const atdpnIndex = handshake.indexOf('command("ATDPN"');
+  const atdpIndex = handshake.indexOf('command("ATDP"');
+
+  assert.ok(pidIndex >= 0);
+  assert.ok(atdpnIndex > pidIndex, 'ATDPN must follow valid PID 0100 evidence');
+  assert.ok(atdpIndex > atdpnIndex, 'ATDP must be fallback/display after ATDPN');
+  assert.match(handshake, /vehicleBusKind\(fromATDPN: protocolNumberRaw\)/);
+  assert.match(handshake, /selectedOBDProtocolNumber = protocolNumberRaw/);
+  assert.match(handshake, /ATDP is display-only fallback/);
+});
+
+test('iOS ATDP fallback never unlocks protocol-aware DTC decoding', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  const handshake = manager.slice(
+    manager.indexOf('private func startHandshake() async'),
+    manager.indexOf('private func chooseSerialCharacteristics')
+  );
+
+  const fallback = handshake.slice(handshake.indexOf('if let protocolRaw = try? await command("ATDP"'));
+  assert.match(fallback, /protocolName = OBDParser\.clean\(protocolRaw\)/);
+  assert.doesNotMatch(fallback, /selectedOBDProtocolNumber = protocolRaw/);
+});
