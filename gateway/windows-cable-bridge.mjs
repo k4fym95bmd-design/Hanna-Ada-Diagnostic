@@ -99,6 +99,22 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         flashing: false,
       });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
+      if (req.method === 'GET' && route === '/v1/readiness') {
+        const ports = (await serial.list()).filter(validPort).map(safePort);
+        const status = await currentStatus();
+        return json(res, 200, {
+          version: 1,
+          readOnly: true,
+          ports,
+          selectedPath: selected,
+          status,
+          arbitraryTx: false,
+          dtcErase: false,
+          coding: false,
+          actuation: false,
+          flashing: false,
+        });
+      }
       if (req.method === 'GET' && route === '/v1/ports') {
         const ports = (await serial.list()).filter(validPort).map(safePort);
         return json(res, 200, { ports, selectedPath: selected });
