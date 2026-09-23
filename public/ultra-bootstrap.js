@@ -29,10 +29,13 @@ const loadStyle = path => {
   return loadedStyles.get(path);
 };
 
-const prefetchModule = path => {
-  if (prefetched.has(path)) return;
+const networkAllowsPrefetch = () => {
   const connection = navigator.connection;
-  if (connection?.saveData || ['slow-2g','2g'].includes(connection?.effectiveType)) return;
+  return !(connection?.saveData || ['slow-2g','2g'].includes(connection?.effectiveType));
+};
+
+const prefetchModule = path => {
+  if (prefetched.has(path) || !networkAllowsPrefetch()) return;
   prefetched.add(path);
   const probe = document.createElement('link');
   const supportsPrefetch = probe.relList?.supports?.('prefetch') === true;
@@ -78,25 +81,51 @@ const idle = () => new Promise(resolve => {
   }
 });
 
-async function loadDiagnosticCore() {
+const TUNING_MODULES = Object.freeze([
+  '/tuning-stage-extension.js',
+  '/tuning-analysis-panel.js',
+]);
+const OBD_MODULES = Object.freeze([
+  '/obd-runtime.js',
+  '/terminal-readonly-guard.js',
+  '/diagnostic-core-v2.js',
+  '/live-performance-runtime.js',
+]);
+const CABLE_MODULES = Object.freeze([
+  '/cable-workbench.js',
+  '/cable-rx-panel.js',
+  '/kdcan-cable-panel.js',
+  '/universal-platform-panel.js',
+]);
+const HARDWARE_MODULES = Object.freeze([
+  '/oem-icom-panel.js',
+  '/webusb-workbench-extension.js',
+  '/desktop-host-bridge.js',
+  '/desktop-pro-panel.js',
+]);
+
+async function loadObdStack() {
   await Promise.all([
     loadStyle('/pro-runtime.css'),
     loadStyle('/diagnostic-core-v2.css'),
-    loadStyle('/cable-workbench.css'),
     loadStyle('/live-performance.css'),
   ]);
-  // Keep one canonical OBD session owner. The performance layer loads only after it.
+  // Keep exactly one OBD session owner; ULTRA attaches only after the runtime exists.
   await importOnce('/obd-runtime.js');
   await Promise.all([
     importOnce('/terminal-readonly-guard.js'),
     importOnce('/diagnostic-core-v2.js'),
-    importOnce('/cable-workbench.js'),
   ]);
+  await importOnce('/live-performance-runtime.js');
+}
+
+async function loadCableStack() {
+  await loadStyle('/cable-workbench.css');
+  await importOnce('/cable-workbench.js');
   await Promise.all([
     importOnce('/cable-rx-panel.js'),
     importOnce('/kdcan-cable-panel.js'),
     importOnce('/universal-platform-panel.js'),
-    importOnce('/live-performance-runtime.js'),
   ]);
 }
 
@@ -115,18 +144,62 @@ async function loadHardwareExtras() {
   }
 }
 
+async function loadForModule(module) {
+  if (module === 'tuning') return loadTuning();
+  if (module === 'vci') {
+    await Promise.all([loadObdStack(), loadCableStack()]);
+    return loadHardwareExtras();
+  }
+  if (module === 'bmw-expert') {
+    await loadCableStack();
+    return loadHardwareExtras();
+  }
+  return null;
+}
+
+function warmForModule(module) {
+  if (!networkAllowsPrefetch()) return;
+  if (module === 'tuning') TUNING_MODULES.forEach(prefetchModule);
+  if (module === 'vci') {
+    OBD_MODULES.forEach(prefetchModule);
+    CABLE_MODULES.forEach(prefetchModule);
+    HARDWARE_MODULES.forEach(prefetchModule);
+  }
+  if (module === 'bmw-expert') {
+    CABLE_MODULES.forEach(prefetchModule);
+    HARDWARE_MODULES.forEach(prefetchModule);
+  }
+}
+
 window.addEventListener('hannaada:module-rendered', event => {
   const module = event.detail?.module;
-  if (module === 'tuning') void loadTuning();
-  if (module === 'vci' || module === 'bmw-expert') void loadHardwareExtras();
+  warmForModule(module);
+  void loadForModule(module);
+});
+
+document.getElementById('nav')?.addEventListener('pointerover', event => {
+  const button = event.target.closest?.('.nav-button[data-module]');
+  if (button) warmForModule(button.dataset.module);
+}, { passive: true });
+
+document.getElementById('nav')?.addEventListener('focusin', event => {
+  const button = event.target.closest?.('.nav-button[data-module]');
+  if (button) warmForModule(button.dataset.module);
 });
 
 (async () => {
   await waitForVisible();
   await afterFirstPaint();
-  await loadDiagnosticCore();
+
+  // If the initial module event fired before this bootstrap attached, recover from
+  // the current active nav state without loading every diagnostic subsystem.
+  const initialModule = document.querySelector('#nav .nav-button.active')?.dataset.module || 'home';
+  await loadForModule(initialModule);
+
   await idle();
-  ['/tuning-stage-extension.js','/tuning-analysis-panel.js','/oem-icom-panel.js'].forEach(prefetchModule);
+  // Background work is fetch-only. Execution waits for explicit module intent.
+  [...TUNING_MODULES, ...OBD_MODULES, ...CABLE_MODULES].forEach(prefetchModule);
+  prefetchModule('/oem-icom-panel.js');
   if ('usb' in navigator) prefetchModule('/webusb-workbench-extension.js');
   if (window.__TAURI_INTERNALS__ || window.__TAURI__) {
     prefetchModule('/desktop-host-bridge.js');
