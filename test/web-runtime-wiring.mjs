@@ -58,3 +58,12 @@ test('verified DTC extension delegates continuous live to ultra scheduler', asyn
   assert.doesNotMatch(extension, /setInterval\(cycle/);
   assert.doesNotMatch(extension, /new MutationObserver/);
 });
+
+
+test('legacy OBD runtime cannot create a second interval poller', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /ULTRA scheduler jeszcze się ładuje/);
+  assert.match(runtime, /HA\.startUltraLive/);
+  assert.match(runtime, /HA\.isUltraLiveRunning/);
+  assert.doesNotMatch(runtime, /HA\.poll=setInterval\(tick,2500\)/);
+});
