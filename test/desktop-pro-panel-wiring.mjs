@@ -14,7 +14,11 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /openDesktopConfiguredPort/);
   assert.match(panel, /readDesktopBounded/);
   assert.match(panel, /DesktopReceiveEvidenceSession/);
+  assert.match(panel, /read-only-request-registry/);
+  assert.match(panel, /instantiateReadOnlyRequest/);
+  assert.match(panel, /PLAN IDENTITY/);
 
   assert.doesNotMatch(panel, /desktop_write_serial|rawSerialWrite|\.write\(/);
+  assert.doesNotMatch(panel, /requestBytes|txBytes\s*:/);
   assert.doesNotMatch(panel, /codingEnabled\s*=\s*true|flashEnabled\s*=\s*true/);
 });
