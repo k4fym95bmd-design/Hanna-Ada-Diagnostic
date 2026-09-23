@@ -1,5 +1,6 @@
 import { validateReadOnlyRequestPlan } from './read-only-request-registry.js';
 
+const MAX_EVIDENCE_FRAMES = 16;
 const validIdentity = value =>
   typeof value === 'string'
   && /^[A-Za-z0-9._-]{2,64}$/.test(value.trim());
@@ -30,7 +31,10 @@ export function assessModuleIdentityCandidate({
       || !Number.isSafeInteger(receiveEvidence.candidateFrames)
       || receiveEvidence.candidateFrames < 1
       || !Array.isArray(receiveEvidence.frames)
-      || receiveEvidence.frames.length < 1) {
+      || receiveEvidence.frames.length < 1
+      || receiveEvidence.frames.length > MAX_EVIDENCE_FRAMES
+      || receiveEvidence.candidateFrames !== receiveEvidence.frames.length
+      || receiveEvidence.frames.some(frame => !frame || typeof frame !== 'object' || Array.isArray(frame))) {
     return blocked('FRAME_CANDIDATE_REQUIRED');
   }
   if (typeof responseRequestId !== 'string'
@@ -39,6 +43,9 @@ export function assessModuleIdentityCandidate({
   }
 
   const frame = receiveEvidence.frames[receiveEvidence.frames.length - 1];
+  if (typeof frame.frameHex !== 'string' || frame.frameHex.length < 2 || frame.frameHex.length > 1024) {
+    return blocked('FRAME_METADATA_REQUIRED');
+  }
   if (plan.protocol === 'KWP2000_BMW'
       && frame?.directionHint !== 'possible-reply') {
     return blocked(frame?.directionHint === 'possible-echo'
@@ -63,6 +70,7 @@ export function assessModuleIdentityCandidate({
     moduleIdentityEligible: true,
     stage: 'CORRELATED_IDENTITY_CANDIDATE',
     moduleIdentity: moduleIdentity.trim(),
+    identitySource: 'EXTERNAL_CORRELATED_READ_ONLY',
     ecuVerified: false,
     writesEnabled: false,
     flashEnabled: false,
