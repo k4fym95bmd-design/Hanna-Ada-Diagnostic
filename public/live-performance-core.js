@@ -30,12 +30,13 @@ export function selectLiveBatch(supported, cursor = 0, limit = 4, blockedKeys = 
 }
 
 export function createLivePerformanceController({
-  readPid, getSupported, isConnected, isVisible = () => true,
+  readPid, getSupported, isConnected, isVisible = () => true, shouldYield = () => false,
   onMetrics = () => {}, onStatus = () => {},
   now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout,
 } = {}) {
   if (typeof readPid !== 'function' || typeof getSupported !== 'function'
     || typeof isConnected !== 'function' || typeof isVisible !== 'function'
+    || typeof shouldYield !== 'function'
     || typeof onMetrics !== 'function' || typeof onStatus !== 'function') {
     throw new TypeError('Live performance controller requires transport evidence and callbacks.');
   }
@@ -43,7 +44,7 @@ export function createLivePerformanceController({
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0, budgetStops = 0;
-  let cycleSerial = 0, pidBackoffs = 0;
+  let cycleSerial = 0, pidBackoffs = 0, uiYields = 0;
   const pidFailureStreak = new Map();
   const pidCooldownUntil = new Map();
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
@@ -122,6 +123,7 @@ export function createLivePerformanceController({
       budgetStops,
       pidBackoffs,
       coolingPids: coolingKeys().size,
+      uiYields,
       inFlight: !!currentTask,
       queuedCommands: 0,
       writesEnabled: false,
@@ -249,6 +251,12 @@ export function createLivePerformanceController({
     if (!isConnected()) { onStatus('ECU rozłączone; zatrzymano Live.'); stop(); return; }
     if (!isVisible()) { schedule(2000, owner); return; }
     if (currentTask) { schedule(150, owner); return; }
+    if (shouldYield()) {
+      uiYields++;
+      schedule(100, owner);
+      publish();
+      return;
+    }
     await perform(owner, true);
     if (running && epoch === owner) schedule(computeDelay(), owner);
   }
