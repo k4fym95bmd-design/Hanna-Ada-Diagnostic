@@ -47,7 +47,7 @@ test('stale session id is rejected', () => {
 test('selector position is metadata only and never becomes BMW protocol evidence', () => {
   const s = new KdcanReadonlySession();
   const state = s.begin({ sessionId, vendorId: 0x1234, productId: 0x5678, selectorPosition: 'position-2' });
-  assert.equal(state.selectorPosition, 'position-2');
+  assert.equal(state.selectorPosition, 'B');
   assert.equal(state.stage, 'USB_BOUND');
   assert.equal(state.bmwProtocolVerified, false);
 });
@@ -70,4 +70,10 @@ test('ending the session purges cable binding', () => {
   const state = s.end({ sessionId });
   assert.equal(state.active, false);
   assert.equal(state.stage, 'NO_SESSION');
+});
+
+
+test('invalid selector metadata is rejected instead of being guessed', () => {
+  const s = new KdcanReadonlySession();
+  assert.throws(() => s.begin({ sessionId, vendorId: 0x0403, productId: 0x6001, selectorPosition: 'pins-7-8' }), /selector/i);
 });
