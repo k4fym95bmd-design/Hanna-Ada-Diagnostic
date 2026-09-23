@@ -158,3 +158,11 @@ test('Desktop PRO avoids rebuilding unchanged select options on every render', a
   assert.match(panel, /select\.dataset\.optionsKey = portOptionsKey/);
   assert.match(panel, /requestSelect\.dataset\.optionsKey = requestOptionsKey/);
 });
+
+
+test('Desktop PRO releases trusted-event listener when leaving VCI', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /event\.detail\?\.module !== 'vci'/);
+  assert.match(panel, /panelAbort\.abort\(\)/);
+  assert.match(panel, /hannaada:module-rendered/);
+});
