@@ -66,11 +66,12 @@ fn desktop_bind_serial_candidate(
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let inventory = desktop_serial_inventory::list_sanitized_ports()?;
+    // Lock order is always coordinator -> native across every command.
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     if native.is_open() {
         return Err("close_native_port_before_rebind".into());
     }
-    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     coordinator.bind_from_inventory(&inventory, &port_name)
 }
 
@@ -97,7 +98,14 @@ fn desktop_open_configured_port(
     let bound = coordinator.snapshot();
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     native.open_configured(&bound, epoch, &protocol, baud_rate)?;
-    coordinator.mark_open_configured(epoch)
+    match coordinator.mark_open_configured(epoch) {
+        Ok(snapshot) => Ok(snapshot),
+        Err(error) => {
+            // Never leave a native handle open if coordinator promotion fails.
+            native.close_any();
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -132,6 +140,10 @@ fn desktop_close_port(
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let snapshot = coordinator.snapshot();
+    if snapshot.epoch != epoch {
+        return Err("stale_epoch".into());
+    }
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     native.close_any();
     coordinator.mark_closed(epoch)
