@@ -22,3 +22,10 @@ Any disconnect, hardware identity drift, session expiry, serial error or loss of
 - **Browser/WebUSB/WebSerial:** permission, VID:PID, or an open browser port are transport evidence only and never ECU identity evidence.
 
 All stages keep write, erase, coding, actuation and flash capability disabled.
+
+
+## Correlation boundary
+
+Browser-side request correlation may collect repeated, matching read-only identity candidates, but it **cannot** emit `READ_ONLY_IDENTITY_VERIFIED`. Two matching attempts only produce `REPEATED_CORRELATED_IDENTITY_CANDIDATE`.
+
+Promotion to `READ_ONLY_IDENTITY_VERIFIED` requires a future local/native attestation boundary that is tied to the same physical hardware identity, session epoch, configured protocol, request correlation and fresh response. Caller-provided strings or browser objects are never sufficient authority.
