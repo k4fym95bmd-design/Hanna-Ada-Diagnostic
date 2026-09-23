@@ -9,6 +9,10 @@ import {
   readDesktopBounded,
 } from './desktop-host-bridge.js';
 import { DesktopReceiveEvidenceSession } from './desktop-receive-evidence.js';
+import {
+  instantiateReadOnlyRequest,
+  listReadOnlyRequests,
+} from './read-only-request-registry.js';
 
 const state = {
   ready: false,
@@ -20,6 +24,9 @@ const state = {
   baudRate: '',
   evidenceSession: null,
   evidence: null,
+  requestOptions: listReadOnlyRequests(),
+  requestOperationId: 'e39-dme-me72-module-identity',
+  requestPlan: null,
   message: 'Desktop PRO host nieaktywny.',
 };
 
@@ -60,6 +67,21 @@ function render(panel) {
     ? `Evidence: ${ev.stage} · RX ${ev.observedBytes} B · frames ${ev.candidateFrames} · next ${ev.nextGate}`
     : 'Evidence: brak odebranych danych.';
 
+  const requestSelect = panel.querySelector('[data-desktop-pro-request]');
+  requestSelect.replaceChildren(...state.requestOptions.map(item => {
+    const opt = document.createElement('option');
+    opt.value = item.id;
+    opt.textContent = `${item.moduleFamily} · ${item.protocol} · ${item.operation}`;
+    return opt;
+  }));
+  if (state.requestOptions.some(item => item.id === state.requestOperationId)) {
+    requestSelect.value = state.requestOperationId;
+  }
+
+  panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
+    ? `Identity plan: ${state.requestPlan.operationId} · epoch ${state.requestPlan.epoch} · request ${state.requestPlan.requestId} · ${state.requestPlan.protocol} · TX MATERIAL NOT EXPOSED · correlation required`
+    : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
+
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
     button.disabled = state.busy || !state.ready;
   });
@@ -80,6 +102,7 @@ async function action(panel, name) {
       state.selected = portName;
       state.evidenceSession = null;
       state.evidence = null;
+      state.requestPlan = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
       if (!state.snapshot?.epoch) throw new TypeError('Najpierw przypnij port.');
@@ -98,7 +121,26 @@ async function action(panel, name) {
         protocol,
       });
       state.evidence = null;
+      state.requestPlan = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Brak TX.`;
+    } else if (name === 'plan-identity') {
+      if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
+        throw new TypeError('Najpierw otwórz skonfigurowany port.');
+      }
+      const operationId = panel.querySelector('[data-desktop-pro-request]').value;
+      const option = state.requestOptions.find(item => item.id === operationId);
+      if (!option) throw new TypeError('Nieznana operacja read-only.');
+      if (option.protocol !== state.protocol) {
+        throw new TypeError('Profil portu nie odpowiada wybranemu planowi modułu.');
+      }
+      const requestId = globalThis.crypto?.randomUUID?.()
+        || `identity-${Date.now().toString(36)}`;
+      state.requestOperationId = operationId;
+      state.requestPlan = instantiateReadOnlyRequest(operationId, {
+        epoch: state.snapshot.epoch,
+        requestId,
+      });
+      state.message = `Plan identity utworzony dla ${option.moduleFamily}. TX nadal niewystawiony; następna bramka: zaufana korelacja request/response.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -116,12 +158,14 @@ async function action(panel, name) {
       state.snapshot = await closeDesktopPort(state.snapshot.epoch, window);
       state.evidenceSession = null;
       state.evidence = null;
-      state.message = 'Port zamknięty. Evidence parser sesji wyzerowany.';
+      state.requestPlan = null;
+      state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
       state.snapshot = await clearDesktopSerialCandidate(window);
       state.selected = '';
       state.evidenceSession = null;
       state.evidence = null;
+      state.requestPlan = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
   } catch (error) {
