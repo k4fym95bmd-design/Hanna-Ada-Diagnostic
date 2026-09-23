@@ -107,3 +107,16 @@ Explicitly excluded:
 - any ECU or BMW verification claim.
 
 Known VID/PID values are hints only. They can label FTDI/CP210X/CH34X/PL2303 candidates but never prove a K+DCAN cable or ECU session.
+
+
+## Candidate binding and epoch
+
+Selecting a port does not open it.
+
+Desktop PRO now binds one currently enumerated serial candidate into an in-memory coordinator:
+- each bind increments a monotonic `epoch`;
+- clearing the selection increments the epoch again;
+- a port must exist in the current sanitized inventory before it can be bound;
+- the bound snapshot always keeps `transportOpen=false`, `configured=false`, `ecuVerified=false` and `writesEnabled=false`.
+
+This prevents a future native transport from inheriting evidence from an older cable selection or reconnect.
