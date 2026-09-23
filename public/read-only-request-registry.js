@@ -14,7 +14,7 @@ const entries = Object.freeze([
     timeoutMs: 750,
     maxResponseBytes: 197,
     expectedDirection: 'possible-reply',
-    requestMaterial: 'EXTERNAL_VERIFIED_PROFILE_REQUIRED',
+    requestMaterial: 'NATIVE_ALLOWLISTED_PROFILE',
     requiresConfiguredTransport: true,
     requiresEpochBinding: true,
     requiresRequestCorrelation: true,
