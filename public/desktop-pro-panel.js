@@ -28,6 +28,7 @@ const state = {
   baudRate: '',
   evidenceSession: null,
   evidence: null,
+  nativeReadReceipt: null,
   requestOptions: listReadOnlyRequests(),
   requestOperationId: 'e39-dme-me72-module-identity',
   requestPlan: null,
@@ -101,7 +102,7 @@ function render(panel) {
   const finalized = state.identityResult?.identityVerified === true;
   const repeatedCandidate = correlation?.repeatCandidateReady === true;
   panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
-    ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · native broker ${state.brokerSnapshot?.stage || 'pending'} · TX MATERIAL NOT EXPOSED`
+    ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · native broker ${state.brokerSnapshot?.stage || 'pending'} · RX receipt ${state.nativeReadReceipt || 'pending'} · TX MATERIAL NOT EXPOSED`
     : finalized
       ? `Identity chain finalized · ${state.identityResult.moduleIdentity} · attestation #${state.identityResult.attestationSequence}`
       : repeatedCandidate
@@ -156,6 +157,7 @@ async function action(panel, name) {
       state.selected = portName;
       state.evidenceSession = null;
       state.evidence = null;
+      state.nativeReadReceipt = null;
       state.requestPlan = null;
       state.brokerSnapshot = null;
       state.correlationSession = null;
@@ -179,6 +181,7 @@ async function action(panel, name) {
         protocol,
       });
       state.evidence = null;
+      state.nativeReadReceipt = null;
       state.requestPlan = null;
       state.brokerSnapshot = null;
       state.correlationSession = null;
@@ -206,6 +209,7 @@ async function action(panel, name) {
         });
         state.identityResult = null;
       }
+      state.nativeReadReceipt = null;
       const localPlan = state.correlationSession.prepareAttempt(requestId);
       try {
         state.brokerSnapshot = await prepareDesktopReadOnlyRequest(localPlan, window);
@@ -213,6 +217,7 @@ async function action(panel, name) {
       } catch (error) {
         state.correlationSession.cancelActiveAttempt();
         state.requestPlan = null;
+        state.nativeReadReceipt = null;
         state.brokerSnapshot = null;
         throw error;
       }
@@ -227,6 +232,7 @@ async function action(panel, name) {
         state.correlationSession.cancelActiveAttempt();
         state.requestPlan = null;
       }
+      state.nativeReadReceipt = null;
       state.message = 'Identity attempt anulowany. Request-id pozostaje zużyty i nie może być użyty ponownie.';
     } else if (name === 'attest-identity') {
       const correlation = state.correlationSession?.snapshot?.();
@@ -252,6 +258,7 @@ async function action(panel, name) {
         state.snapshot.epoch, maxBytes, 250, window
       );
       state.evidence = state.evidenceSession.ingest(result);
+      state.nativeReadReceipt = result.nativeRequestReceipt ?? null;
       state.message = result.stage === 'READ_TIMEOUT'
         ? 'Passive RX timeout · sesja nadal skonfigurowana.'
         : `Passive RX: ${result.receivedBytes} B. ECU nadal niepotwierdzone.`;
@@ -260,6 +267,7 @@ async function action(panel, name) {
       state.snapshot = await closeDesktopPort(state.snapshot.epoch, window);
       state.evidenceSession = null;
       state.evidence = null;
+      state.nativeReadReceipt = null;
       state.requestPlan = null;
       state.brokerSnapshot = null;
       state.correlationSession = null;
@@ -271,6 +279,7 @@ async function action(panel, name) {
       state.selected = '';
       state.evidenceSession = null;
       state.evidence = null;
+      state.nativeReadReceipt = null;
       state.requestPlan = null;
       state.brokerSnapshot = null;
       state.correlationSession = null;
@@ -299,6 +308,7 @@ async function attachDesktopProPanel() {
   state.selected = '';
   state.evidenceSession = null;
   state.evidence = null;
+  state.nativeReadReceipt = null;
   state.requestPlan = null;
   state.brokerSnapshot = null;
   state.correlationSession = null;
@@ -389,10 +399,20 @@ async function attachDesktopProPanel() {
 
     let detail;
     try {
+      if (!Number.isSafeInteger(state.nativeReadReceipt) || state.nativeReadReceipt < 1) {
+        throw new TypeError('Trusted identity event wymaga native receipt z realnego READ_BYTES.');
+      }
+      if (state.evidence?.nativeReadReceipt !== state.nativeReadReceipt
+          || !Array.isArray(state.evidence?.frames)
+          || state.evidence.frames.length < 1) {
+        throw new TypeError('Brak parser evidence powiązanego z native receipt.');
+      }
       detail = validateTrustedIdentityCandidateEvent(event?.detail, {
         epoch: plan.epoch,
         requestId: plan.requestId,
         protocol: plan.protocol,
+        nativeReadReceipt: state.nativeReadReceipt,
+        expectedFrameHexes: state.evidence.frames.map(frame => frame.frameHex),
       });
     } catch (error) {
       state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
@@ -401,10 +421,16 @@ async function attachDesktopProPanel() {
     }
 
     try {
-      state.brokerSnapshot = await consumeDesktopReadOnlyRequest(plan.epoch, plan.requestId, window);
+      state.brokerSnapshot = await consumeDesktopReadOnlyRequest(
+        plan.epoch,
+        plan.requestId,
+        state.nativeReadReceipt,
+        window
+      );
     } catch (error) {
       state.correlationSession.cancelActiveAttempt();
       state.requestPlan = null;
+      state.nativeReadReceipt = null;
       state.brokerSnapshot = null;
       state.message = error instanceof Error ? error.message : 'Native request broker odrzucił korelację.';
       render(panel);
@@ -418,6 +444,7 @@ async function attachDesktopProPanel() {
         moduleIdentity: detail.moduleIdentity,
       });
       state.requestPlan = null;
+      state.nativeReadReceipt = null;
       state.localAttestation = null;
       state.message = state.identityResult.repeatCandidateReady
         ? '2/2 REPEATED_CORRELATED_IDENTITY_CANDIDATE. Teraz wymagany jest LOCAL ATTEST.'
