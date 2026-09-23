@@ -132,8 +132,13 @@ public final class MainActivity extends Activity {
             for (String key : sortedKeys(devices)) {
                 UsbDevice device = devices.get(key);
                 if (device != null) {
+                    boolean permission = usbManager.hasPermission(device);
+                    UsbSerialDriver driver = permission ? UsbSerialLink.findDriver(usbManager, device) : null;
+                    String family = driver == null ? "UNKNOWN"
+                            : UsbSerialEvidence.family(driver.getClass().getSimpleName());
+                    int ports = driver == null ? 0 : driver.getPorts().size();
                     snapshot.add(new UsbReport.Device(device.getVendorId(), device.getProductId(),
-                            device.getInterfaceCount(), usbManager.hasPermission(device)));
+                            device.getInterfaceCount(), permission, family, ports));
                 }
             }
         }
@@ -153,7 +158,7 @@ public final class MainActivity extends Activity {
 
     private void render() {
         content.removeAllViews();
-        label("HANNA & ADA / FIRE USB-SERIAL v0.4", 22, Color.rgb(100, 168, 255));
+        label("HANNA & ADA / USB-SERIAL EVIDENCE v0.5", 22, Color.rgb(100, 168, 255));
         label("TEST WYŁĄCZNIE POZA AUTEM · ZERO POLECEŃ DO ECU", 13,
                 Color.rgb(255, 145, 145));
         label("Tablet: " + Build.MANUFACTURER + " " + Build.MODEL + " · Android API "
@@ -173,7 +178,7 @@ public final class MainActivity extends Activity {
         } else if (devices.isEmpty()) {
             label("2. Urządzenia USB: 0 — podłącz adapter USB poza samochodem.", 16,
                     Color.rgb(255, 167, 122));
-            label("Przygotuj przejściówkę OTG zgodną z portem Fire HD 10 i podłącz kabel "
+            label("Przygotuj przejściówkę OTG zgodną z portem tego urządzenia i podłącz kabel "
                     + "bez samochodu. Odśwież wynik. Nie zmieniaj systemu i nie kupuj "
                     + "sprzętu na podstawie samego komunikatu.", 14, Color.LTGRAY);
         } else {
@@ -201,8 +206,12 @@ public final class MainActivity extends Activity {
                         label("Sterownik USB-serial: BRAK dla tego urządzenia.", 14,
                                 Color.rgb(255, 167, 122));
                     } else {
-                        label("Sterownik: " + driver.getClass().getSimpleName() + " · porty: "
-                                + driver.getPorts().size(), 14, Color.rgb(155, 227, 190));
+                        String family = UsbSerialEvidence.family(driver.getClass().getSimpleName());
+                        label("Sterownik USB-serial: " + family + " · porty: "
+                                + driver.getPorts().size()
+                                + (UsbSerialEvidence.isKdcAnReferenceCandidate(family)
+                                    ? " · K+DCAN FTDI: kandydat referencyjny" : ""),
+                                14, Color.rgb(155, 227, 190));
                         if (!portTestRunning) {
                             action("Sprawdź i zamknij port USB (TYLKO POZA AUTEM)",
                                     view -> testSerialPort(device));
