@@ -189,6 +189,18 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         guard disconnectingPeripheral === disconnected else { return }
         cancelDisconnectWatchdog()
         disconnectingPeripheral = nil
+
+        if commandChannelDesynced {
+            // Preserve the stronger fail-closed state. A late CoreBluetooth
+            // disconnect callback must not downgrade "reconnect required".
+            pendingConnection = nil
+            state = .error
+            if !status.contains("reconnect required") {
+                status = "BLE response correlation lost · reconnect required"
+            }
+            return
+        }
+
         if let pending = pendingConnection {
             pendingConnection = nil
             startConnection(pending.peripheral, name: pending.name)
