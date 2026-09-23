@@ -144,9 +144,7 @@ function attach() {
 }
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(attach).observe(view, { childList: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attach);
     attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
