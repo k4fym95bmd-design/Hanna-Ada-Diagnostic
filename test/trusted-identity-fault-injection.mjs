@@ -120,7 +120,6 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
         );
       }
     } catch (error) {
-      if (!(error instanceof AssertionError)) throw error;
       throw error;
     }
 
