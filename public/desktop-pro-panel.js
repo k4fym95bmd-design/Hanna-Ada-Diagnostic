@@ -10,6 +10,7 @@ import {
   executeDesktopMe72Roughness,
   executeDesktopMe72EngineSnapshot,
   executeDesktopMe72FuelAdaptation,
+  executeDesktopMe72OutputStatus,
   executeDesktopMe72Readiness,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
@@ -27,6 +28,7 @@ import { deriveMe72IdentityFromEvidence } from './me72-identity-parser.js';
 import { deriveMe72CylinderRoughnessFromEvidence } from './me72-roughness-parser.js';
 import { deriveMe72EngineSnapshotFromEvidence } from './me72-engine-snapshot-parser.js';
 import { deriveMe72FuelAdaptationFromEvidence } from './me72-fuel-adaptation-parser.js';
+import { deriveMe72OutputStatusFromEvidence } from './me72-output-status-parser.js';
 import { deriveMe72ReadinessFromEvidence } from './me72-readiness-parser.js';
 
 const state = {
@@ -56,6 +58,9 @@ const state = {
   fuelAdaptation: null,
   fuelAdaptationSequence: null,
   fuelAdaptationIdentityFingerprint: null,
+  outputStatus: null,
+  outputStatusSequence: null,
+  outputStatusIdentityFingerprint: null,
   readinessStatus: null,
   readinessSequence: null,
   readinessIdentityFingerprint: null,
@@ -188,6 +193,13 @@ function render(panel) {
       ? 'Fuel adaptation 0x4004: gotowa do pojedynczego read-only snapshotu.'
       : 'Fuel adaptation 0x4004: zablokowana do READ_ONLY_IDENTITY_VERIFIED.';
 
+  const outputStatus = state.outputStatus;
+  panel.querySelector('[data-desktop-pro-output-status]').textContent = outputStatus
+    ? `Output status #${state.outputStatusSequence} · fuel pump ${outputStatus.fuelPump ? 'ON' : 'OFF'} · fan ${outputStatus.electricFan ? 'ON' : 'OFF'} · thermostat ${outputStatus.thermostat ? 'ON' : 'OFF'} · secondary air ${outputStatus.secondaryAirPump ? 'ON' : 'OFF'} · leak pump ${outputStatus.leakDiagnosticPump ? 'ON' : 'OFF'} · O2 heaters ${[outputStatus.oxygenHeaterBeforeBank1,outputStatus.oxygenHeaterBeforeBank2,outputStatus.oxygenHeaterAfterBank1,outputStatus.oxygenHeaterAfterBank2].filter(Boolean).length}/4`
+    : finalized
+      ? 'Output status 0x4005: gotowy do pojedynczego read-only odczytu.'
+      : 'Output status 0x4005: zablokowany do READ_ONLY_IDENTITY_VERIFIED.';
+
   const readiness = state.readinessStatus;
   panel.querySelector('[data-desktop-pro-readiness]').textContent = readiness
     ? `Readiness sample #${state.readinessSequence} · neutral ${readiness.neutralSwitch ? 'YES' : 'NO'} · enrich ${readiness.accelerationEnrichment ? 'YES' : 'NO'} · O2 pre B1 ${readiness.oxygenBeforeBank1Ready ? 'READY' : 'NOT READY'} · pre B2 ${readiness.oxygenBeforeBank2Ready ? 'READY' : 'NOT READY'} · post B1 ${readiness.oxygenAfterBank1Ready ? 'READY' : 'NOT READY'} · post B2 ${readiness.oxygenAfterBank2Ready ? 'READY' : 'NOT READY'}`
@@ -215,6 +227,7 @@ function render(panel) {
     'read-roughness': state.ready && configured && finalized && !state.requestPlan,
     'read-engine': state.ready && configured && finalized && !state.requestPlan,
     'read-fuel': state.ready && configured && finalized && !state.requestPlan,
+    'read-output-status': state.ready && configured && finalized && !state.requestPlan,
     'read-readiness': state.ready && configured && finalized && !state.requestPlan,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
@@ -255,6 +268,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.outputStatus = null;
+      state.outputStatusSequence = null;
+      state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
@@ -291,6 +307,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.outputStatus = null;
+      state.outputStatusSequence = null;
+      state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
@@ -421,6 +440,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.outputStatus = null;
+      state.outputStatusSequence = null;
+      state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
@@ -491,27 +513,27 @@ async function action(panel, name) {
       state.fuelAdaptationSequence = result.readonlySampleSequence;
       state.fuelAdaptationIdentityFingerprint = result.nativeIdentityFingerprint;
       state.message = `ME7.2 fuel adaptations 0x4004 · native sample #${result.readonlySampleSequence} · read-only.`;
-    } else if (name === 'read-fuel-adaptation') {
+    } else if (name === 'read-output-status') {
       if (state.identityResult?.identityVerified !== true
           || state.snapshot?.stage !== 'PORT_CONFIGURED'
           || !state.evidenceSession) {
-        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed fuel adaptation.');
+        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed output status.');
       }
 
       state.evidenceSession.reset();
       state.evidence = null;
-      const result = await executeDesktopMe72FuelAdaptation(state.snapshot.epoch, window);
-      if (result.readonlyProfileId !== 'e39-me72-fuel-adaptation-4004'
+      const result = await executeDesktopMe72OutputStatus(state.snapshot.epoch, window);
+      if (result.readonlyProfileId !== 'e39-me72-output-status-4005'
           || !Number.isSafeInteger(result.readonlySampleSequence)
           || result.nativeIdentityFingerprint !== state.identityResult.moduleIdentity) {
-        throw new TypeError('Native fuel adaptation provenance mismatch.');
+        throw new TypeError('Native output status provenance mismatch.');
       }
 
       state.evidence = state.evidenceSession.ingest(result);
-      state.fuelAdaptation = deriveMe72FuelAdaptationFromEvidence(state.evidence);
-      state.fuelAdaptationSequence = result.readonlySampleSequence;
-      state.fuelAdaptationIdentityFingerprint = result.nativeIdentityFingerprint;
-      state.message = `ME7.2 fuel adaptation 0x4004 · native sample #${result.readonlySampleSequence} · read-only.`;
+      state.outputStatus = deriveMe72OutputStatusFromEvidence(state.evidence);
+      state.outputStatusSequence = result.readonlySampleSequence;
+      state.outputStatusIdentityFingerprint = result.nativeIdentityFingerprint;
+      state.message = `ME7.2 output status 0x4005 · native sample #${result.readonlySampleSequence} · status-only/read-only.`;
     } else if (name === 'read-readiness') {
       if (state.identityResult?.identityVerified !== true
           || state.snapshot?.stage !== 'PORT_CONFIGURED'
@@ -566,6 +588,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.outputStatus = null;
+      state.outputStatusSequence = null;
+      state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
@@ -590,6 +615,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.outputStatus = null;
+      state.outputStatusSequence = null;
+      state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
@@ -631,6 +659,9 @@ async function attachDesktopProPanel() {
   state.fuelAdaptation = null;
   state.fuelAdaptationSequence = null;
   state.fuelAdaptationIdentityFingerprint = null;
+  state.outputStatus = null;
+  state.outputStatusSequence = null;
+  state.outputStatusIdentityFingerprint = null;
   state.readinessStatus = null;
   state.readinessSequence = null;
   state.readinessIdentityFingerprint = null;
@@ -676,7 +707,8 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="read-roughness">6. ROUGHNESS C1–C8</button>
       <button type="button" data-desktop-pro-action="read-engine">7. ENGINE SNAPSHOT</button>
       <button type="button" data-desktop-pro-action="read-fuel">8. FUEL ADAPT</button>
-      <button type="button" data-desktop-pro-action="read-readiness">9. READINESS</button>
+      <button type="button" data-desktop-pro-action="read-output-status">9. OUTPUT STATUS</button>
+      <button type="button" data-desktop-pro-action="read-readiness">10. READINESS</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
@@ -686,10 +718,11 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-roughness></p>
     <p data-desktop-pro-engine></p>
     <p data-desktop-pro-fuel></p>
+    <p data-desktop-pro-output-status></p>
     <p data-desktop-pro-readiness></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot, fuel adaptations i readiness wymagają 2/2 identity + parser + native local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot, fuel adaptations, output status i readiness wymagają 2/2 identity + parser + native local attestation.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
