@@ -66,3 +66,47 @@ test('read-only server confines static files and ignores untrusted Host header',
   assert.equal(catalog.status, 200);
   assert.ok(Array.isArray(JSON.parse(catalog.body).products));
 });
+
+
+test('static assets use conditional caching without stale HTML', async t => {
+  const child = spawn(process.execPath, ['server.mjs'], {
+    env: { ...process.env, PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => child.kill('SIGTERM'));
+  await waitForServer(child);
+
+  const first = await rawRequest('/app.js');
+  assert.equal(first.status, 200);
+  assert.match(first.headers['cache-control'] || '', /max-age=60/);
+  assert.match(first.headers.etag || '', /^W\//);
+
+  const conditional = await rawRequest('/app.js', 'GET', { 'If-None-Match': first.headers.etag });
+  assert.equal(conditional.status, 304);
+  assert.equal(conditional.body, '');
+
+  const html = await rawRequest('/');
+  assert.equal(html.status, 200);
+  assert.equal(html.headers['cache-control'], 'no-cache');
+
+  const healthHead = await rawRequest('/health', 'HEAD');
+  assert.equal(healthHead.status, 200);
+  assert.equal(healthHead.body, '');
+  assert.equal(healthHead.headers['cache-control'], 'no-store');
+});
+
+test('HEAD static response returns metadata only', async t => {
+  const child = spawn(process.execPath, ['server.mjs'], {
+    env: { ...process.env, PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => child.kill('SIGTERM'));
+  await waitForServer(child);
+
+  const get = await rawRequest('/app.js');
+  const head = await rawRequest('/app.js', 'HEAD');
+  assert.equal(head.status, 200);
+  assert.equal(head.body, '');
+  assert.equal(head.headers['content-length'], String(Buffer.byteLength(get.body)));
+  assert.equal(head.headers.etag, get.headers.etag);
+});
