@@ -45,27 +45,22 @@ const attestation = () => ({
   flashEnabled: false,
 });
 
-test('local native attestation finalizes only read-only identity', () => {
-  const result = finalizeReadOnlyIdentity({
+test('finalizer blocks current ME7.2 path until profile parser is verified', () => {
+  assert.throws(() => finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: attestation(),
-  });
-  assert.equal(result.stage, 'READ_ONLY_IDENTITY_VERIFIED');
-  assert.equal(result.identityVerified, true);
-  assert.equal(result.ecuVerified, false);
-  assert.equal(result.writesEnabled, false);
-  assert.equal(result.flashEnabled, false);
+  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
 });
 
 test('attestation and correlation epoch/protocol must match exactly', () => {
   assert.throws(() => finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: { ...attestation(), epoch: 8 },
-  }), /does not match/i);
+  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
   assert.throws(() => finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: { ...attestation(), protocol: 'DS2' },
-  }), /does not match/i);
+  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
 });
 
 test('attestation rejects unsafe native capability promotion', () => {
