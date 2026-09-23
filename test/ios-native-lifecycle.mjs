@@ -104,3 +104,17 @@ test('iOS disconnect watchdog fail-closes reconnect if CoreBluetooth never confi
   assert.match(manager, /finishDisconnect[\s\S]*cancelDisconnectWatchdog\(\)/);
   assert.match(manager, /pendingConnection = \(candidate, device\.name\)[\s\S]*beginDisconnect\(old\)/);
 });
+
+
+test('iOS late disconnect callback cannot downgrade desync error to disconnected', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  const finish = manager.slice(
+    manager.indexOf('private func finishDisconnect'),
+    manager.indexOf('func readLive')
+  );
+  assert.match(finish, /if commandChannelDesynced/);
+  assert.match(finish, /pendingConnection = nil/);
+  assert.match(finish, /state = \.error/);
+  assert.match(finish, /reconnect required/);
+  assert.match(finish, /return/);
+});
