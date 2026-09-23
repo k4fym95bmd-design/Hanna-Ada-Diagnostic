@@ -24,13 +24,27 @@ public final class KdcanTransportSessionTest {
         check(bound.active, "session active");
         check(bound.epoch == 1L, "first epoch");
         check("FTDI".equals(bound.driverFamily), "driver family bound");
-        check(!bound.portOpen && !bound.requestBound, "bound is not open");
+        check(!bound.portOpen && !bound.configured && !bound.requestBound, "bound is not open");
         check(!bound.ecuVerified && !bound.writesEnabled, "safe defaults");
 
         KdcanTransportSession.Snapshot open =
                 s.markPortOpen("session-1234567890123456", bound.epoch);
         check(open.portOpen, "port state opened");
+        check(!open.configured, "open port is not automatically configured");
         check("PORT_OPEN".equals(open.stage), "open stage");
+
+        boolean unconfiguredRejected = false;
+        try {
+            s.bindRequest("session-1234567890123456", bound.epoch, "request-before-config");
+        } catch (IllegalStateException expected) {
+            unconfiguredRejected = true;
+        }
+        check(unconfiguredRejected, "request cannot bind before configuration");
+
+        KdcanTransportSession.Snapshot configured =
+                s.markConfigured("session-1234567890123456", bound.epoch);
+        check(configured.configured, "configuration state recorded");
+        check("PORT_CONFIGURED".equals(configured.stage), "configured stage");
 
         KdcanTransportSession.Snapshot req =
                 s.bindRequest("session-1234567890123456", bound.epoch, "request-0001");
@@ -59,7 +73,8 @@ public final class KdcanTransportSessionTest {
         KdcanTransportSession.Snapshot disconnected = s.disconnect();
         check(!disconnected.active, "disconnect invalidates session");
         check("DISCONNECTED".equals(disconnected.stage), "disconnect stage");
-        check(!disconnected.portOpen && !disconnected.requestBound, "disconnect purges state");
+        check(!disconnected.portOpen && !disconnected.configured && !disconnected.requestBound,
+                "disconnect purges state");
 
         KdcanTransportSession.Snapshot rebound =
                 s.begin("session-abcdefghijklmnop", 0x0403, 0x6001, "FTDI");
