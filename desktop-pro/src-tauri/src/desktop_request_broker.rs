@@ -13,6 +13,8 @@ struct ActiveRequest {
     timeout_ms: u64,
     max_response_bytes: usize,
     started_at: Instant,
+    receive_receipt: Option<u64>,
+    received_bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -29,7 +31,10 @@ pub struct DesktopRequestBrokerSnapshot {
     pub timeout_ms: Option<u64>,
     pub max_response_bytes: Option<usize>,
     pub attempt_count: usize,
+    pub evidenced_attempt_count: usize,
     pub max_attempts: usize,
+    pub active_receive_receipt: Option<u64>,
+    pub active_received_bytes: usize,
     pub tx_bytes_exposed: bool,
     pub write_like: bool,
     pub ecu_verified: bool,
@@ -42,6 +47,8 @@ pub struct DesktopReadOnlyRequestBroker {
     epoch: u64,
     active: Option<ActiveRequest>,
     issued_request_ids: HashSet<String>,
+    receipt_sequence: u64,
+    evidenced_attempt_count: usize,
 }
 
 fn canonical_operation(id: &str) -> Option<(&'static str, &'static str, u64, usize)> {
@@ -75,6 +82,7 @@ impl DesktopReadOnlyRequestBroker {
         self.epoch = epoch;
         self.active = None;
         self.issued_request_ids.clear();
+        self.evidenced_attempt_count = 0;
     }
 
     pub fn prepare(
@@ -134,14 +142,56 @@ impl DesktopReadOnlyRequestBroker {
             timeout_ms: canonical_timeout,
             max_response_bytes: canonical_max,
             started_at: Instant::now(),
+            receive_receipt: None,
+            received_bytes: 0,
         });
         Ok(self.snapshot())
+    }
+
+    pub fn record_receive(
+        &mut self,
+        epoch: u64,
+        protocol: &str,
+        received_bytes: usize,
+    ) -> Result<u64, String> {
+        self.expire_if_needed();
+        if self.epoch != epoch {
+            return Err("stale_epoch".into());
+        }
+        if received_bytes == 0 {
+            return Err("receive_bytes_required".into());
+        }
+
+        let active = self.active.as_mut().ok_or_else(|| "no_active_request".to_string())?;
+        if active.protocol != protocol {
+            return Err("receive_protocol_mismatch".into());
+        }
+        if active.received_bytes > active.max_response_bytes.saturating_sub(received_bytes) {
+            self.active = None;
+            return Err("receive_response_overflow".into());
+        }
+
+        let receipt = match active.receive_receipt {
+            Some(value) => value,
+            None => {
+                self.receipt_sequence = if self.receipt_sequence == u64::MAX {
+                    1
+                } else {
+                    self.receipt_sequence + 1
+                };
+                active.receive_receipt = Some(self.receipt_sequence);
+                self.receipt_sequence
+            }
+        };
+        active.received_bytes += received_bytes;
+        Ok(receipt)
     }
 
     pub fn consume(
         &mut self,
         epoch: u64,
         request_id: &str,
+        native_receive_receipt: u64,
     ) -> Result<DesktopRequestBrokerSnapshot, String> {
         self.expire_if_needed();
         if self.epoch != epoch {
@@ -151,7 +201,13 @@ impl DesktopReadOnlyRequestBroker {
         if active.request_id != request_id {
             return Err("request_correlation_mismatch".into());
         }
+        if native_receive_receipt == 0
+            || active.receive_receipt != Some(native_receive_receipt)
+            || active.received_bytes == 0 {
+            return Err("native_receive_receipt_required".into());
+        }
         self.active = None;
+        self.evidenced_attempt_count += 1;
         Ok(self.snapshot())
     }
 
@@ -160,6 +216,7 @@ impl DesktopReadOnlyRequestBroker {
         epoch: u64,
         request_id: &str,
     ) -> Result<DesktopRequestBrokerSnapshot, String> {
+        self.expire_if_needed();
         if self.epoch != epoch {
             return Err("stale_epoch".into());
         }
@@ -186,7 +243,10 @@ impl DesktopReadOnlyRequestBroker {
             timeout_ms: active.map(|r| r.timeout_ms),
             max_response_bytes: active.map(|r| r.max_response_bytes),
             attempt_count: self.issued_request_ids.len(),
+            evidenced_attempt_count: self.evidenced_attempt_count,
             max_attempts: MAX_ATTEMPTS,
+            active_receive_receipt: active.and_then(|r| r.receive_receipt),
+            active_received_bytes: active.map(|r| r.received_bytes).unwrap_or(0),
             tx_bytes_exposed: false,
             write_like: false,
             ecu_verified: false,
@@ -275,7 +335,8 @@ mod tests {
             "broker-request-replay",
             "KWP2000_BMW", 750, 197,
         ).unwrap();
-        broker.consume(7, "broker-request-replay").unwrap();
+        let receipt = broker.record_receive(7, "KWP2000_BMW", 12).unwrap();
+        broker.consume(7, "broker-request-replay", receipt).unwrap();
 
         assert_eq!(
             broker.prepare(
@@ -286,6 +347,57 @@ mod tests {
             ).unwrap_err(),
             "request_id_replay"
         );
+    }
+
+    #[test]
+    fn consume_requires_native_receive_receipt_and_tracks_evidenced_attempts() {
+        let (transport, native) = configured_transport();
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+        broker.prepare(
+            &transport, &native, 7,
+            "e39-dme-me72-module-identity",
+            "broker-request-receipt",
+            "KWP2000_BMW", 750, 197,
+        ).unwrap();
+
+        assert_eq!(
+            broker.consume(7, "broker-request-receipt", 1).unwrap_err(),
+            "native_receive_receipt_required"
+        );
+
+        let first = broker.record_receive(7, "KWP2000_BMW", 4).unwrap();
+        let second = broker.record_receive(7, "KWP2000_BMW", 5).unwrap();
+        assert_eq!(first, second);
+        let active = broker.snapshot();
+        assert_eq!(active.active_receive_receipt, Some(first));
+        assert_eq!(active.active_received_bytes, 9);
+        assert_eq!(active.evidenced_attempt_count, 0);
+
+        let done = broker.consume(7, "broker-request-receipt", first).unwrap();
+        assert_eq!(done.stage, "BROKER_IDLE");
+        assert_eq!(done.evidenced_attempt_count, 1);
+        assert_eq!(done.active_receive_receipt, None);
+        assert_eq!(done.active_received_bytes, 0);
+    }
+
+    #[test]
+    fn receive_overflow_drops_active_request_fail_closed() {
+        let (transport, native) = configured_transport();
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+        broker.prepare(
+            &transport, &native, 7,
+            "e39-dme-me72-module-identity",
+            "broker-request-overflow",
+            "KWP2000_BMW", 750, 197,
+        ).unwrap();
+        broker.record_receive(7, "KWP2000_BMW", 190).unwrap();
+        assert_eq!(
+            broker.record_receive(7, "KWP2000_BMW", 8).unwrap_err(),
+            "receive_response_overflow"
+        );
+        assert!(!broker.snapshot().active_request);
     }
 
     #[test]
@@ -330,6 +442,7 @@ mod tests {
         assert_eq!(snap.epoch, 8);
         assert_eq!(snap.stage, "BROKER_IDLE");
         assert_eq!(snap.attempt_count, 0);
+        assert_eq!(snap.evidenced_attempt_count, 0);
         assert!(!snap.active_request);
         assert!(!snap.writes_enabled);
     }
