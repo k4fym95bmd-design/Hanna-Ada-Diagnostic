@@ -205,3 +205,11 @@ test('tuning card renderer is split out of the critical app bundle', () => {
   assert.match(tuningView, /IDENTIFY ECU FIRST/);
   assert.doesNotMatch(app, /<article class="product/);
 });
+
+
+test('transport runtime update rotates the static cache generation', () => {
+  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'ultra-v4'/);
+  assert.match(sw, /'\/obd-runtime\.js'/);
+  assert.match(sw, /'\/webusb-workbench-extension\.js'/);
+  assert.match(sw, /name\.startsWith\(CACHE_PREFIX\) && name !== CACHE_NAME/);
+});
