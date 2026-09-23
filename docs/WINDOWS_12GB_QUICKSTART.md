@@ -47,3 +47,17 @@ npm run test:release-critical
 ```
 
 A 12 GB machine exceeds the project's 8 GB comfort threshold for the lightweight gateway + browser workflow. USB chipset/driver, cable VID:PID, selector wiring and BMW ECU identity remain separate runtime evidence.
+
+
+## After you plug in the K+DCAN cable
+
+The Windows UI now defaults to the local gateway route and pre-fills `http://127.0.0.1:8765`.
+
+1. Paste the token printed by `npm run start:windows`.
+2. Press **POŁĄCZ MOST**.
+3. Press **CZEKAJ NA KABEL 30 s** before or immediately after inserting the USB cable.
+4. Hanna & Ada polls the authenticated `/v1/readiness` endpoint and selects a unique strong serial candidate when it appears.
+5. Press **OTWÓRZ KABEL** to open only the serial transport.
+6. Use **ODCZYTAJ PASYWNY RX** for the bounded read-only snapshot.
+
+Detection, VID:PID, COM selection and port-open state do not verify a BMW ECU. No raw transmit, DTC erase, coding, actuation or flash route is enabled.
