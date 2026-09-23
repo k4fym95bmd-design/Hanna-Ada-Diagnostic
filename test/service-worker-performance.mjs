@@ -131,3 +131,15 @@ test('module intent prewarms likely stacks without executing unrelated stacks', 
   assert.match(bootstrap, /if \(module === 'tuning'\)/);
   assert.doesNotMatch(bootstrap, /await loadObdStack\(\);\s*await loadCableStack\(\);\s*await loadTuning\(\)/);
 });
+
+
+test('bootstrap uses intent modulepreload and caps idle prefetch concurrency', () => {
+  assert.match(bootstrap, /modulepreload/);
+  assert.match(bootstrap, /PREFETCH_CONCURRENCY/);
+  assert.match(bootstrap, /BACKGROUND_PREFETCH_LIMIT/);
+  assert.match(bootstrap, /prefetchQueue/);
+  assert.match(bootstrap, /scheduler\?\.postTask/);
+  assert.match(bootstrap, /priority: 'background'/);
+  assert.match(bootstrap, /warmForModule\(module\)[\s\S]*modulePreload/);
+  assert.doesNotMatch(bootstrap, /\[\.\.\.TUNING_MODULES, \.\.\.OBD_MODULES, \.\.\.CABLE_MODULES\]\.forEach\(prefetchModule\)/);
+});
