@@ -3,12 +3,18 @@ import assert from 'node:assert/strict';
 import { instantiateReadOnlyRequest } from '../public/read-only-request-registry.js';
 import { TrustedIdentityVerifier } from '../public/trusted-identity-verifier.js';
 
-const evidence = ({ epoch = 7, protocol = 'KWP2000_BMW', directionHint = 'possible-reply' } = {}) => ({
+const evidence = ({
+  epoch = 7,
+  protocol = 'KWP2000_BMW',
+  directionHint = 'possible-reply',
+  nativeReadReceipt = 100,
+} = {}) => ({
   epoch,
   protocol,
   stage: 'FRAME_CANDIDATE',
   candidateFrames: 1,
   frames: [{ directionHint, frameHex: 'B8 F1 12 00 5B' }],
+  nativeReadReceipt,
   ecuVerified: false,
   writesEnabled: false,
   flashEnabled: false,
@@ -29,7 +35,7 @@ test('two independent matching attempts produce only a repeated correlated candi
 
   const first = verifier.recordAttempt({
     requestPlan: plan('identity-request-A'),
-    receiveEvidence: evidence(),
+    receiveEvidence: evidence({ nativeReadReceipt: 101 }),
     responseRequestId: 'identity-request-A',
     moduleIdentity: 'ME7.2',
   });
@@ -39,7 +45,7 @@ test('two independent matching attempts produce only a repeated correlated candi
 
   const second = verifier.recordAttempt({
     requestPlan: plan('identity-request-B'),
-    receiveEvidence: evidence(),
+    receiveEvidence: evidence({ nativeReadReceipt: 102 }),
     responseRequestId: 'identity-request-B',
     moduleIdentity: 'ME7.2',
   });
@@ -50,6 +56,8 @@ test('two independent matching attempts produce only a repeated correlated candi
   assert.equal(second.identityVerified, false);
   assert.equal(second.ecuVerified, false);
   assert.equal(second.writesEnabled, false);
+  assert.deepEqual(second.confirmedRequestIds, ['identity-request-A','identity-request-B']);
+  assert.deepEqual(second.confirmedNativeReceipts, [101,102]);
 });
 
 test('replay of the same request id is rejected', () => {
@@ -85,13 +93,13 @@ test('identity conflict resets confirmation state', () => {
   });
   verifier.recordAttempt({
     requestPlan: plan('identity-request-C'),
-    receiveEvidence: evidence(),
+    receiveEvidence: evidence({ nativeReadReceipt: 121 }),
     responseRequestId: 'identity-request-C',
     moduleIdentity: 'ME7.2',
   });
   const conflict = verifier.recordAttempt({
     requestPlan: plan('identity-request-D'),
-    receiveEvidence: evidence(),
+    receiveEvidence: evidence({ nativeReadReceipt: 122 }),
     responseRequestId: 'identity-request-D',
     moduleIdentity: 'ME7.2_ALT',
   });
@@ -140,10 +148,10 @@ test('browser-side verifier can never emit the canonical verified stage', () => 
     moduleFamily:'DME_ME72',
   });
   let last;
-  for (const id of ['identity-safe-0001','identity-safe-0002','identity-safe-0003']) {
+  for (const [index, id] of ['identity-safe-0001','identity-safe-0002','identity-safe-0003'].entries()) {
     last = verifier.recordAttempt({
       requestPlan:plan(id),
-      receiveEvidence:evidence(),
+      receiveEvidence:evidence({ nativeReadReceipt: 200 + index }),
       responseRequestId:id,
       moduleIdentity:'ME7.2',
     });
@@ -182,4 +190,28 @@ test('verifier attempt memory is bounded when correlation never succeeds', () =>
   });
   assert.equal(overflow.stage, 'ATTEMPT_LIMIT_REACHED');
   assert.equal(verifier.snapshot().attemptCount, 32);
+});
+
+
+test('native receipt replay cannot produce a second confirmation', () => {
+  const verifier = new TrustedIdentityVerifier({
+    epoch:7,
+    operationId:'e39-dme-me72-module-identity',
+    protocol:'KWP2000_BMW',
+    moduleFamily:'DME_ME72',
+  });
+  verifier.recordAttempt({
+    requestPlan:plan('identity-receipt-0001'),
+    receiveEvidence:evidence({ nativeReadReceipt: 901 }),
+    responseRequestId:'identity-receipt-0001',
+    moduleIdentity:'ME7.2',
+  });
+  const replay = verifier.recordAttempt({
+    requestPlan:plan('identity-receipt-0002'),
+    receiveEvidence:evidence({ nativeReadReceipt: 901 }),
+    responseRequestId:'identity-receipt-0002',
+    moduleIdentity:'ME7.2',
+  });
+  assert.equal(replay.stage, 'NATIVE_RECEIPT_REPLAY_REJECTED');
+  assert.equal(verifier.snapshot().confirmations, 1);
 });
