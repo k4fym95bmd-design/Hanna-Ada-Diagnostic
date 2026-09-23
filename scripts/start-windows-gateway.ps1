@@ -31,6 +31,12 @@ if ($LASTEXITCODE -ne 0) {
   throw "Gateway doctor wykrył brak wymaganej gotowości."
 }
 
+Write-Host "Uruchamiam szybki preflight kodu bridge..."
+npm run test:preflight-windows
+if ($LASTEXITCODE -ne 0) {
+  throw "Preflight Windows/K+DCAN nie przeszedł. Nic nie zostało uruchomione."
+}
+
 $bytes = New-Object byte[] 32
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
