@@ -8,9 +8,9 @@ export class KdcanReadonlySession {
   #clock;
   #ttlMs;
 
-  constructor({ clock = Date.now, ttlMs = 15000 } = {}) {
+  constructor({ clock = Date.now, ttlMs = 300000 } = {}) {
     if (typeof clock !== 'function') throw new TypeError('Clock function required');
-    if (!Number.isInteger(ttlMs) || ttlMs < 1000 || ttlMs > 120000) throw new TypeError('Invalid K+DCAN session TTL');
+    if (!Number.isInteger(ttlMs) || ttlMs < 1000 || ttlMs > 3600000) throw new TypeError('Invalid K+DCAN session TTL');
     this.#clock = clock;
     this.#ttlMs = ttlMs;
   }
