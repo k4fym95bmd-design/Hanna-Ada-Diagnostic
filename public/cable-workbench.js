@@ -267,7 +267,7 @@ async function listPorts() {
 }
 function attach() {
   const view = document.querySelector('#view');
-  if (!view || ![...view.querySelectorAll('.hero h1')].some(el => /VCI \/ Connection/.test(el.textContent))) return;
+  if (!view || view.dataset.module !== 'vci') return;
   if (rootNow()) return;
   if (platform() === 'windows') work.mode = 'bridge';
   const section = document.createElement('section'); section.id = 'haCableWorkbench'; section.className = 'ha-cable';
