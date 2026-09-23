@@ -37,3 +37,17 @@ test('only matched read-only identity evidence can advance ECU verification', ()
   assert.equal(result.writesEnabled, false);
   assert.equal(result.flashEnabled, false);
 });
+
+
+test('invalid production month never infers a legacy connector', () => {
+  const result = e39OemPath({ productionYear: 1999, productionMonth: 13, hasEngineBay20Pin: false });
+  assert.equal(result.legacy20PinExpected, false);
+  assert.deepEqual(result.recommendedHardware, ['ICOM Next A']);
+});
+
+test('explicit observed 20-pin overrides missing production date without verifying ECU', () => {
+  const result = e39OemPath({ hasEngineBay20Pin: true });
+  assert.equal(result.legacy20PinExpected, true);
+  assert.deepEqual(result.recommendedHardware, ['ICOM Next A', 'ICOM Next C']);
+  assert.equal(result.ecuVerified, false);
+});
