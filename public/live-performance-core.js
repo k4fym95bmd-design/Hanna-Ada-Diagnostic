@@ -11,17 +11,19 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LATENCY_WINDOW_SIZE = 32;
 const CYCLE_BUDGET_MS = 2500;
 
-export function selectLiveBatch(supported, cursor = 0) {
+export function selectLiveBatch(supported, cursor = 0, limit = 4) {
   // PID discovery must have provided actual support evidence. Never probe all
   // unsupported ECU PIDs just because a generic OBD connection exists.
   const observed = supported instanceof Set ? supported : new Set();
+  const cap = clamp(Number.isFinite(limit) ? Math.trunc(limit) : 4, 1, 4);
   const eligible = key => key === 'voltage' || observed.has(PID[key]);
-  const fast = FAST.filter(eligible);
+  const fast = FAST.filter(eligible).slice(0, cap);
   const slow = SLOW.filter(eligible);
+  const slowSlots = Math.min(2, Math.max(0, cap - fast.length), slow.length);
   const offset = slow.length ? ((cursor % slow.length) + slow.length) % slow.length : 0;
-  const rotating = Array.from({ length: Math.min(2, slow.length) }, (_, i) => slow[(offset + i) % slow.length]);
+  const rotating = Array.from({ length: slowSlots }, (_, i) => slow[(offset + i) % slow.length]);
   const keys = [...fast, ...rotating];
-  return Object.freeze({ keys: Object.freeze(keys.slice(0, 4)), nextCursor: cursor + rotating.length });
+  return Object.freeze({ keys: Object.freeze(keys.slice(0, cap)), nextCursor: cursor + rotating.length });
 }
 
 export function createLivePerformanceController({
@@ -60,6 +62,11 @@ export function createLivePerformanceController({
     return p95Cache;
   };
 
+  const adaptiveBatchLimit = () => {
+    const p95 = percentile95();
+    return p95 != null && p95 >= 900 ? 3 : 4;
+  };
+
   const computeDelay = () => {
     if (averageMs == null && lastCycleMs == null) return 900;
     const readDriven = averageMs == null ? 0 : averageMs * 2;
@@ -84,6 +91,7 @@ export function createLivePerformanceController({
       lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
       lastDelayMs: lastDelayMs == null ? null : Math.round(lastDelayMs),
       lastBatchSize,
+      batchLimit: adaptiveBatchLimit(),
       dutyCyclePct,
       wakeCoalesced,
       timerReschedules,
@@ -149,7 +157,7 @@ export function createLivePerformanceController({
       return Object.freeze({ skipped: 'PID_EVIDENCE_UNAVAILABLE' });
     }
 
-    const batch = selectLiveBatch(supported, cursor);
+    const batch = selectLiveBatch(supported, cursor, adaptiveBatchLimit());
     cursor = batch.nextCursor;
     lastBatchSize = batch.keys.length;
     if (!batch.keys.length) {
