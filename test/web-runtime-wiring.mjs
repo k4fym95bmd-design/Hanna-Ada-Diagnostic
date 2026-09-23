@@ -67,3 +67,13 @@ test('legacy OBD runtime cannot create a second interval poller', async () => {
   assert.match(runtime, /HA\.isUltraLiveRunning/);
   assert.doesNotMatch(runtime, /HA\.poll=setInterval\(tick,2500\)/);
 });
+
+
+test('BLE runtime caps incomplete RX growth and rejects the pending command on overflow', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /const MAX_RX_BUFFER=64\*1024/);
+  assert.match(runtime, /HA\.buffer\.length>MAX_RX_BUFFER/);
+  assert.match(runtime, /HA\.stats\.overflows\+\+/);
+  assert.match(runtime, /p\.reject\(new Error\('RX buffer exceeded safe limit'\)\)/);
+  assert.match(runtime, /HA\.buffer=''/);
+});
