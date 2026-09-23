@@ -8,6 +8,7 @@ const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
 const ME72_ROUGHNESS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x03, 0x39];
 const ME72_ENGINE_SNAPSHOT_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x00, 0x3A];
 const ME72_FUEL_ADAPTATION_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x04, 0x3E];
+const ME72_OUTPUT_STATUS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x05, 0x3F];
 const ME72_READINESS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x07, 0x3D];
 
 #[derive(Clone, Copy)]
@@ -53,6 +54,17 @@ const ME72_FUEL_ADAPTATION_PROFILE: Me72ReadDataProfile = Me72ReadDataProfile {
     write_error: "allowlisted_fuel_adaptation_write_failed",
     flush_error: "allowlisted_fuel_adaptation_flush_failed",
     reply_error: "me72_fuel_adaptation_reply_not_verified",
+};
+
+const ME72_OUTPUT_STATUS_PROFILE: Me72ReadDataProfile = Me72ReadDataProfile {
+    request: &ME72_OUTPUT_STATUS_REQUEST,
+    did: [0x40, 0x05],
+    min_payload_len: 11,
+    min_response_bytes: 16,
+    profile_id: "e39-me72-output-status-4005",
+    write_error: "allowlisted_output_status_write_failed",
+    flush_error: "allowlisted_output_status_flush_failed",
+    reply_error: "me72_output_status_reply_not_verified",
 };
 
 const ME72_READINESS_PROFILE: Me72ReadDataProfile = Me72ReadDataProfile {
@@ -515,6 +527,20 @@ impl DesktopNativeSerialState {
         )
     }
 
+    pub fn execute_me72_output_status(
+        &mut self,
+        expected_epoch: u64,
+        max_bytes: usize,
+        timeout_ms: u64,
+    ) -> Result<DesktopReadResult, String> {
+        self.execute_me72_read_data(
+            expected_epoch,
+            max_bytes,
+            timeout_ms,
+            &ME72_OUTPUT_STATUS_PROFILE,
+        )
+    }
+
     pub fn execute_me72_readiness(
         &mut self,
         expected_epoch: u64,
@@ -725,6 +751,34 @@ mod tests {
         assert!(!has_complete_me72_read_data_reply(
             &combined,
             &ME72_FUEL_ADAPTATION_PROFILE
+        ));
+    }
+
+    #[test]
+    fn output_status_profile_is_allowlisted_and_status_only() {
+        assert_eq!(
+            ME72_OUTPUT_STATUS_REQUEST,
+            [0xB8,0x12,0xF1,0x03,0x22,0x40,0x05,0x3F]
+        );
+        assert_eq!(
+            ME72_OUTPUT_STATUS_REQUEST.iter().fold(0u8, |acc, byte| acc ^ byte),
+            0
+        );
+        let reply = [
+            0xB8,0xF1,0x12,0x0B,0x62,0x40,0x05,0x2B,0x00,0x00,0xF2,0xF2,
+            0xCE,0xF8,0x20,0x4A
+        ];
+        assert!(has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_OUTPUT_STATUS_PROFILE
+        ));
+        assert!(!has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_FUEL_ADAPTATION_PROFILE
+        ));
+        assert!(!has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_READINESS_PROFILE
         ));
     }
 
