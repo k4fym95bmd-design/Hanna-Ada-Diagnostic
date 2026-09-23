@@ -59,6 +59,16 @@ test('only authorized session receives bounded passive RX; close clears stale fr
   assert.equal(received.value.frames[0].frameHex, '12 04 00 16');
   assert.equal(received.value.frames[0].ecuVerified, false);
   assert.equal(received.value.ecuVerified, false);
+  const snapshot = await ask('/v1/snapshot');
+  assert.equal(snapshot.code, 200);
+  assert.equal(snapshot.value.snapshotVersion, 1);
+  assert.equal(snapshot.value.status.sessionId, opened.value.sessionId);
+  assert.equal(snapshot.value.status.portOpen, true);
+  assert.equal(snapshot.value.rx.observedBytes, 4);
+  assert.equal(snapshot.value.rx.frames[0].frameHex, '12 04 00 16');
+  assert.equal(snapshot.value.ecuVerified, false);
+  assert.equal(snapshot.value.writesEnabled, false);
+  assert.equal(snapshot.value.flashEnabled, false);
   assert.equal((await ask('/v1/transmit', { method: 'POST', body: { bytes: [0x12] } })).code, 404);
 
   await ask('/v1/close', { method: 'POST', body: {} });
