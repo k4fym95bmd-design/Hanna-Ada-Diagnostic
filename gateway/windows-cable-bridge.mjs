@@ -48,7 +48,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         } catch (error) {
           if (/expired|No active/i.test(String(error?.message || ''))) {
             kdcanSession = new KdcanReadonlySession();
-            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'unknown' });
+            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN' });
             kdcanSession.markPortOpen({ sessionId });
             cableBinding = kdcanSession.snapshot();
           } else {
@@ -113,7 +113,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           const productId = usbNumber(matches[0].productId);
           if (vendorId != null && productId != null) {
             kdcanSession = new KdcanReadonlySession();
-            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'unknown' });
+            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN' });
             kdcanSession.markPortOpen({ sessionId });
           }
           rxMonitor = attachPassiveRx(port);
