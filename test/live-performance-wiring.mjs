@@ -28,3 +28,9 @@ test('runtime coalesces view mutation work and does not query the runtime root o
   assert.match(runtime, /isVisible: \(\) => !document\.hidden && runtimeAttached/);
   assert.doesNotMatch(runtime, /isVisible: \(\) => !document\.hidden && !!\$\('#haRuntime'\)/);
 });
+
+
+test('legacy interval polling is stopped when ultra runtime takes ownership', () => {
+  assert.match(runtime, /typeof obd\.stopLive === 'function'/);
+  assert.match(runtime, /obd\.stopLive\(\)/);
+});
