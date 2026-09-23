@@ -160,3 +160,16 @@ test('tuning catalog has one in-flight request and no service-worker cache ambig
   assert.match(app, /cache:'no-store'/);
   assert.match(app, /finally\(\(\)=>\{tuningRequest=null\}\)/);
 });
+
+
+test('route ownership is carried as data instead of rescanning rendered headings', () => {
+  const obd = readFileSync(new URL('../public/obd-runtime.js', import.meta.url), 'utf8');
+  const cable = readFileSync(new URL('../public/cable-workbench.js', import.meta.url), 'utf8');
+  const tuning = readFileSync(new URL('../public/tuning-analysis-panel.js', import.meta.url), 'utf8');
+  assert.match(app, /root\.dataset\.module=state\.module/);
+  assert.match(obd, /view\.dataset\.module!==['"]vci['"]/);
+  assert.match(cable, /view\.dataset\.module !== 'vci'/);
+  assert.match(tuning, /view\.dataset\.module !== 'tuning'/);
+  assert.doesNotMatch(obd, /querySelectorAll\('\.hero h1'\)/);
+  assert.doesNotMatch(cable, /querySelectorAll\('\.hero h1'\)/);
+});
