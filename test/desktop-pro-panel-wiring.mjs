@@ -262,3 +262,12 @@ test('fuel adaptation is rendered once in Desktop PRO', async () => {
   assert.equal((panel.match(/const fuel = state\.fuelAdaptation/g) || []).length,1);
   assert.equal((panel.match(/state\.fuelAdaptationSequence/g) || []).length > 0,true);
 });
+
+
+test('engine snapshot UI includes VANOS bank angles', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/camshaftIntakeBank1Deg/);
+  assert.match(panel,/camshaftIntakeBank2Deg/);
+  assert.match(panel,/VANOS B1/);
+  assert.match(panel,/B2/);
+});
