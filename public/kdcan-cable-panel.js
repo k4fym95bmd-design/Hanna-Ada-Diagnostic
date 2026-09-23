@@ -85,17 +85,7 @@ function attachKdcanCard() {
   selector.addEventListener('change', render);
   root.querySelector('[data-cable-port]')?.addEventListener('change', render);
 
-  const observer = new MutationObserver(render);
-  observer.observe(root, { attributes: true, attributeFilter: [
-    'data-cable-port-open',
-    'data-cable-mode-current',
-    'data-direct-usb-vendor-id',
-    'data-direct-usb-product-id',
-    'data-bridge-usb-vendor-id',
-    'data-bridge-usb-product-id',
-    'data-web-usb-vendor-id',
-    'data-web-usb-product-id',
-  ]});
+  root.addEventListener('hannaada:cable-workbench-state', render);
 
   root.appendChild(card);
   render();
@@ -103,9 +93,7 @@ function attachKdcanCard() {
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(attachKdcanCard).observe(view, { childList: true, subtree: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attachKdcanCard);
     attachKdcanCard();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
