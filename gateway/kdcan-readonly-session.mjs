@@ -92,7 +92,9 @@ export class KdcanReadonlySession {
       throw new TypeError('Serial port path changed inside active K+DCAN session');
     }
     const fingerprint = normalizeFingerprint(hardwareFingerprint);
-    if (state.hardwareFingerprint && fingerprint !== state.hardwareFingerprint) {
+    if (!state.hardwareFingerprint && fingerprint) {
+      state.hardwareFingerprint = fingerprint;
+    } else if (state.hardwareFingerprint && fingerprint !== state.hardwareFingerprint) {
       throw new TypeError('Hardware fingerprint changed inside active K+DCAN session');
     }
     state.lastSeenAt = this.#now();
@@ -156,6 +158,7 @@ export class KdcanReadonlySession {
       vidPid: this.#state.cable.vidPid,
       chipsetCandidate: this.#state.cable.chipsetCandidate,
       selectorPosition: this.#state.selectorPosition,
+      hardwareFingerprintBound: !!this.#state.hardwareFingerprint,
       portOpen: this.#state.portOpen,
       stage: this.#state.portOpen ? 'PORT_OPEN' : knownUsbFamily ? 'USB_FAMILY_HINT' : 'USB_BOUND',
       serialDriverVerified: false,
