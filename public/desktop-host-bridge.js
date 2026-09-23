@@ -381,6 +381,38 @@ export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis)
   return validateDesktopRequestBrokerSnapshot(await invoke('desktop_request_broker_snapshot'));
 }
 
+export function validateDesktopLocalIdentityAttestation(value) {
+  if (!value || typeof value !== 'object'
+      || value.version !== 1
+      || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
+      || value.stage !== 'LOCAL_HOST_ATTESTED'
+      || value.host !== 'native-desktop'
+      || !Number.isInteger(value.epoch) || value.epoch < 1
+      || !Number.isInteger(value.sequence) || value.sequence < 1
+      || !['DS2','KWP2000_BMW'].includes(value.protocol)
+      || value.transportConfigured !== true
+      || value.brokerIdle !== true
+      || !Number.isInteger(value.brokerAttemptCount) || value.brokerAttemptCount < 2
+      || value.rawSerialWriteExposed !== false
+      || value.identityVerified !== false
+      || value.ecuVerified !== false
+      || value.writesEnabled !== false
+      || value.flashEnabled !== false) {
+    throw new TypeError('Invalid desktop local identity attestation');
+  }
+  return Object.freeze({ ...value });
+}
+
+export async function attestDesktopIdentityContext(epoch, protocol, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (!['DS2','KWP2000_BMW'].includes(protocol)) throw new TypeError('Invalid protocol');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopLocalIdentityAttestation(
+    await invoke('desktop_local_identity_attestation', { epoch, protocol })
+  );
+}
+
 export async function closeDesktopPort(epoch, globalObject = globalThis) {
   if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
   const invoke = getTauriInvoke(globalObject);
