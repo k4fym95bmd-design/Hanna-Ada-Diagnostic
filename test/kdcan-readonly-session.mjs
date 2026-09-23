@@ -99,3 +99,19 @@ test('raw or malformed hardware identifiers are rejected', () => {
     hardwareFingerprint:'USB\\VID_0403&PID_6001\\secret-serial'
   }), /fingerprint/i);
 });
+
+
+test('session can upgrade once from VID PID only to a hashed hardware binding', () => {
+  const s = new KdcanReadonlySession();
+  const first = s.begin({ sessionId, vendorId:0x0403, productId:0x6001, portPath:'COM7' });
+  assert.equal(first.hardwareFingerprintBound, false);
+  const upgraded = s.markPresent({
+    sessionId, vendorId:0x0403, productId:0x6001, portPath:'COM7',
+    hardwareFingerprint:'aaaaaaaaaaaaaaaaaaaaaaaa'
+  });
+  assert.equal(upgraded.hardwareFingerprintBound, true);
+  assert.throws(() => s.markPresent({
+    sessionId, vendorId:0x0403, productId:0x6001, portPath:'COM7',
+    hardwareFingerprint:null
+  }), /fingerprint/i);
+});
