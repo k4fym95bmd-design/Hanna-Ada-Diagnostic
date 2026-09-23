@@ -246,6 +246,11 @@ export function validateDesktopReadResult(value) {
   if (value.ecuVerified !== false || value.writesEnabled !== false) {
     throw new TypeError('Read result attempted unsafe capability promotion');
   }
+  const nativeRequestReceipt = value.nativeRequestReceipt ?? null;
+  if (nativeRequestReceipt !== null
+      && (!Number.isSafeInteger(nativeRequestReceipt) || nativeRequestReceipt < 1)) {
+    throw new TypeError('Invalid native request receipt');
+  }
   const hardMax = value.protocol === 'DS2' ? 255 : 197;
   if (value.bytes.length !== value.receivedBytes || value.bytes.length > hardMax) {
     throw new TypeError('Invalid read length');
@@ -261,11 +266,18 @@ export function validateDesktopReadResult(value) {
   if (value.stage !== 'READ_BYTES' && value.bytes.length !== 0) {
     throw new TypeError('Non-data read stage carried bytes');
   }
+  if (value.stage !== 'READ_BYTES' && nativeRequestReceipt !== null) {
+    throw new TypeError('Non-data read stage carried a native request receipt');
+  }
   const expectedEvidenceStage = value.stage === 'READ_BYTES' ? 'RX_ACTIVITY' : 'PORT_OPEN';
   if (value.evidenceStage !== expectedEvidenceStage) {
     throw new TypeError('Desktop read evidence stage mismatch');
   }
-  return Object.freeze({ ...value, bytes: Object.freeze([...value.bytes]) });
+  return Object.freeze({
+    ...value,
+    nativeRequestReceipt,
+    bytes: Object.freeze([...value.bytes]),
+  });
 }
 
 export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObject = globalThis) {
@@ -291,7 +303,10 @@ export function validateDesktopRequestBrokerSnapshot(value) {
       || !Number.isInteger(value.epoch) || value.epoch < 0
       || typeof value.activeRequest !== 'boolean'
       || !Number.isInteger(value.attemptCount) || value.attemptCount < 0
+      || !Number.isInteger(value.evidencedAttemptCount) || value.evidencedAttemptCount < 0
+      || value.evidencedAttemptCount > value.attemptCount
       || value.maxAttempts !== 32
+      || !Number.isInteger(value.activeReceivedBytes) || value.activeReceivedBytes < 0
       || value.txBytesExposed !== false
       || value.writeLike !== false
       || value.ecuVerified !== false
@@ -305,7 +320,11 @@ export function validateDesktopRequestBrokerSnapshot(value) {
         || typeof value.operationId !== 'string'
         || !['DS2','KWP2000_BMW'].includes(value.protocol)
         || !Number.isInteger(value.timeoutMs) || value.timeoutMs < 1
-        || !Number.isInteger(value.maxResponseBytes) || value.maxResponseBytes < 1) {
+        || !Number.isInteger(value.maxResponseBytes) || value.maxResponseBytes < 1
+        || (value.activeReceiveReceipt !== null
+            && (!Number.isSafeInteger(value.activeReceiveReceipt) || value.activeReceiveReceipt < 1))
+        || (value.activeReceiveReceipt === null && value.activeReceivedBytes !== 0)
+        || (value.activeReceiveReceipt !== null && value.activeReceivedBytes < 1)) {
       throw new TypeError('Invalid active broker request');
     }
   } else if (value.activeRequest
@@ -313,7 +332,9 @@ export function validateDesktopRequestBrokerSnapshot(value) {
       || value.operationId !== null
       || value.protocol !== null
       || value.timeoutMs !== null
-      || value.maxResponseBytes !== null) {
+      || value.maxResponseBytes !== null
+      || value.activeReceiveReceipt !== null
+      || value.activeReceivedBytes !== 0) {
     throw new TypeError('Idle broker carried stale request state');
   }
   return Object.freeze({ ...value });
@@ -333,15 +354,27 @@ export async function prepareDesktopReadOnlyRequest(plan, globalObject = globalT
   }));
 }
 
-export async function consumeDesktopReadOnlyRequest(epoch, requestId, globalObject = globalThis) {
+export async function consumeDesktopReadOnlyRequest(
+  epoch,
+  requestId,
+  nativeRequestReceipt,
+  globalObject = globalThis
+) {
   if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
   if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 64) {
     throw new TypeError('Invalid request id');
   }
+  if (!Number.isSafeInteger(nativeRequestReceipt) || nativeRequestReceipt < 1) {
+    throw new TypeError('Native request receipt required');
+  }
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopRequestBrokerSnapshot(
-    await invoke('desktop_consume_readonly_request', { epoch, requestId })
+    await invoke('desktop_consume_readonly_request', {
+      epoch,
+      requestId,
+      nativeRequestReceipt,
+    })
   );
 }
 
@@ -371,7 +404,10 @@ export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis)
     timeoutMs: null,
     maxResponseBytes: null,
     attemptCount: 0,
+    evidencedAttemptCount: 0,
     maxAttempts: 32,
+    activeReceiveReceipt: null,
+    activeReceivedBytes: 0,
     txBytesExposed: false,
     writeLike: false,
     ecuVerified: false,
@@ -393,6 +429,9 @@ export function validateDesktopLocalIdentityAttestation(value) {
       || value.transportConfigured !== true
       || value.brokerIdle !== true
       || !Number.isInteger(value.brokerAttemptCount) || value.brokerAttemptCount < 2
+      || !Number.isInteger(value.brokerEvidencedAttemptCount)
+      || value.brokerEvidencedAttemptCount < 2
+      || value.brokerEvidencedAttemptCount > value.brokerAttemptCount
       || value.rawSerialWriteExposed !== false
       || value.identityVerified !== false
       || value.ecuVerified !== false
