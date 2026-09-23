@@ -51,6 +51,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
   if (!isLoopback(host) && !allowedOrigin.startsWith('https://')) throw new TypeError('LAN access requires an HTTPS browser origin');
   const bridgeInstanceId = randomBytes(16).toString('hex');
+  const bridgeInstanceId = randomBytes(16).toString('hex');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   let sessionEpoch = 0;
   let stateRevision = 0;
@@ -238,36 +239,47 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           if (matches.length !== 1) return json(res, 404, { error: 'PORT_NOT_ENUMERATED' });
           const port = serial.createPort(matches[0].path);
           if (!port || typeof port.open !== 'function' || typeof port.close !== 'function') throw new Error('DRIVER_UNAVAILABLE');
-          await new Promise((resolve, reject) => port.open(err => err ? reject(err) : resolve()));
-          clearRx();
-          active = port; selected = matches[0].path; sessionId = randomBytes(20).toString('hex');
-          bumpEpoch();
-          bumpRevision();
-          kdcanSession = null;
-          const vendorId = usbNumber(matches[0].vendorId);
-          const productId = usbNumber(matches[0].productId);
-          if (vendorId != null && productId != null) {
-            kdcanSession = new KdcanReadonlySession();
-            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN', hardwareFingerprint: portFingerprint(matches[0]) });
-            kdcanSession.markPortOpen({ sessionId });
+          try {
+            await new Promise((resolve, reject) => port.open(err => err ? reject(err) : resolve()));
+            clearRx();
+            active = port; selected = matches[0].path; sessionId = randomBytes(20).toString('hex');
+            bumpEpoch();
+            bumpRevision();
+            kdcanSession = null;
+            const vendorId = usbNumber(matches[0].vendorId);
+            const productId = usbNumber(matches[0].productId);
+            if (vendorId != null && productId != null) {
+              kdcanSession = new KdcanReadonlySession();
+              kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN', hardwareFingerprint: portFingerprint(matches[0]) });
+              kdcanSession.markPortOpen({ sessionId });
+            }
+            rxMonitor = attachPassiveRx(port);
+            const localSession = sessionId;
+            port.on?.('close', () => {
+              if (sessionId === localSession) invalidateActiveSession();
+            });
+            port.on?.('error', () => {
+              if (sessionId === localSession) invalidateActiveSession();
+            });
+            return json(res, 200, await currentStatus());
+          } catch (error) {
+            if (active === port || port.isOpen) invalidateActiveSession();
+            else {
+              try { if (port.isOpen) port.close(() => {}); } catch {}
+            }
+            throw error;
           }
-          rxMonitor = attachPassiveRx(port);
-          const localSession = sessionId;
-          port.on?.('close', () => {
-            if (sessionId === localSession) invalidateActiveSession();
-          });
-          port.on?.('error', () => {
-            if (sessionId === localSession) invalidateActiveSession();
-          });
-          return json(res, 200, await currentStatus());
         } finally { busy = false; }
       }
       if (req.method === 'POST' && route === '/v1/close') {
         if (busy) return json(res, 409, { error: 'PORT_BUSY' });
         busy = true;
         try {
-          if (active?.isOpen) await new Promise((resolve, reject) => active.close(err => err ? reject(err) : resolve()));
-          clearRx(); kdcanSession = null; active = null; selected = null; sessionId = null;
+          if (active?.isOpen) {
+            await new Promise((resolve, reject) => active.close(err => err ? reject(err) : resolve()));
+          } else {
+            invalidateActiveSession();
+          }
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
       }
