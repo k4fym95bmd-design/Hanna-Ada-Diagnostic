@@ -22,6 +22,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
   requestId,
   protocol,
   nativeReadReceipt,
+  expectedFrameHexes,
 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('Invalid trusted identity event');
@@ -31,7 +32,11 @@ export function validateTrustedIdentityCandidateEvent(value, {
   if (!Number.isSafeInteger(epoch) || epoch < 1
       || typeof requestId !== 'string' || !REQUEST_ID_RE.test(requestId)
       || !['DS2', 'KWP2000_BMW'].includes(protocol)
-      || !Number.isSafeInteger(nativeReadReceipt) || nativeReadReceipt < 1) {
+      || !Number.isSafeInteger(nativeReadReceipt) || nativeReadReceipt < 1
+      || !Array.isArray(expectedFrameHexes)
+      || expectedFrameHexes.length < 1
+      || expectedFrameHexes.length > MAX_FRAMES
+      || expectedFrameHexes.some(frame => typeof frame !== 'string' || !FRAME_HEX_RE.test(frame))) {
     throw new TypeError('Invalid trusted identity expectation');
   }
   if (value.epoch !== epoch
@@ -67,7 +72,8 @@ export function validateTrustedIdentityCandidateEvent(value, {
     throw new TypeError('Invalid trusted receive evidence');
   }
 
-  const frames = evidence.frames.map(frame => {
+  const expectedFrames = expectedFrameHexes.map(frame => frame.toUpperCase());
+  const frames = evidence.frames.map((frame, index) => {
     if (!frame || typeof frame !== 'object' || Array.isArray(frame)) {
       throw new TypeError('Invalid trusted receive frame');
     }
@@ -76,6 +82,9 @@ export function validateTrustedIdentityCandidateEvent(value, {
         || !FRAME_HEX_RE.test(frame.frameHex)
         || frame.frameHex.length > 1024) {
       throw new TypeError('Invalid trusted receive frame');
+    }
+    if (frame.frameHex.toUpperCase() !== expectedFrames[index]) {
+      throw new TypeError('Trusted identity event frame provenance mismatch');
     }
     if (protocol === 'KWP2000_BMW' && frame.directionHint !== 'possible-reply') {
       throw new TypeError('Trusted KWP identity event requires reply-direction evidence');
