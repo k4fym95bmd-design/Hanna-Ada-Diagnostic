@@ -370,9 +370,6 @@ async function action(panel, name) {
       state.engineSnapshot = null;
       state.engineSnapshotSequence = null;
       state.engineSnapshotIdentityFingerprint = null;
-      state.engineSnapshot = null;
-      state.engineSnapshotSequence = null;
-      state.engineSnapshotIdentityFingerprint = null;
       state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Roughness + engine snapshot odblokowane read-only; ECU/write/flash nadal zablokowane.`;
     } else if (name === 'read-roughness') {
       if (state.identityResult?.identityVerified !== true
