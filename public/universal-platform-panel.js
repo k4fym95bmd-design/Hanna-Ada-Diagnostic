@@ -45,15 +45,13 @@ function attachUniversalPanel() {
       `Evidence Contract v${EVIDENCE_CONTRACT_VERSION}: NO_CABLE → USB_SEEN → HARDWARE_BOUND → PORT_OPEN → RX_ACTIVITY → FRAME_CANDIDATE. Tożsamość ECU wymaga osobnego lokalnego walidatora read-only.`;
   };
 
-  new MutationObserver(render).observe(root, { attributes: true, subtree: true, childList: true, characterData: true });
+  root.addEventListener('hannaada:cable-workbench-state', render);
   render();
 }
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(attachUniversalPanel).observe(view, { childList: true, subtree: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attachUniversalPanel);
     attachUniversalPanel();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
