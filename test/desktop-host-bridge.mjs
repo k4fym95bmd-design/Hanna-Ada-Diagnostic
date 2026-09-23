@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {
   bindDesktopSerialCandidate,
   clearDesktopSerialCandidate,
+  closeDesktopPort,
   getDesktopTransportSnapshot,
   getTauriInvoke,
   listDesktopSerialCandidates,
+  openDesktopConfiguredPort,
   probeDesktopHost,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
@@ -210,10 +212,10 @@ test('desktop candidate binding is epoch-scoped and remains unopened', async () 
   assert.equal(snapshot.writesEnabled, false);
 });
 
-test('desktop transport snapshot rejects fake open/configured state', () => {
-  assert.throws(() => validateDesktopTransportSnapshot({
+test('desktop transport snapshot allows only coherent open/configured states', () => {
+  const configured = validateDesktopTransportSnapshot({
     version: 1,
-    stage: 'USB_CANDIDATE_BOUND',
+    stage: 'PORT_CONFIGURED',
     epoch: 1,
     portName: 'COM7',
     kind: 'usb',
@@ -221,8 +223,77 @@ test('desktop transport snapshot rejects fake open/configured state', () => {
     pid: 0x6001,
     candidateFamily: 'FTDI',
     transportOpen: true,
-    configured: false,
+    configured: true,
     ecuVerified: false,
     writesEnabled: false,
+  });
+  assert.equal(configured.configured, true);
+
+  assert.throws(() => validateDesktopTransportSnapshot({
+    ...configured,
+    stage: 'USB_CANDIDATE_BOUND',
+  }), /unexpected/i);
+  assert.throws(() => validateDesktopTransportSnapshot({
+    ...configured,
+    ecuVerified: true,
   }), /unsafe/i);
+});
+
+
+test('configured native port open is protocol and epoch bounded', async () => {
+  const calls = [];
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async (name, args) => {
+            calls.push([name, args]);
+            if (name === 'desktop_open_configured_port') {
+              return {
+                version: 1,
+                stage: 'PORT_CONFIGURED',
+                epoch: args.epoch,
+                portName: 'COM7',
+                kind: 'usb',
+                vid: 0x0403,
+                pid: 0x6001,
+                candidateFamily: 'FTDI',
+                transportOpen: true,
+                configured: true,
+                ecuVerified: false,
+                writesEnabled: false,
+              };
+            }
+            if (name === 'desktop_close_port') {
+              return {
+                version: 1,
+                stage: 'USB_CANDIDATE_BOUND',
+                epoch: args.epoch,
+                portName: 'COM7',
+                kind: 'usb',
+                vid: 0x0403,
+                pid: 0x6001,
+                candidateFamily: 'FTDI',
+                transportOpen: false,
+                configured: false,
+                ecuVerified: false,
+                writesEnabled: false,
+              };
+            }
+            throw new Error('unexpected command');
+          },
+        },
+      },
+    },
+  };
+
+  const opened = await openDesktopConfiguredPort(7, 'KWP2000_BMW', 10400, fake);
+  assert.equal(opened.stage, 'PORT_CONFIGURED');
+  assert.equal(opened.ecuVerified, false);
+  const closed = await closeDesktopPort(7, fake);
+  assert.equal(closed.transportOpen, false);
+
+  await assert.rejects(() => openDesktopConfiguredPort(7, 'RAW', 10400, fake), /protocol/i);
+  await assert.rejects(() => openDesktopConfiguredPort(7, 'DS2', 0, fake), /baud/i);
+  assert.equal(calls[0][0], 'desktop_open_configured_port');
 });
