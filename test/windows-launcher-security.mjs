@@ -21,3 +21,10 @@ test('non-loopback bridge startup fails closed without TLS', () => {
   assert.match(script, /BridgeHost -notin @\("127\.0\.0\.1","localhost","::1"\)/);
   assert.match(script, /Stop-Process -Id \$server\.Id -Force/);
 });
+
+
+test('launcher keeps Windows PowerShell 5.1 compatible syntax', () => {
+  assert.doesNotMatch(script, /\$[A-Za-z_][A-Za-z0-9_]*\s*\?\s*["']/);
+  assert.match(script, /\$bridgeScheme = if \(\$BridgeUsesTls\)/);
+  assert.match(script, /\$bridgeProbeHost = if \(\$BridgeHost -eq "::1"\)/);
+});
