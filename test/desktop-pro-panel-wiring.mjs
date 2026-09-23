@@ -22,6 +22,8 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /executeDesktopMe72Roughness/);
   assert.match(panel, /executeDesktopMe72EngineSnapshot/);
   assert.match(panel, /executeDesktopMe72FuelAdaptation/);
+  assert.match(panel, /executeDesktopMe72OutputStatus/);
+  assert.match(panel, /deriveMe72OutputStatusFromEvidence/);
   assert.match(panel, /executeDesktopMe72Readiness/);
   assert.match(panel, /deriveMe72ReadinessFromEvidence/);
   assert.match(panel, /deriveMe72FuelAdaptationFromEvidence/);
@@ -210,4 +212,17 @@ test('readiness UI is finalized-identity gated and provenance-bound', async () =
   assert.match(panel,/nativeIdentityFingerprint !== state\.identityResult\.moduleIdentity/);
   assert.match(panel,/Readiness sample #/);
   assert.doesNotMatch(panel,/executeDesktopMe72Readiness\([\s\S]{0,120}(payload|command|bytes)\s*:/);
+});
+
+
+test('output status UI is finalized-identity gated and status-only', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-action="read-output-status"/);
+  assert.match(panel,/'read-output-status': state\.ready && configured && finalized/);
+  assert.match(panel,/executeDesktopMe72OutputStatus\(state\.snapshot\.epoch, window\)/);
+  assert.match(panel,/deriveMe72OutputStatusFromEvidence\(state\.evidence\)/);
+  assert.match(panel,/readonlyProfileId !== 'e39-me72-output-status-4005'/);
+  assert.match(panel,/status-only\/read-only/);
+  assert.doesNotMatch(panel,/executeDesktopMe72OutputStatus\([\s\S]{0,120}(payload|command|bytes|actuation|value)\s*:/);
+  assert.doesNotMatch(panel,/name === 'read-fuel-adaptation'/);
 });
