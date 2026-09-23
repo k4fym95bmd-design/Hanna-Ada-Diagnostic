@@ -4,10 +4,13 @@ import { readFile } from 'node:fs/promises';
 
 const source = async path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 
-test('browser loads read-only terminal gate and verified DTC extension', async () => {
+test('browser lazy-loads read-only terminal gate and verified DTC extension', async () => {
   const html = await source('public/index.html');
-  assert.match(html, /src="\/terminal-readonly-guard\.js"/);
-  assert.match(html, /src="\/diagnostic-core-v2\.js"/);
+  const bootstrap = await source('public/ultra-bootstrap.js');
+  assert.match(html, /src="\/ultra-bootstrap\.js"/);
+  assert.match(bootstrap, /importOnce\('\/terminal-readonly-guard\.js'\)/);
+  assert.match(bootstrap, /importOnce\('\/diagnostic-core-v2\.js'\)/);
+  assert.doesNotMatch(html, /src="\/(?:terminal-readonly-guard|diagnostic-core-v2)\.js"/);
   const extension = await source('public/diagnostic-core-v2.js');
   assert.match(extension, /import\s*\{[^}]*decodeStoredDTCs[^}]*\}\s*from\s*['"]\.\/diagnostic-core\.js['"]/);
   assert.match(extension, /decodeStoredDTCs\(raw, protocol\)/);
@@ -35,12 +38,23 @@ test('OBD console and counters batch DOM work instead of repainting per BLE frag
 });
 
 
-test('OBD injection observes only view replacement and caches live value nodes', async () => {
+test('OBD injection is event-driven and caches live value nodes', async () => {
   const runtime = await source('public/obd-runtime.js');
   assert.match(runtime, /const valueNodeCache=new Map\(\)/);
   assert.match(runtime, /e=valueNodeCache\.get\(key\)/);
   assert.match(runtime, /e\?\.isConnected/);
-  assert.match(runtime, /new MutationObserver\(scheduleInject\)\.observe\(runtimeView,\{childList:true\}\)/);
-  assert.doesNotMatch(runtime, /MutationObserver\([^\n]+\)\.observe\([^\n]+subtree:true/);
+  assert.match(runtime, /hannaada:module-rendered/);
+  assert.match(runtime, /hannaada:obd-runtime-mounted/);
+  assert.doesNotMatch(runtime, /new MutationObserver/);
   assert.match(runtime, /if\(injectFrame!==null\)return/);
+});
+
+
+test('verified DTC extension delegates continuous live to ultra scheduler', async () => {
+  const extension = await source('public/diagnostic-core-v2.js');
+  assert.match(extension, /ultraControllerReady/);
+  assert.match(extension, /startUltraLive/);
+  assert.match(extension, /stopUltraLive/);
+  assert.doesNotMatch(extension, /setInterval\(cycle/);
+  assert.doesNotMatch(extension, /new MutationObserver/);
 });
