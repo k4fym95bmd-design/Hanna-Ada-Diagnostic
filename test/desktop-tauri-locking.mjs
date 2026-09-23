@@ -31,3 +31,17 @@ test('native identity authority is reset on transport lifecycle changes', async 
   assert.match(close,/reset_authority\(\)/);
   assert.match(prepare,/e39-dme-me72-module-identity[\s\S]*reset_authority\(\)/);
 });
+
+
+test('roughness provenance failure is fail-closed after RX', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const roughness = source.slice(
+    source.indexOf('fn desktop_execute_me72_roughness'),
+    source.indexOf('fn desktop_consume_readonly_request')
+  );
+  assert.doesNotMatch(roughness, /record_me72_readonly_sample\(epoch\)\?/);
+  assert.match(
+    roughness,
+    /record_me72_readonly_sample\(epoch\)[\s\S]*Err\(error\)[\s\S]*native\.close_any\(\)[\s\S]*coordinator\.mark_closed\(epoch\)[\s\S]*broker\.reset\(epoch\)[\s\S]*attestation\.reset_authority\(\)[\s\S]*return Err\(error\)/
+  );
+});
