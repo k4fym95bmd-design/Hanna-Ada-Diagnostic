@@ -83,6 +83,13 @@ try {
   assert.match(html, /tuning-stage-extension\.js/i);
   assert.match(html, /app\.css/i);
 
+  const bootstrapRes = await fetch(`${base}/ultra-bootstrap.js`);
+  assert.equal(bootstrapRes.status, 200);
+  const bootstrap = await bootstrapRes.text();
+  assert.match(bootstrap, /tuning-stage-extension\.js/i);
+  assert.match(bootstrap, /cable-workbench\.js/i);
+  assert.match(bootstrap, /live-performance-runtime\.js/i);
+
   const appRes = await fetch(`${base}/app.js`);
   assert.equal(appRes.status, 200);
   const app = await appRes.text();
