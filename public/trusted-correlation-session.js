@@ -4,6 +4,8 @@ import {
 } from './read-only-request-registry.js';
 import { TrustedIdentityVerifier } from './trusted-identity-verifier.js';
 
+const MAX_CORRELATION_ATTEMPTS = 32;
+
 export class TrustedCorrelationSession {
   #epoch;
   #operation;
@@ -29,6 +31,9 @@ export class TrustedCorrelationSession {
       throw new TypeError('Repeated identity candidate already collected; local attestation is required');
     }
     if (this.#activePlan) throw new TypeError('Request token already active');
+    if (this.#issuedRequestIds.size >= MAX_CORRELATION_ATTEMPTS) {
+      throw new TypeError('Correlation attempt limit reached; reset session');
+    }
 
     const plan = instantiateReadOnlyRequest(this.#operation.id, {
       epoch: this.#epoch,
@@ -90,6 +95,8 @@ export class TrustedCorrelationSession {
       activeRequest: !!this.#activePlan,
       activeRequestId: this.#activePlan?.requestId || null,
       confirmations: verifier.confirmations,
+      attemptCount: this.#issuedRequestIds.size,
+      maxAttempts: MAX_CORRELATION_ATTEMPTS,
       moduleIdentity: verifier.moduleIdentity,
       repeatCandidateReady: verifier.repeatCandidateReady,
       localAttestationRequired: true,
