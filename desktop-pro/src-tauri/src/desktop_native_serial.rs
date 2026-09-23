@@ -5,6 +5,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::time::{Duration, Instant};
 
 const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
+const ME72_ROUGHNESS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x03, 0x39];
 
 fn ascii_field(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() || bytes.iter().any(|byte| !(0x20..=0x7E).contains(byte)) {
@@ -65,6 +66,36 @@ fn has_complete_me72_identity_reply(bytes: &[u8]) -> bool {
     me72_identity_fingerprint(bytes).is_some()
 }
 
+fn has_complete_me72_roughness_reply(bytes: &[u8]) -> bool {
+    if bytes.len() < 5 {
+        return false;
+    }
+    for start in 0..=bytes.len() - 5 {
+        if bytes[start] != 0xB8 || bytes[start + 1] != 0xF1 || bytes[start + 2] != 0x12 {
+            continue;
+        }
+        let payload_len = bytes[start + 3] as usize;
+        if payload_len < 19 || payload_len > 192 {
+            continue;
+        }
+        let frame_len = payload_len + 5;
+        if start + frame_len > bytes.len() {
+            continue;
+        }
+        let frame = &bytes[start..start + frame_len];
+        if frame.get(4) != Some(&0x62)
+            || frame.get(5) != Some(&0x40)
+            || frame.get(6) != Some(&0x03) {
+            continue;
+        }
+        let checksum = frame[..frame.len() - 1].iter().fold(0u8, |acc, byte| acc ^ *byte);
+        if checksum == frame[frame.len() - 1] {
+            return true;
+        }
+    }
+    false
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSerialOpenPlan {
@@ -107,6 +138,8 @@ pub struct DesktopReadResult {
     pub bytes: Vec<u8>,
     pub native_request_receipt: Option<u64>,
     pub native_identity_fingerprint: Option<String>,
+    pub readonly_profile_id: Option<&'static str>,
+    pub readonly_sample_sequence: Option<u64>,
     pub ecu_verified: bool,
     pub writes_enabled: bool,
 }
@@ -286,6 +319,82 @@ impl DesktopNativeSerialState {
             bytes: buffer,
             native_request_receipt: None,
             native_identity_fingerprint: me72_identity_fingerprint(&buffer),
+            readonly_profile_id: None,
+            readonly_sample_sequence: None,
+            ecu_verified: false,
+            writes_enabled: false,
+        })
+    }
+
+    pub fn execute_me72_roughness(
+        &mut self,
+        expected_epoch: u64,
+        max_bytes: usize,
+        timeout_ms: u64,
+    ) -> Result<DesktopReadResult, String> {
+        if self.epoch != expected_epoch {
+            return Err("stale_epoch".into());
+        }
+        if self.protocol != Some("KWP2000_BMW") {
+            return Err("kwp2000_transport_required".into());
+        }
+        if max_bytes < 29 || max_bytes > 197 {
+            return Err("read_size_out_of_range".into());
+        }
+        if !(10..=5000).contains(&timeout_ms) {
+            return Err("read_timeout_out_of_range".into());
+        }
+
+        let port = self.port.as_mut().ok_or_else(|| "native_port_not_open".to_string())?;
+        port.write_all(&ME72_ROUGHNESS_REQUEST)
+            .map_err(|_| "allowlisted_roughness_write_failed".to_string())?;
+        port.flush()
+            .map_err(|_| "allowlisted_roughness_flush_failed".to_string())?;
+
+        let deadline = Duration::from_millis(timeout_ms);
+        let started = Instant::now();
+        let mut buffer = Vec::with_capacity(max_bytes);
+
+        while buffer.len() < max_bytes && started.elapsed() < deadline {
+            let remaining = deadline.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            let per_read = remaining.min(Duration::from_millis(120));
+            port.set_timeout(per_read)
+                .map_err(|_| "serial_timeout_config_failed".to_string())?;
+            let chunk_len = (max_bytes - buffer.len()).min(64);
+            let mut chunk = vec![0u8; chunk_len];
+            match port.read(&mut chunk) {
+                Ok(0) => {}
+                Ok(count) => {
+                    buffer.extend_from_slice(&chunk[..count]);
+                    if has_complete_me72_roughness_reply(&buffer) {
+                        break;
+                    }
+                }
+                Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {}
+                Err(_) => return Err("serial_read_failed".into()),
+            }
+        }
+
+        if !has_complete_me72_roughness_reply(&buffer) {
+            return Err("me72_roughness_reply_not_verified".into());
+        }
+
+        Ok(DesktopReadResult {
+            version: 1,
+            evidence_contract_version: 1,
+            evidence_stage: "RX_ACTIVITY",
+            stage: "READ_BYTES",
+            epoch: expected_epoch,
+            protocol: "KWP2000_BMW",
+            received_bytes: buffer.len(),
+            bytes: buffer,
+            native_request_receipt: None,
+            native_identity_fingerprint: None,
+            readonly_profile_id: Some("e39-me72-roughness-4003"),
+            readonly_sample_sequence: None,
             ecu_verified: false,
             writes_enabled: false,
         })
@@ -332,6 +441,8 @@ impl DesktopNativeSerialState {
                     bytes: buffer,
                     native_request_receipt: None,
                     native_identity_fingerprint: None,
+                    readonly_profile_id: None,
+                    readonly_sample_sequence: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
@@ -348,6 +459,8 @@ impl DesktopNativeSerialState {
                     bytes: Vec::new(),
                     native_request_receipt: None,
                     native_identity_fingerprint: None,
+                    readonly_profile_id: None,
+                    readonly_sample_sequence: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
@@ -400,6 +513,30 @@ mod tests {
         let mut corrupt = reply;
         corrupt[47] ^= 0x01;
         assert!(me72_identity_fingerprint(&corrupt).is_none());
+    }
+
+    #[test]
+    fn roughness_request_and_reply_are_fixed_and_read_only() {
+        assert_eq!(
+            ME72_ROUGHNESS_REQUEST,
+            [0xB8,0x12,0xF1,0x03,0x22,0x40,0x03,0x39]
+        );
+        assert_eq!(ME72_ROUGHNESS_REQUEST.iter().fold(0u8, |acc, byte| acc ^ byte), 0);
+
+        let echo = ME72_ROUGHNESS_REQUEST;
+        assert!(!has_complete_me72_roughness_reply(&echo));
+
+        let reply = [
+            0xB8,0xF1,0x12,0x18,0x62,0x40,0x03,0xFF,0x70,0xFF,0x4E,0x00,
+            0x00,0xFF,0xD8,0x00,0x32,0x00,0x90,0x00,0x0C,0x00,0x8E,0x01,
+            0x00,0xE5,0x01,0x26,0x98
+        ];
+        let mut combined = echo.to_vec();
+        combined.extend_from_slice(&reply);
+        assert!(has_complete_me72_roughness_reply(&combined));
+        let last = combined.len() - 1;
+        combined[last] ^= 0x01;
+        assert!(!has_complete_me72_roughness_reply(&combined));
     }
 
     #[test]
