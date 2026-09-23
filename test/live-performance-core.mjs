@@ -226,3 +226,43 @@ test('wake calls coalesce while a read is in flight and never create a second co
   await tick;
   await c.stop();
 });
+
+
+test('p95 latency window is bounded and influences quiet time after jitter', async () => {
+  const timer = mockTimer();
+  let now = 0;
+  let readIndex = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => {
+      readIndex++;
+      now += readIndex === 4 ? 1200 : 50;
+      return 1;
+    },
+    getSupported: () => all,
+    isConnected: () => true,
+    now: () => now,
+    ...timer,
+  });
+  c.start();
+  await timer.tick();
+  const m = c.metrics();
+  assert.equal(m.latencySamples, 4);
+  assert.equal(m.p95Ms, 1200);
+  assert.ok(m.lastDelayMs >= 1800);
+  await c.stop();
+});
+
+test('latency percentile storage stays bounded to 32 successful reads', async () => {
+  let now = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { now += 10; return 1; },
+    getSupported: () => all,
+    isConnected: () => true,
+    now: () => now,
+  });
+  for (let i = 0; i < 20; i++) await c.snapshot();
+  const m = c.metrics();
+  assert.equal(m.latencySamples, 32);
+  assert.equal(m.p95Ms, 10);
+  assert.equal(m.writesEnabled, false);
+});
