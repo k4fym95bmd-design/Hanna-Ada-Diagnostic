@@ -116,6 +116,22 @@ public final class KdcanTransportSession {
         return snapshot();
     }
 
+    public synchronized Snapshot abortRequest(String expectedSessionId, long expectedEpoch,
+                                              String reason) {
+        requireFresh(expectedSessionId, expectedEpoch);
+        if (pendingRequestId == null) throw new IllegalStateException("No request bound");
+        String stage;
+        if ("TIMEOUT".equals(reason)) stage = "REQUEST_TIMEOUT";
+        else if ("OVERFLOW".equals(reason)) stage = "RESPONSE_OVERFLOW";
+        else if ("PROTOCOL".equals(reason)) stage = "PROTOCOL_REJECTED";
+        else if ("CANCELLED".equals(reason)) stage = "REQUEST_CANCELLED";
+        else throw new IllegalArgumentException("Invalid abort reason");
+        pendingRequestId = null;
+        lastSeenAt = safeNow();
+        terminalStage = stage;
+        return snapshot();
+    }
+
     public synchronized LegacyEvidenceCorrelation.Result correlate(
             String expectedSessionId, long expectedEpoch, String responseRequestId,
             LegacyFrameEvidence.Result frame, String moduleIdentity) {
