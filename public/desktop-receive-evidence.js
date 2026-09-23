@@ -48,6 +48,7 @@ export class DesktopReceiveEvidenceSession {
       candidateFrames: transport.candidateFrames,
       frames: Object.freeze(frames.map(frame => Object.freeze({ ...frame }))),
       rejectedCandidates: snapshot.rejectedCandidates,
+      nativeReadReceipt: read.nativeRequestReceipt ?? null,
       ecuVerified: false,
       writesEnabled: false,
       flashEnabled: false,
