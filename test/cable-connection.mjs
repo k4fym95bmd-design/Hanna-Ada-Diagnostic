@@ -251,3 +251,33 @@ test('same COM and VID PID but different hashed hardware identity invalidates th
   assert.equal(status.json.cableBinding, null);
   assert.equal(serialState.activePort.isOpen, false);
 });
+
+
+test('readiness uses one serial enumeration snapshot for ports and status', async t => {
+  let listCalls = 0;
+  const serialState = {
+    list: async () => {
+      listCalls++;
+      return [{ path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001', serialNumber:'one' }];
+    },
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial: serialState, token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const response = await fetch(base + '/v1/readiness', {
+    headers: { Origin: origin, Authorization: `Bearer ${token}` },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(listCalls, 1);
+  assert.equal(body.ports[0].path, 'COM7');
+  assert.equal(body.status.ecuVerified, false);
+});
