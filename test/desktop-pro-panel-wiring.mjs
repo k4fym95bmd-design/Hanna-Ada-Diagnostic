@@ -149,3 +149,12 @@ test('roughness UI is gated by finalized identity and named native executor', as
   assert.match(panel,/Roughness sample #/);
   assert.doesNotMatch(panel,/executeDesktopMe72Roughness\([\s\S]{0,120}(payload|command|bytes)\s*:/);
 });
+
+
+test('Desktop PRO avoids rebuilding unchanged select options on every render', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /select\.dataset\.optionsKey !== portOptionsKey/);
+  assert.match(panel, /requestSelect\.dataset\.optionsKey !== requestOptionsKey/);
+  assert.match(panel, /select\.dataset\.optionsKey = portOptionsKey/);
+  assert.match(panel, /requestSelect\.dataset\.optionsKey = requestOptionsKey/);
+});
