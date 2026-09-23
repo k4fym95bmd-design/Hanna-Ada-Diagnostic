@@ -55,7 +55,7 @@ test('fuel adaptation profile is native-attestation-gated', () => {
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,4);
+  assert.ok(listMe72ReadOnlyDataProfiles().includes(profile));
 });
 
 
@@ -71,5 +71,25 @@ test('readiness profile is native-attestation-gated', () => {
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,4);
+  assert.ok(listMe72ReadOnlyDataProfiles().includes(profile));
+});
+
+
+test('output status profile is native-attestation-gated and not actuation', () => {
+  const profile=getMe72ReadOnlyDataProfile('e39-me72-output-status-4005');
+  assert.equal(profile.operationId,'e39-dme-me72-output-status');
+  assert.equal(profile.operation,'STATUS_SNAPSHOT');
+  assert.equal(profile.dataIdentifier,'0x4005');
+  assert.equal(profile.parserId,'e39-me72-output-status-4005-v1');
+  assert.equal(profile.executorId,'desktop_execute_me72_output_status');
+  assert.equal(profile.executionEnabled,true);
+  assert.equal(profile.requiresVerifiedIdentity,true);
+  assert.equal(profile.requiresNativeAttestation,true);
+  assert.equal(profile.txBytesExposed,false);
+  assert.equal(profile.writeLike,false);
+  assert.equal(profile.actuationEnabled,false);
+  assert.equal(profile.writesEnabled,false);
+  assert.equal(profile.flashEnabled,false);
+  assert.equal(assertMe72DataExecutionGated(profile.id),profile);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,5);
 });
