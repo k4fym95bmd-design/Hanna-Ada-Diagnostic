@@ -1,4 +1,5 @@
 import { validateBridgeUrl } from './cable-connection-model.js';
+import { EVIDENCE_CONTRACT_VERSION, EVIDENCE_STAGES, EVIDENCE_GATES } from './evidence-contract.js';
 
 // Add passive RX evidence to the EXISTING Windows bridge tab. No TX endpoint,
 // no automatic polling and no attempt to turn a frame into ECU verification.
@@ -41,11 +42,10 @@ function attach() {
       });
       if (!response.ok) throw new TypeError(`Most telemetry zwrócił HTTP ${response.status}.`);
       const data = await response.json();
-      const allowedStages = ['NO_CABLE','ENUMERATED','PORT_OPEN','RX_ACTIVITY','FRAME_CANDIDATES'];
-      const allowedGates = ['ENUMERATE_USB','OPEN_SERIAL_TRANSPORT','BIND_USB_IDENTITY','COLLECT_PASSIVE_EVIDENCE','MATCH_READ_ONLY_IDENTITY_RESPONSE'];
       const integer = value => Number.isSafeInteger(value) && value >= 0;
-      if (!data || data.version !== 1 || !allowedStages.includes(data.stage)
-        || !allowedGates.includes(data.nextGate)
+      if (!data || data.version !== 1 || data.contractVersion !== EVIDENCE_CONTRACT_VERSION
+        || !EVIDENCE_STAGES.includes(data.stage) || data.stage === 'READ_ONLY_IDENTITY_VERIFIED'
+        || !EVIDENCE_GATES.includes(data.nextGate)
         || data.ecuVerified !== false || data.writesEnabled !== false || data.flashEnabled !== false
         || !integer(data.observedBytes) || !integer(data.ds2FrameCount) || !integer(data.kwpFrameCount)
         || !integer(data.candidateFrames) || data.candidateFrames !== data.ds2FrameCount + data.kwpFrameCount
