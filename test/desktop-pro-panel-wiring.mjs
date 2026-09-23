@@ -241,3 +241,15 @@ test('DTC-count UI is finalized-identity gated and clear-DTC remains absent', as
   assert.match(panel,/DTC count sample #/);
   assert.doesNotMatch(panel,/data-desktop-pro-action="clear-dtc"|desktop_clear_dtc|executeDesktop.*ClearDtc|clearDtc\s*:/i);
 });
+
+
+test('output status UI preserves post-cat heater mapping conflict', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/secondaryAirValve/);
+  assert.match(panel,/secondaryAirPump/);
+  assert.match(panel,/postCatHeaterBit40/);
+  assert.match(panel,/postCatHeaterBit80/);
+  assert.match(panel,/post-bank map CONFLICT/);
+  assert.doesNotMatch(panel,/outputStatus\.oxygenHeaterAfterBank1/);
+  assert.doesNotMatch(panel,/outputStatus\.oxygenHeaterAfterBank2/);
+});
