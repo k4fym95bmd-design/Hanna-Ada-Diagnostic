@@ -9,10 +9,12 @@ import {
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
   probeDesktopHost,
+  readDesktopBounded,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
   validateDesktopTransportSnapshot,
+  validateDesktopReadResult,
 } from '../public/desktop-host-bridge.js';
 
 test('plain browser stays a safe fallback', async () => {
@@ -296,4 +298,45 @@ test('configured native port open is protocol and epoch bounded', async () => {
   await assert.rejects(() => openDesktopConfiguredPort(7, 'RAW', 10400, fake), /protocol/i);
   await assert.rejects(() => openDesktopConfiguredPort(7, 'DS2', 0, fake), /baud/i);
   assert.equal(calls[0][0], 'desktop_open_configured_port');
+});
+
+
+test('bounded desktop receive never promotes ECU or write state', async () => {
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async (name, args) => {
+            assert.equal(name, 'desktop_read_bounded');
+            assert.equal(args.epoch, 7);
+            assert.equal(args.maxBytes, 32);
+            assert.equal(args.timeoutMs, 250);
+            return {
+              version: 1,
+              stage: 'READ_BYTES',
+              epoch: 7,
+              protocol: 'KWP2000_BMW',
+              receivedBytes: 4,
+              bytes: [0xB8, 0xF1, 0x12, 0x00],
+              ecuVerified: false,
+              writesEnabled: false,
+            };
+          },
+        },
+      },
+    },
+  };
+
+  const result = await readDesktopBounded(7, 32, 250, fake);
+  assert.equal(result.receivedBytes, 4);
+  assert.equal(result.ecuVerified, false);
+  assert.equal(result.writesEnabled, false);
+
+  assert.throws(() => validateDesktopReadResult({
+    ...result,
+    ecuVerified: true,
+  }), /unsafe/i);
+
+  await assert.rejects(() => readDesktopBounded(7, 0, 250, fake), /max bytes/i);
+  await assert.rejects(() => readDesktopBounded(7, 32, 6000, fake), /timeout/i);
 });
