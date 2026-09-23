@@ -37,6 +37,7 @@ test('valid Tauri host contract is accepted without capability promotion', async
               host: 'tauri',
               mode: 'desktop-pro',
               platform: 'windows',
+              evidenceContractVersion: 1,
               offlineCapable: true,
               transportAuthority: 'native-desktop',
               ecuVerified: false,
@@ -75,6 +76,7 @@ test('unsafe native promotion is rejected', () => {
     host: 'tauri',
     mode: 'desktop-pro',
     platform: 'windows',
+    evidenceContractVersion: 1,
     offlineCapable: true,
     transportAuthority: 'native-desktop',
     ecuVerified: false,
@@ -182,7 +184,9 @@ test('desktop candidate binding is epoch-scoped and remains unopened', async () 
             }
             return {
               version: 1,
+              evidenceContractVersion: 1,
               stage: selected ? 'USB_CANDIDATE_BOUND' : 'NO_CANDIDATE',
+              evidenceStage: selected ? 'HARDWARE_BOUND' : 'NO_CABLE',
               epoch,
               portName: selected,
               kind: selected ? 'usb' : null,
@@ -217,7 +221,9 @@ test('desktop candidate binding is epoch-scoped and remains unopened', async () 
 test('desktop transport snapshot allows only coherent open/configured states', () => {
   const configured = validateDesktopTransportSnapshot({
     version: 1,
+    evidenceContractVersion: 1,
     stage: 'PORT_CONFIGURED',
+    evidenceStage: 'PORT_OPEN',
     epoch: 1,
     portName: 'COM7',
     kind: 'usb',
@@ -253,7 +259,9 @@ test('configured native port open is protocol and epoch bounded', async () => {
             if (name === 'desktop_open_configured_port') {
               return {
                 version: 1,
+                evidenceContractVersion: 1,
                 stage: 'PORT_CONFIGURED',
+                evidenceStage: 'PORT_OPEN',
                 epoch: args.epoch,
                 portName: 'COM7',
                 kind: 'usb',
@@ -269,7 +277,9 @@ test('configured native port open is protocol and epoch bounded', async () => {
             if (name === 'desktop_close_port') {
               return {
                 version: 1,
+                evidenceContractVersion: 1,
                 stage: 'USB_CANDIDATE_BOUND',
+                evidenceStage: 'HARDWARE_BOUND',
                 epoch: args.epoch,
                 portName: 'COM7',
                 kind: 'usb',
@@ -313,7 +323,9 @@ test('bounded desktop receive never promotes ECU or write state', async () => {
             assert.equal(args.timeoutMs, 250);
             return {
               version: 1,
+              evidenceContractVersion: 1,
               stage: 'READ_BYTES',
+              evidenceStage: 'RX_ACTIVITY',
               epoch: 7,
               protocol: 'KWP2000_BMW',
               receivedBytes: 4,
@@ -356,13 +368,13 @@ test('desktop inventory and snapshots reject internally inconsistent USB identit
   }]), /Non-USB|USB transport/i);
 
   assert.throws(() => validateDesktopTransportSnapshot({
-    version:1, stage:'NO_CANDIDATE', epoch:0,
+    version:1, evidenceContractVersion:1, stage:'NO_CANDIDATE', evidenceStage:'NO_CABLE', epoch:0,
     portName:'COM7', kind:'usb', vid:0x0403, pid:0x6001, candidateFamily:'FTDI',
     transportOpen:false, configured:false, ecuVerified:false, writesEnabled:false,
   }), /stale bound identity/i);
 
   assert.throws(() => validateDesktopTransportSnapshot({
-    version:1, stage:'PORT_CONFIGURED', epoch:1,
+    version:1, evidenceContractVersion:1, stage:'PORT_CONFIGURED', evidenceStage:'PORT_OPEN', epoch:1,
     portName:'COM5', kind:'bluetooth', vid:null, pid:null, candidateFamily:null,
     transportOpen:true, configured:true, ecuVerified:false, writesEnabled:false,
   }), /requires USB/i);
@@ -370,7 +382,40 @@ test('desktop inventory and snapshots reject internally inconsistent USB identit
 
 test('READ_BYTES must contain at least one byte', () => {
   assert.throws(() => validateDesktopReadResult({
-    version:1, stage:'READ_BYTES', epoch:1, protocol:'DS2',
+    version:1, evidenceContractVersion:1, stage:'READ_BYTES', evidenceStage:'RX_ACTIVITY', epoch:1, protocol:'DS2',
     receivedBytes:0, bytes:[], ecuVerified:false, writesEnabled:false,
   }), /cannot be empty/i);
+});
+
+
+test('desktop evidence contract rejects mismatched canonical stage', () => {
+  assert.throws(() => validateDesktopTransportSnapshot({
+    version:1,
+    evidenceContractVersion:1,
+    stage:'USB_CANDIDATE_BOUND',
+    evidenceStage:'PORT_OPEN',
+    epoch:1,
+    portName:'COM7',
+    kind:'usb',
+    vid:0x0403,
+    pid:0x6001,
+    candidateFamily:'FTDI',
+    transportOpen:false,
+    configured:false,
+    ecuVerified:false,
+    writesEnabled:false,
+  }), /evidence stage mismatch/i);
+
+  assert.throws(() => validateDesktopReadResult({
+    version:1,
+    evidenceContractVersion:1,
+    stage:'READ_TIMEOUT',
+    evidenceStage:'RX_ACTIVITY',
+    epoch:1,
+    protocol:'KWP2000_BMW',
+    receivedBytes:0,
+    bytes:[],
+    ecuVerified:false,
+    writesEnabled:false,
+  }), /evidence stage mismatch/i);
 });
