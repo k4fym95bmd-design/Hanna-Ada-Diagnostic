@@ -85,6 +85,9 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   let sessionEpoch = 0;
   let stateRevision = 0;
+  let serialListInFlight = null;
+  let serialListCalls = 0;
+  let serialListCoalesced = 0;
   const bumpRevision = () => {
     stateRevision = stateRevision >= Number.MAX_SAFE_INTEGER ? 1 : stateRevision + 1;
     return stateRevision;
@@ -92,6 +95,25 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
   const bumpEpoch = () => {
     sessionEpoch = sessionEpoch >= Number.MAX_SAFE_INTEGER ? 1 : sessionEpoch + 1;
     return sessionEpoch;
+  };
+  const enumeratePorts = async () => {
+    if (serialListInFlight) {
+      serialListCoalesced++;
+      return serialListInFlight;
+    }
+    serialListCalls++;
+    let task;
+    task = Promise.resolve()
+      .then(() => serial.list())
+      .then(list => {
+        if (!Array.isArray(list)) throw new TypeError('SERIAL_LIST_INVALID');
+        return list.filter(validPort);
+      })
+      .finally(() => {
+        if (serialListInFlight === task) serialListInFlight = null;
+      });
+    serialListInFlight = task;
+    return task;
   };
   const evidenceFor = ({ detected = false, bound = false, opened = false } = {}) =>
     deriveTransportEvidence({ cableDetected: detected, hardwareBound: bound, portOpen: opened, observedBytes: 0, candidateFrames: 0 });
@@ -115,7 +137,7 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
     return provided.length === expected.length && timingSafeEqual(provided, expected);
   };
   const currentStatus = async (knownPorts = null) => {
-    const ports = Array.isArray(knownPorts) ? knownPorts.filter(validPort) : (await serial.list()).filter(validPort);
+    const ports = Array.isArray(knownPorts) ? knownPorts.filter(validPort) : await enumeratePorts();
     const selectedPort = selected !== null ? ports.find(p => p.path === selected) || null : null;
     const detected = selectedPort !== null;
     if (!detected && selected !== null && active?.isOpen) {
@@ -209,10 +231,11 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
         flashing: false,
         serialOpenProbe: SERIAL_OPEN_PROBE,
         trustedOriginCount: trustedOrigins.length,
+        serialEnumerationSingleFlight: true,
       });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
       if (req.method === 'GET' && route === '/v1/readiness') {
-        const enumerated = (await serial.list()).filter(validPort);
+        const enumerated = await enumeratePorts();
         const status = await currentStatus(enumerated);
         const ports = enumerated.map(safePort);
         return json(res, 200, {
@@ -231,7 +254,7 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
         });
       }
       if (req.method === 'GET' && route === '/v1/ports') {
-        const enumerated = (await serial.list()).filter(validPort);
+        const enumerated = await enumeratePorts();
         await currentStatus(enumerated);
         const ports = enumerated.map(safePort);
         return json(res, 200, { version:1, bridgeInstanceId, stateRevision, ports, selectedPath: selected });
@@ -274,7 +297,7 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
         try {
           const body = await readBody(req);
           if (typeof body.path !== 'string' || body.path.length > 240) return json(res, 400, { error: 'INVALID_PORT' });
-          const matches = (await serial.list()).filter(validPort).filter(p => p.path === body.path);
+          const matches = (await enumeratePorts()).filter(p => p.path === body.path);
           if (matches.length !== 1) return json(res, 404, { error: 'PORT_NOT_ENUMERATED' });
           const port = serial.createPort(matches[0].path);
           if (!port || typeof port.open !== 'function' || typeof port.close !== 'function') throw new Error('DRIVER_UNAVAILABLE');
@@ -330,7 +353,12 @@ export function createCableBridge({ serial, token, allowedOrigin = null, allowed
   };
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
   server.on('close', () => invalidateActiveSession());
-  return { server, host, getStatus: currentStatus };
+  return {
+    server,
+    host,
+    getStatus: currentStatus,
+    getPerformance: () => Object.freeze({ serialListCalls, serialListCoalesced }),
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
