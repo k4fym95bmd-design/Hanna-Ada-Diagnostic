@@ -1,16 +1,22 @@
 const CACHE_PREFIX = 'hanna-ada-static-';
-const CACHE_NAME = CACHE_PREFIX + 'ultra-v2';
-const CORE = Object.freeze([
+const CACHE_NAME = CACHE_PREFIX + 'ultra-v3';
+
+const PRECACHE = Object.freeze([
   '/',
   '/app.css',
   '/mobile.css',
+  '/app.js',
+  '/mobile-shell.js',
+  '/ultra-bootstrap.js',
+  '/manifest.webmanifest',
+  '/icon.svg',
+]);
+
+const RUNTIME = new Set([
   '/pro-runtime.css',
   '/diagnostic-core-v2.css',
   '/cable-workbench.css',
   '/live-performance.css',
-  '/app.js',
-  '/tuning-stage-extension.js',
-  '/mobile-shell.js',
   '/obd-runtime.js',
   '/terminal-readonly-guard.js',
   '/diagnostic-core-v2.js',
@@ -18,10 +24,13 @@ const CORE = Object.freeze([
   '/cable-rx-panel.js',
   '/kdcan-cable-panel.js',
   '/universal-platform-panel.js',
-  '/desktop-pro-panel.js',
   '/live-performance-runtime.js',
-  '/manifest.webmanifest',
-  '/icon.svg',
+  '/tuning-stage-extension.js',
+  '/tuning-analysis-panel.js',
+  '/oem-icom-panel.js',
+  '/webusb-workbench-extension.js',
+  '/desktop-host-bridge.js',
+  '/desktop-pro-panel.js',
 ]);
 
 const cacheable = response =>
@@ -38,7 +47,7 @@ async function updateStatic(request) {
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    await Promise.allSettled(CORE.map(async url => {
+    await Promise.allSettled(PRECACHE.map(async url => {
       const response = await fetch(url, { cache: 'no-cache', credentials: 'same-origin' });
       if (cacheable(response)) await cache.put(url, response);
     }));
@@ -86,7 +95,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  if (!CORE.includes(url.pathname)) return;
+  if (!PRECACHE.includes(url.pathname) && !RUNTIME.has(url.pathname)) return;
 
   event.respondWith((async () => {
     const cached = await caches.match(request);
