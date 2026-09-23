@@ -10,11 +10,17 @@ on:
       - 'public/passive-legacy-rx.js'
       - 'public/read-only-request-registry.js'
       - 'public/module-identity-evidence.js'
+      - 'public/identity-parser-profile.js'
+      - 'public/me72-*.js'
+      - 'public/read-only-identity-finalizer.js'
       - 'public/trusted-*.js'
       - 'public/evidence-contract.js'
       - 'test/desktop-*.mjs'
       - 'test/read-only-request-registry.mjs'
       - 'test/module-identity-evidence.mjs'
+      - 'test/identity-parser-profile.mjs'
+      - 'test/me72-*.mjs'
+      - 'test/read-only-identity-finalizer.mjs'
       - 'test/trusted-*.mjs'
       - 'package.json'
       - '.github/workflows/desktop-pro-windows.yml'
@@ -28,7 +34,6 @@ concurrency:
 
 jobs:
   desktop-pro:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
