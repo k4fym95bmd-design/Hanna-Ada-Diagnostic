@@ -75,9 +75,9 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
             return
         }
         central.stopScan()
-        pendingConnection = nil
+        abandonDisconnectOwnership()
         if let old = peripheral {
-            beginDisconnect(old)
+            central.cancelPeripheralConnection(old)
         }
         resetSession(keepDevices: false)
         let scanEpoch = epoch
@@ -117,20 +117,20 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
     func disconnect() {
         central.stopScan()
-        pendingConnection = nil
+        abandonDisconnectOwnership()
         if let old = peripheral {
-            beginDisconnect(old)
+            central.cancelPeripheralConnection(old)
         }
         resetSession(keepDevices: true)
         state = .disconnected
-        status = disconnectingPeripheral == nil ? "Disconnected" : "Disconnecting…"
+        status = "Disconnected"
     }
 
     func suspendForBackground() {
         central.stopScan()
-        pendingConnection = nil
+        abandonDisconnectOwnership()
         if let old = peripheral {
-            beginDisconnect(old)
+            central.cancelPeripheralConnection(old)
         }
         resetSession(keepDevices: true)
         state = .disconnected
@@ -170,6 +170,15 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         disconnectWatchdogTask?.cancel()
         disconnectWatchdogTask = nil
         disconnectWatchdog.invalidate()
+    }
+
+    private func abandonDisconnectOwnership() {
+        cancelDisconnectWatchdog()
+        if let stale = disconnectingPeripheral {
+            central.cancelPeripheralConnection(stale)
+        }
+        disconnectingPeripheral = nil
+        pendingConnection = nil
     }
 
     private func startConnection(_ candidate: CBPeripheral, name: String) {
