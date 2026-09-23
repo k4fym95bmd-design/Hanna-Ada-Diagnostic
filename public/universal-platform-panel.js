@@ -1,4 +1,4 @@
-import { chooseTransportRoute, assessWindowsGateway } from './universal-transport-router.js';
+import { chooseTransportRoute } from './universal-transport-router.js';
 
 const detectPlatform = () => {
   const ua = navigator.userAgent || '';
@@ -36,14 +36,9 @@ function attachUniversalPanel() {
     section.querySelector('[data-universal-route-status]').textContent =
       `Trasa: ${route.route}. ${route.reason} Tryb read-only; zapis zablokowany.`;
 
-    const gateway = assessWindowsGateway({
-      ramGb: 12,
-      nodeMajor: 24,
-      bridgeReachable,
-      usbIdentityKnown: !!(root.dataset.bridgeUsbVendorId && root.dataset.bridgeUsbProductId),
-    });
+    const usbBound = !!(root.dataset.bridgeUsbVendorId && root.dataset.bridgeUsbProductId);
     section.querySelector('[data-windows-gateway-status]').textContent =
-      `Laptop 12 GB RAM: pamięć ${gateway.memoryReady ? 'OK' : 'NIE'} · runtime Node 24 ${gateway.runtimeReady ? 'OK' : 'NIE'} · bridge ${gateway.transportReady ? 'OK' : 'NIEPOŁĄCZONY'} · USB ID ${gateway.usbBound ? 'OK' : 'BRAK'}. ${gateway.note}`;
+      `Profil laptopa: 12 GB RAM · wymagany runtime Node >=20. Rzeczywisty runtime sprawdza doctor:windows. Bridge ${bridgeReachable ? 'OK' : 'NIEPOŁĄCZONY'} · USB ID ${usbBound ? 'OK' : 'BRAK'}.`;
   };
 
   new MutationObserver(render).observe(root, { attributes: true, subtree: true, childList: true, characterData: true });
