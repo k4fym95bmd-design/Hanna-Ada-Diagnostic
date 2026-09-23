@@ -48,7 +48,7 @@ Primary modules:
 
 ## Tuning / Map Store — canonical catalog
 
-There are exactly **three numbered stages plus one separate M5 Character / Booster product**. M5 is not Stage 4.
+Stages **1–3** are the core catalog. Stages **4–7** are advanced custom engineering tiers. **M5 Character / Booster remains a separate premium product and is not Stage 4.**
 
 - **Stage 1 — Road Performance** — €89 / VIN — UP TO +50 hp / +80 Nm
 - **Stage 2 — Sport Hardware** — €149 / VIN — UP TO +80 hp / +130 Nm
@@ -65,11 +65,14 @@ See `docs/TUNING_CATALOG.md` and the machine-readable `config/tuning-products.js
 
 ## Platform roles
 
-### iPhone / Carista BLE
-Generic OBD-II companion path. Supports adapter discovery, ELM initialization, supported PID discovery, live standard PIDs, DTC modes and RAW TX/RX where the browser/native transport permits it. Carista/ELM must never be presented as proof of full BMW E39 module access.
+### Windows laptop / K+DCAN gateway
+Canonical physical cable host. The local gateway owns USB enumeration, one cable session, passive RX and atomic read-only snapshots. The gateway exposes no arbitrary TX, DTC erase, coding, actuation or flash route.
 
-### Android / K+DCAN
-Primary path for direct USB BMW diagnostics. Target transport stack includes K-Line, DS2 and BMW KWP where implemented and verified. Hardware/protocol-dependent functions remain capability-gated until tested.
+### iPhone / iPad
+Uses the Windows laptop gateway for the physical K+DCAN cable. The web UI remains the same; iOS does not claim direct generic K+DCAN USB access.
+
+### Android
+Prefers native USB Host when the local Android module verifies support. WebUSB is discovery-only; the Windows gateway is the fallback for the full shared session model.
 
 ## Capability states
 
@@ -111,3 +114,14 @@ Floot production build currently exists at https://bmw.floot.app. Branding and a
 ## Documentation
 
 See `docs/ARCHITECTURE.md`, `docs/CAPABILITY_MATRIX.md`, `docs/E39_540I_PROFILES.md`, `docs/CARISTA_BLE.md`, `docs/KDCAN_ANDROID.md` and `docs/TUNING_CATALOG.md`.
+
+
+## Fast Windows setup
+
+For the 12 GB Windows laptop path:
+
+- `npm run doctor:windows`
+- `npm run start:windows`
+- `npm run test:release-critical`
+
+See `docs/WINDOWS_12GB_QUICKSTART.md` and `docs/UNIVERSAL_PLATFORM_ARCHITECTURE.md`.
