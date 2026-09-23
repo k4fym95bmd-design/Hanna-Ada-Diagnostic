@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreCablePort, assessCablePlugReadiness } from '../public/cable-plug-readiness.js';
+import { scoreCablePort, assessCablePlugReadiness, cablePortEvidenceKey, findNewCablePorts } from '../public/cable-plug-readiness.js';
 
 test('known FTDI-like K+DCAN port is ranked but never verifies ECU', () => {
   const r = scoreCablePort({ path: 'COM7', manufacturer: 'FTDI USB Serial', vendorId: '0403', productId: '6001' });
@@ -44,4 +44,33 @@ test('unknown VID PID alone is not strong enough for automatic selection', () =>
   assert.equal(r.recommendedPath, null);
   assert.equal(r.readyToSelect, false);
   assert.equal(r.ecuVerified, false);
+});
+
+
+test('hotplug diff ignores pre-existing serial ports and detects a newly appeared cable', () => {
+  const before = [
+    { path:'COM1', manufacturer:'Built-in serial', vendorId:null, productId:null },
+    { path:'COM5', manufacturer:'Bluetooth serial', vendorId:null, productId:null },
+  ];
+  const after = [
+    ...before,
+    { path:'COM7', manufacturer:'FTDI USB Serial', vendorId:'0403', productId:'6001' },
+  ];
+  const appeared = findNewCablePorts(before, after);
+  assert.equal(appeared.length, 1);
+  assert.equal(appeared[0].path, 'COM7');
+  assert.equal(assessCablePlugReadiness(appeared).recommendedPath, 'COM7');
+});
+
+test('same COM with changed USB identity is treated as new hardware evidence', () => {
+  const before = [{ path:'COM7', manufacturer:'USB Serial', vendorId:'0403', productId:'6001' }];
+  const after = [{ path:'COM7', manufacturer:'USB Serial', vendorId:'0403', productId:'6010' }];
+  const appeared = findNewCablePorts(before, after);
+  assert.equal(appeared.length, 1);
+  assert.notEqual(cablePortEvidenceKey(before[0]), cablePortEvidenceKey(after[0]));
+});
+
+test('unchanged port evidence does not look like a new cable', () => {
+  const ports = [{ path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001' }];
+  assert.deepEqual(findNewCablePorts(ports, ports), []);
 });
