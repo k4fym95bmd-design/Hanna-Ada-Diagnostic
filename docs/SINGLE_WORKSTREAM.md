@@ -25,6 +25,7 @@ PR #35 is the owner of the combined workstreams:
 6. browser cable workbench and local bridge experiments
 7. OEM ICOM/ISTA reference profile
 8. Workshop Fusion plus DTC/live-data quality/performance logic
+9. Windows desktop / Tauri 2 PRO host and installer pipeline
 
 ## Coordination rules
 
@@ -41,8 +42,10 @@ PR #33 native mobile transport work has been copied into PR #35 and is no longer
 
 ## Next shared hardware gate
 
+Desktop and Android share the same evidence contract. Either native host may supply the physical transport, but neither may create independent ECU truth.
+
 ```
-Android USB Host / OTG
+Native host (Windows Desktop PRO or Android USB Host / OTG)
 → switched K+DCAN cable
 → verified USB-serial family
 → verified switch / pin-route evidence
