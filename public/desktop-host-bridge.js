@@ -1,4 +1,5 @@
 import { EVIDENCE_CONTRACT_VERSION } from './evidence-contract.js';
+import { validateReadOnlyRequestPlan } from './read-only-request-registry.js';
 
 // Desktop host adapter for the existing Hanna & Ada frontend.
 // No package bundler is required because Tauri 2 injects window.__TAURI__ when
@@ -280,6 +281,104 @@ export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObjec
   return validateDesktopReadResult(
     await invoke('desktop_read_bounded', { epoch, maxBytes, timeoutMs })
   );
+}
+
+export function validateDesktopRequestBrokerSnapshot(value) {
+  if (!value || typeof value !== 'object'
+      || value.version !== 1
+      || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
+      || !['BROKER_IDLE','REQUEST_ACTIVE'].includes(value.stage)
+      || !Number.isInteger(value.epoch) || value.epoch < 0
+      || typeof value.activeRequest !== 'boolean'
+      || !Number.isInteger(value.attemptCount) || value.attemptCount < 0
+      || value.maxAttempts !== 32
+      || value.txBytesExposed !== false
+      || value.writeLike !== false
+      || value.ecuVerified !== false
+      || value.writesEnabled !== false
+      || value.flashEnabled !== false) {
+    throw new TypeError('Invalid desktop request broker snapshot');
+  }
+  if (value.stage === 'REQUEST_ACTIVE') {
+    if (!value.activeRequest
+        || typeof value.activeRequestId !== 'string'
+        || typeof value.operationId !== 'string'
+        || !['DS2','KWP2000_BMW'].includes(value.protocol)
+        || !Number.isInteger(value.timeoutMs) || value.timeoutMs < 1
+        || !Number.isInteger(value.maxResponseBytes) || value.maxResponseBytes < 1) {
+      throw new TypeError('Invalid active broker request');
+    }
+  } else if (value.activeRequest
+      || value.activeRequestId !== null
+      || value.operationId !== null
+      || value.protocol !== null
+      || value.timeoutMs !== null
+      || value.maxResponseBytes !== null) {
+    throw new TypeError('Idle broker carried stale request state');
+  }
+  return Object.freeze({ ...value });
+}
+
+export async function prepareDesktopReadOnlyRequest(plan, globalObject = globalThis) {
+  const validated = validateReadOnlyRequestPlan(plan);
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopRequestBrokerSnapshot(await invoke('desktop_prepare_readonly_request', {
+    epoch: validated.epoch,
+    operationId: validated.operationId,
+    requestId: validated.requestId,
+    protocol: validated.protocol,
+    timeoutMs: validated.timeoutMs,
+    maxResponseBytes: validated.maxResponseBytes,
+  }));
+}
+
+export async function consumeDesktopReadOnlyRequest(epoch, requestId, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 64) {
+    throw new TypeError('Invalid request id');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopRequestBrokerSnapshot(
+    await invoke('desktop_consume_readonly_request', { epoch, requestId })
+  );
+}
+
+export async function cancelDesktopReadOnlyRequest(epoch, requestId, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 64) {
+    throw new TypeError('Invalid request id');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopRequestBrokerSnapshot(
+    await invoke('desktop_cancel_readonly_request', { epoch, requestId })
+  );
+}
+
+export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis) {
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) return Object.freeze({
+    version: 1,
+    evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
+    stage: 'BROKER_IDLE',
+    epoch: 0,
+    activeRequest: false,
+    activeRequestId: null,
+    operationId: null,
+    protocol: null,
+    timeoutMs: null,
+    maxResponseBytes: null,
+    attemptCount: 0,
+    maxAttempts: 32,
+    txBytesExposed: false,
+    writeLike: false,
+    ecuVerified: false,
+    writesEnabled: false,
+    flashEnabled: false,
+  });
+  return validateDesktopRequestBrokerSnapshot(await invoke('desktop_request_broker_snapshot'));
 }
 
 export async function closeDesktopPort(epoch, globalObject = globalThis) {
