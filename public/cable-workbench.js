@@ -242,11 +242,15 @@ async function waitForCable(maxMs = 30000, signal) {
     if (signal?.aborted) throw new DOMException('Wykrywanie kabla przerwane.', 'AbortError');
   };
   const delay = ms => new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
+    let timer = null;
+    const cleanup = () => signal?.removeEventListener?.('abort', abort);
+    const done = () => { cleanup(); resolve(); };
     const abort = () => {
-      clearTimeout(timer);
+      if (timer !== null) clearTimeout(timer);
+      cleanup();
       reject(new DOMException('Wykrywanie kabla przerwane.', 'AbortError'));
     };
+    timer = setTimeout(done, ms);
     if (signal?.aborted) abort();
     else signal?.addEventListener?.('abort', abort, { once: true });
   });
