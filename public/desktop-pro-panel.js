@@ -12,6 +12,7 @@ import {
   executeDesktopMe72FuelAdaptation,
   executeDesktopMe72OutputStatus,
   executeDesktopMe72Readiness,
+  executeDesktopMe72DtcCount,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
   prepareDesktopReadOnlyRequest,
@@ -30,6 +31,7 @@ import { deriveMe72EngineSnapshotFromEvidence } from './me72-engine-snapshot-par
 import { deriveMe72FuelAdaptationFromEvidence } from './me72-fuel-adaptation-parser.js';
 import { deriveMe72OutputStatusFromEvidence } from './me72-output-status-parser.js';
 import { deriveMe72ReadinessFromEvidence } from './me72-readiness-parser.js';
+import { deriveMe72DtcCountFromEvidence } from './me72-dtc-count-parser.js';
 
 const state = {
   ready: false,
@@ -64,6 +66,9 @@ const state = {
   readinessStatus: null,
   readinessSequence: null,
   readinessIdentityFingerprint: null,
+  dtcCount: null,
+  dtcCountSequence: null,
+  dtcCountIdentityFingerprint: null,
   message: 'Desktop PRO host nieaktywny.',
 };
 
@@ -207,6 +212,13 @@ function render(panel) {
       ? 'Readiness 0x4007: gotowe do pojedynczego read-only odczytu.'
       : 'Readiness 0x4007: zablokowane do READ_ONLY_IDENTITY_VERIFIED.';
 
+  const dtcCount = state.dtcCount;
+  panel.querySelector('[data-desktop-pro-dtc-count]').textContent = dtcCount
+    ? `DTC count sample #${state.dtcCountSequence} · stored faults ${dtcCount.faultCount} · CLEAR DTC LOCKED`
+    : finalized
+      ? 'DTC count A2 00: gotowy do pojedynczego read-only odczytu · clear-DTC zablokowane.'
+      : 'DTC count A2 00: zablokowany do READ_ONLY_IDENTITY_VERIFIED.';
+
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
   const configured = stage === 'PORT_CONFIGURED';
@@ -229,6 +241,7 @@ function render(panel) {
     'read-fuel': state.ready && configured && finalized && !state.requestPlan,
     'read-output-status': state.ready && configured && finalized && !state.requestPlan,
     'read-readiness': state.ready && configured && finalized && !state.requestPlan,
+    'read-dtc-count': state.ready && configured && finalized && !state.requestPlan,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -274,6 +287,9 @@ async function action(panel, name) {
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
       if (!state.snapshot?.epoch) throw new TypeError('Najpierw przypnij port.');
@@ -313,6 +329,9 @@ async function action(panel, name) {
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Raw TX niewystawiony; tylko allowlisted read-only executor może nadawać.`;
     } else if (name === 'plan-identity') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
@@ -437,19 +456,19 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
-      state.fuelAdaptation = null;
-      state.fuelAdaptationSequence = null;
-      state.fuelAdaptationIdentityFingerprint = null;
       state.outputStatus = null;
       state.outputStatusSequence = null;
       state.outputStatusIdentityFingerprint = null;
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
-      state.readinessStatus = null;
-      state.readinessSequence = null;
-      state.readinessIdentityFingerprint = null;
-      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Roughness + engine + fuel + readiness odblokowane read-only; ECU/write/flash nadal zablokowane.`;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
+      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Read-only live data + DTC count odblokowane; clear-DTC/write/flash nadal zablokowane.`;
     } else if (name === 'read-roughness') {
       if (state.identityResult?.identityVerified !== true
           || state.snapshot?.stage !== 'PORT_CONFIGURED'
@@ -555,6 +574,27 @@ async function action(panel, name) {
       state.readinessSequence = result.readonlySampleSequence;
       state.readinessIdentityFingerprint = result.nativeIdentityFingerprint;
       state.message = `ME7.2 readiness 0x4007 · native sample #${result.readonlySampleSequence} · read-only.`;
+    } else if (name === 'read-dtc-count') {
+      if (state.identityResult?.identityVerified !== true
+          || state.snapshot?.stage !== 'PORT_CONFIGURED'
+          || !state.evidenceSession) {
+        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed DTC count.');
+      }
+
+      state.evidenceSession.reset();
+      state.evidence = null;
+      const result = await executeDesktopMe72DtcCount(state.snapshot.epoch, window);
+      if (result.readonlyProfileId !== 'e39-me72-dtc-count-a200'
+          || !Number.isSafeInteger(result.readonlySampleSequence)
+          || result.nativeIdentityFingerprint !== state.identityResult.moduleIdentity) {
+        throw new TypeError('Native DTC-count provenance mismatch.');
+      }
+
+      state.evidence = state.evidenceSession.ingest(result);
+      state.dtcCount = deriveMe72DtcCountFromEvidence(state.evidence);
+      state.dtcCountSequence = result.readonlySampleSequence;
+      state.dtcCountIdentityFingerprint = result.nativeIdentityFingerprint;
+      state.message = `ME7.2 DTC count · ${state.dtcCount.faultCount} stored faults · native sample #${result.readonlySampleSequence} · clear-DTC LOCKED.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -594,6 +634,9 @@ async function action(panel, name) {
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
       state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
       state.snapshot = await clearDesktopSerialCandidate(window);
@@ -621,6 +664,9 @@ async function action(panel, name) {
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
+      state.dtcCount = null;
+      state.dtcCountSequence = null;
+      state.dtcCountIdentityFingerprint = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
   } catch (error) {
@@ -665,6 +711,9 @@ async function attachDesktopProPanel() {
   state.readinessStatus = null;
   state.readinessSequence = null;
   state.readinessIdentityFingerprint = null;
+  state.dtcCount = null;
+  state.dtcCountSequence = null;
+  state.dtcCountIdentityFingerprint = null;
   state.snapshot = await getDesktopTransportSnapshot(window).catch(() => null);
   if (state.snapshot?.stage === 'PORT_CONFIGURED') {
     state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
@@ -709,6 +758,7 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="read-fuel">8. FUEL ADAPT</button>
       <button type="button" data-desktop-pro-action="read-output-status">9. OUTPUT STATUS</button>
       <button type="button" data-desktop-pro-action="read-readiness">10. READINESS</button>
+      <button type="button" data-desktop-pro-action="read-dtc-count">11. DTC COUNT</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
@@ -720,9 +770,10 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-fuel></p>
     <p data-desktop-pro-output-status></p>
     <p data-desktop-pro-readiness></p>
+    <p data-desktop-pro-dtc-count></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot, fuel adaptations, output status i readiness wymagają 2/2 identity + parser + native local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot, fuel adaptations, output status, readiness i DTC count wymagają 2/2 identity + parser + native local attestation. Clear-DTC pozostaje niewystawione.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
