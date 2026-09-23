@@ -43,7 +43,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
     const action = rnd % 9;
 
     try {
-      if (action === 0 && !activePlan && !session.snapshot().identityVerified) {
+      if (action === 0 && !activePlan && !session.snapshot().repeatCandidateReady) {
         const id = `fault-request-${epoch}-${String(requestSeq++).padStart(5,'0')}`;
         activePlan = session.prepareAttempt(id);
         lastRequestId = id;
@@ -105,10 +105,10 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           requestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
         }), /mismatch/i);
-      } else if (action === 8 && session.snapshot().identityVerified) {
+      } else if (action === 8 && session.snapshot().repeatCandidateReady) {
         assert.throws(
-          () => session.prepareAttempt(`post-verify-${epoch}-${step}`),
-          /already verified/i
+          () => session.prepareAttempt(`post-candidate-${epoch}-${step}`),
+          /local attestation/i
         );
       }
     } catch (error) {
@@ -122,6 +122,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
     assert.equal(snap.flashEnabled, false);
     assert.equal(snap.txBytesExposed, false);
     assert.equal(snap.writeLike, false);
-    if (snap.identityVerified) assert.ok(snap.confirmations >= 2);
+    assert.equal(snap.identityVerified, false);
+    if (snap.repeatCandidateReady) assert.ok(snap.confirmations >= 2);
   }
 });
