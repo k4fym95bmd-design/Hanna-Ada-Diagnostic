@@ -129,3 +129,80 @@ test('missing enumerated device invalidates an active bridge session', async t =
   assert.equal(status.json.ecuVerified, false);
   assert.equal(status.json.writesEnabled, false);
 });
+
+
+test('same COM with a different USB identity invalidates the active session', async t => {
+  let productId = '6001';
+  const serialState = {
+    activePort: null,
+    list: async () => [{ path:'COM7', manufacturer:'Test FTDI', vendorId:'0403', productId }],
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      serialState.activePort = p;
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial: serialState, token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const ask = async (path, options={}) => {
+    const response = await fetch(base + path, {
+      method: options.method || 'GET',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type':'application/json' },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+    });
+    return { code:response.status, json:await response.json() };
+  };
+
+  const opened = await ask('/v1/open', { method:'POST', body:{ path:'COM7' } });
+  assert.equal(opened.json.portOpen, true);
+  assert.equal(opened.json.cableBinding.vidPid, '0403:6001');
+
+  productId = '6010';
+  const status = await ask('/v1/status');
+  assert.equal(status.json.portOpen, false);
+  assert.equal(status.json.cableDetected, false);
+  assert.equal(status.json.sessionId, null);
+  assert.equal(status.json.cableBinding, null);
+  assert.equal(serialState.activePort.isOpen, false);
+});
+
+test('serial error event invalidates the session without leaving stale evidence', async t => {
+  const serialState = {
+    activePort:null,
+    list: async () => [{ path:'COM7', manufacturer:'Test FTDI', vendorId:'0403', productId:'6001' }],
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      serialState.activePort = p;
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial: serialState, token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const ask = async (path, options={}) => {
+    const response = await fetch(base + path, {
+      method: options.method || 'GET',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type':'application/json' },
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+    });
+    return { code:response.status, json:await response.json() };
+  };
+
+  const opened = await ask('/v1/open', { method:'POST', body:{ path:'COM7' } });
+  assert.equal(opened.json.portOpen, true);
+  serialState.activePort.emit('error', new Error('simulated serial fault'));
+  const status = await ask('/v1/status');
+  assert.equal(status.json.portOpen, false);
+  assert.equal(status.json.sessionId, null);
+  assert.equal(status.json.cableBinding, null);
+  assert.equal(status.json.ecuVerified, false);
+});
