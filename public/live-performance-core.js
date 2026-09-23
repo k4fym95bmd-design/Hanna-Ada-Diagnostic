@@ -39,19 +39,24 @@ export function createLivePerformanceController({
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0;
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
   let latencyCount = 0, latencyCursor = 0;
+  let p95Cache = null, p95Dirty = true;
 
   const recordLatency = value => {
     const safe = clamp(value, 0, 60_000);
     latencyWindow[latencyCursor] = safe;
     latencyCursor = (latencyCursor + 1) % LATENCY_WINDOW_SIZE;
     latencyCount = Math.min(latencyCount + 1, LATENCY_WINDOW_SIZE);
+    p95Dirty = true;
     return safe;
   };
 
   const percentile95 = () => {
     if (!latencyCount) return null;
+    if (!p95Dirty) return p95Cache;
     const copy = Array.from(latencyWindow.slice(0, latencyCount)).sort((a, b) => a - b);
-    return copy[Math.min(copy.length - 1, Math.ceil(copy.length * 0.95) - 1)];
+    p95Cache = copy[Math.min(copy.length - 1, Math.ceil(copy.length * 0.95) - 1)];
+    p95Dirty = false;
+    return p95Cache;
   };
 
   const computeDelay = () => {
@@ -69,10 +74,11 @@ export function createLivePerformanceController({
     const quiet = lastDelayMs ?? computeDelay();
     const total = lastCycleMs == null ? null : lastCycleMs + quiet;
     const dutyCyclePct = total && total > 0 ? Math.round((lastCycleMs / total) * 100) : null;
+    const p95 = percentile95();
     return Object.freeze({
       running, reads, noData, errors, cycles,
       averageMs: averageMs == null ? null : Math.round(averageMs),
-      p95Ms: percentile95() == null ? null : Math.round(percentile95()),
+      p95Ms: p95 == null ? null : Math.round(p95),
       latencySamples: latencyCount,
       lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
       lastDelayMs: lastDelayMs == null ? null : Math.round(lastDelayMs),
