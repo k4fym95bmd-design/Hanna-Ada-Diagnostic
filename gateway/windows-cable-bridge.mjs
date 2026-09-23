@@ -51,7 +51,6 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
   if (!isLoopback(host) && !allowedOrigin.startsWith('https://')) throw new TypeError('LAN access requires an HTTPS browser origin');
   const bridgeInstanceId = randomBytes(16).toString('hex');
-  const bridgeInstanceId = randomBytes(16).toString('hex');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   let sessionEpoch = 0;
   let stateRevision = 0;
