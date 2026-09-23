@@ -259,14 +259,21 @@ impl DesktopReadOnlyRequestBroker {
             }
         }
         let receipt = self.record_receive(epoch, protocol, received_bytes)?;
+        let fingerprint_conflicts = {
+            let active = self.active.as_ref().ok_or_else(|| "no_active_request".to_string())?;
+            matches!(
+                active.identity_fingerprint.as_deref(),
+                Some(existing) if existing != fingerprint
+            )
+        };
+        if fingerprint_conflicts {
+            self.active = None;
+            return Err("native_identity_fingerprint_changed_within_request".into());
+        }
+
         let active = self.active.as_mut().ok_or_else(|| "no_active_request".to_string())?;
-        match active.identity_fingerprint.as_deref() {
-            Some(existing) if existing != fingerprint => {
-                self.active = None;
-                return Err("native_identity_fingerprint_changed_within_request".into());
-            }
-            None => active.identity_fingerprint = Some(fingerprint.to_string()),
-            _ => {}
+        if active.identity_fingerprint.is_none() {
+            active.identity_fingerprint = Some(fingerprint.to_string());
         }
         Ok(receipt)
     }
@@ -525,6 +532,36 @@ mod tests {
         );
         assert_eq!(done.active_receive_receipt, None);
         assert_eq!(done.active_received_bytes, 0);
+    }
+
+    #[test]
+    fn fingerprint_conflict_drops_active_request_fail_closed() {
+        let (transport, native) = configured_transport();
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+        broker.prepare(
+            &transport, &native, 7,
+            "e39-dme-me72-module-identity",
+            "broker-request-fingerprint-conflict",
+            "KWP2000_BMW", 750, 197,
+        ).unwrap();
+
+        broker.record_identity_receive(
+            7, "KWP2000_BMW", 8,
+            "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
+        ).unwrap();
+
+        assert_eq!(
+            broker.record_identity_receive(
+                7, "KWP2000_BMW", 8,
+                "PN9999999-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
+            ).unwrap_err(),
+            "native_identity_fingerprint_changed_within_request"
+        );
+        let snapshot = broker.snapshot();
+        assert_eq!(snapshot.stage, "BROKER_IDLE");
+        assert!(!snapshot.active_request);
+        assert_eq!(snapshot.evidenced_attempt_count, 0);
     }
 
     #[test]
