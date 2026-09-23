@@ -151,3 +151,78 @@ test('disconnect while transport is pending never credits a stale reading', asyn
   assert.equal(c.metrics().reads, 0);
   assert.equal(c.metrics().cycles, 0);
 });
+
+
+test('snapshot while live replaces the pending timer instead of creating timer churn', async () => {
+  const timer = mockTimer();
+  const c = createLivePerformanceController({
+    readPid: async () => 1,
+    getSupported: () => new Set([0x0c]),
+    isConnected: () => true,
+    ...timer,
+  });
+  c.start();
+  await timer.tick();
+  assert.equal(timer.active().length, 1);
+  const before = c.metrics().timerReschedules;
+  const snap = await c.snapshot();
+  assert.equal(snap.completed, 2);
+  assert.equal(timer.active().length, 1);
+  assert.ok(c.metrics().timerReschedules > before);
+  await c.stop();
+});
+
+test('slow sequential cycles automatically receive a longer quiet interval without increasing bus pressure', async () => {
+  const timer = mockTimer();
+  let now = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { now += 500; return 1; },
+    getSupported: () => all,
+    isConnected: () => true,
+    now: () => now,
+    ...timer,
+  });
+  c.start();
+  await timer.tick();
+  assert.equal(c.metrics().lastCycleMs, 2000);
+  assert.equal(timer.active()[0].ms, 1500);
+  assert.equal(c.metrics().lastDelayMs, 1500);
+  assert.ok(c.metrics().dutyCyclePct <= 58);
+  await c.stop();
+});
+
+test('supported PID evidence failure is fail-closed and never invokes transport', async () => {
+  let reads = 0;
+  const messages = [];
+  const c = createLivePerformanceController({
+    readPid: async () => { reads++; return 1; },
+    getSupported: () => { throw new Error('bad discovery cache'); },
+    isConnected: () => true,
+    onStatus: message => messages.push(message),
+  });
+  const result = await c.snapshot();
+  assert.deepEqual(result, { skipped: 'PID_EVIDENCE_UNAVAILABLE' });
+  assert.equal(reads, 0);
+  assert.equal(c.metrics().errors, 1);
+  assert.match(messages[0], /potwierdzonych PID/i);
+});
+
+test('wake calls coalesce while a read is in flight and never create a second command', async () => {
+  let resolveRead;
+  const timer = mockTimer();
+  const c = createLivePerformanceController({
+    readPid: () => new Promise(resolve => { resolveRead = resolve; }),
+    getSupported: () => new Set([0x0c]),
+    isConnected: () => true,
+    ...timer,
+  });
+  c.start();
+  const tick = timer.tick();
+  await flush();
+  assert.equal(c.metrics().inFlight, true);
+  assert.equal(c.wake(), false);
+  assert.equal(c.metrics().wakeCoalesced, 1);
+  resolveRead(1);
+  await tick;
+  await c.stop();
+});
