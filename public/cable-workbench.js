@@ -15,6 +15,8 @@ const usbId = value => {
   return typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';
 };
 const usbHex = usbId;
+const usbFingerprint = value => typeof value === 'string' && /^[a-f0-9]{16,64}$/i.test(value)
+  ? value.toLowerCase() : '';
 const rootNow = () => document.querySelector('#haCableWorkbench');
 const report = (message, failed = false) => { work.message = message; const r = rootNow(); if (r) { $(r, '[data-cable-message]').textContent = message; $(r, '[data-cable-message]').classList.toggle('ha-cable-error', failed); } };
 function display() {
@@ -42,6 +44,7 @@ function display() {
     option.value = p.path;
     option.dataset.vendorId = p.vendorId || '';
     option.dataset.productId = p.productId || '';
+    option.dataset.hardwareFingerprint = p.hardwareFingerprint || '';
     const id = p.vendorId && p.productId ? ` · ${p.vendorId}:${p.productId}` : '';
     option.textContent = `${p.path} · ${p.manufacturer || 'port szeregowy'}${id}`;
     return option;
@@ -171,6 +174,7 @@ async function applyBridgeReadiness(result) {
     manufacturer: String(p.manufacturer || '').slice(0, 100),
     vendorId: usbId(p.vendorId),
     productId: usbId(p.productId),
+    hardwareFingerprint: usbFingerprint(p.hardwareFingerprint),
   }));
   const readiness = assessCablePlugReadiness(work.ports);
   work.selectedPath = readiness.recommendedPath
