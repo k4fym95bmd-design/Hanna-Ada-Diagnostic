@@ -83,7 +83,7 @@ test('echo or mismatch consumes token and requires a new request id', () => {
   const first = session.prepareAttempt('corr-request-echo');
   const rejected = session.consumeAttempt({
     receiveEvidence: evidence(first.requestId, {
-      frames: [{ directionHint: 'possible-echo' }],
+      frames: [{ directionHint: 'possible-echo', frameHex: 'B8 12 F1 01 A2 F8' }],
     }),
     responseRequestId: first.requestId,
     moduleIdentity: 'ME7.2',
