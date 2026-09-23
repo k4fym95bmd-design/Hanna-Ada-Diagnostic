@@ -91,5 +91,26 @@ test('output status profile is native-attestation-gated and not actuation', () =
   assert.equal(profile.writesEnabled,false);
   assert.equal(profile.flashEnabled,false);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,5);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,6);
+});
+
+
+test('DTC-count profile is contract-verified, read-only and clear-DTC locked', () => {
+  const profile=getMe72ReadOnlyDataProfile('e39-me72-dtc-count-a200');
+  assert.equal(profile.operationId,'e39-dme-me72-dtc-count');
+  assert.equal(profile.operation,'DTC_COUNT');
+  assert.equal(profile.dataIdentifier,null);
+  assert.equal(profile.parserId,'e39-me72-dtc-count-a200-v1');
+  assert.equal(profile.verificationState,'REFERENCE_CONTRACT_VERIFIED');
+  assert.equal(profile.executorId,'desktop_execute_me72_dtc_count');
+  assert.equal(profile.executionEnabled,true);
+  assert.equal(profile.requiresVerifiedIdentity,true);
+  assert.equal(profile.requiresNativeAttestation,true);
+  assert.equal(profile.txBytesExposed,false);
+  assert.equal(profile.writeLike,false);
+  assert.equal(profile.clearDtcEnabled,false);
+  assert.equal(profile.writesEnabled,false);
+  assert.equal(profile.flashEnabled,false);
+  assert.equal(assertMe72DataExecutionGated(profile.id),profile);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,6);
 });
