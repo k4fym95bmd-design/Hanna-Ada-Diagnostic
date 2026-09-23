@@ -9,12 +9,18 @@ const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
 const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 'desktop';
 const errText = e => e instanceof TypeError ? e.message : 'Operacja nie powiodła się. Sprawdź uprawnienia, sterownik i połączenie.';
-const usbId = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';\nconst usbHex = value => Number.isInteger(value) && value >= 0 && value <= 0xFFFF ? value.toString(16).toUpperCase().padStart(4, '0') : '';
+const usbId = value => {
+  if (Number.isInteger(value) && value >= 0 && value <= 0xFFFF) return value.toString(16).toUpperCase().padStart(4, '0');
+  return typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';
+};
+const usbHex = usbId;
 const rootNow = () => document.querySelector('#haCableWorkbench');
 const report = (message, failed = false) => { work.message = message; const r = rootNow(); if (r) { $(r, '[data-cable-message]').textContent = message; $(r, '[data-cable-message]').classList.toggle('ha-cable-error', failed); } };
 function display() {
   const root = rootNow(); if (!root) return;
   const status = cableStatus({ cableDetected: work.detected, portOpen: work.opened });
+  root.dataset.cablePortOpen = String(work.opened);
+  root.dataset.cableModeCurrent = work.mode;
   const states = [status.cableDetected, status.portOpen, status.ecuVerified];
   root.querySelectorAll('[data-cable-stage]').forEach((item, index) => {
     item.classList.toggle('verified', states[index]);
@@ -61,6 +67,8 @@ async function action(name) {
       if (work.serialPort || work.opened) throw new TypeError('Najpierw zamknij lub odrzuć poprzedni port.');
       work.serialPort = await navigator.serial.requestPort();
       const info = work.serialPort.getInfo?.() || {};
+      root.dataset.directUsbVendorId = usbHex(info.usbVendorId);
+      root.dataset.directUsbProductId = usbHex(info.usbProductId);
       work.detected = true; work.opened = false;
       const usb = usbIdentity({ vendorId: info.usbVendorId, productId: info.usbProductId });
       let hint = 'chipset nieustalony';
@@ -76,6 +84,8 @@ async function action(name) {
     } else if (name === 'desktop-close') {
       if (work.serialPort && work.opened) await work.serialPort.close();
       work.serialPort = null; work.detected = work.opened = false;
+      delete root.dataset.directUsbVendorId;
+      delete root.dataset.directUsbProductId;
       report('Port USB zamknięty; sesja zakończona.');
     } else if (name === 'bridge-connect') {
       work.bridgeUrl = validateBridgeUrl($(root, '[data-cable-url]').value.trim());
@@ -103,6 +113,8 @@ async function action(name) {
   } catch (error) {
     if (name.startsWith('bridge-')) {
       work.bridgeOnline = false; work.detected = work.opened = false;
+      delete root.dataset.bridgeUsbVendorId;
+      delete root.dataset.bridgeUsbProductId;
       report(`${errText(error)} Stan fizycznego portu Windows jest teraz nieznany.`, true);
     } else {
       if (name === 'desktop-open') work.opened = false;
@@ -113,6 +125,17 @@ async function action(name) {
 function useBridgeStatus(raw) {
   const state = validateBridgeStatus(raw);
   work.detected = state.cableDetected; work.opened = state.portOpen; work.bridgeOnline = true;
+  const root = rootNow();
+  if (root) {
+    const parts = typeof raw?.cableBinding?.vidPid === 'string' ? raw.cableBinding.vidPid.split(':') : [];
+    if (parts.length === 2 && usbId(parts[0]) && usbId(parts[1])) {
+      root.dataset.bridgeUsbVendorId = usbId(parts[0]);
+      root.dataset.bridgeUsbProductId = usbId(parts[1]);
+    } else {
+      delete root.dataset.bridgeUsbVendorId;
+      delete root.dataset.bridgeUsbProductId;
+    }
+  }
 }
 async function bridgeRequest(path, payload) {
   if (!work.bridgeUrl || !work.bridgeToken) throw new TypeError('Najpierw połącz most Windows.');
@@ -155,7 +178,11 @@ function attach() {
   section.querySelector('[data-cable-port]').addEventListener('change', event => { work.selectedPath = event.target.value; });
   section.querySelectorAll('[data-cable-mode]').forEach(button => button.addEventListener('click', () => {
     if (work.opened && work.mode !== button.dataset.cableMode) { report('Najpierw zamknij aktywny port kabla.', true); return; }
-    if (work.mode !== button.dataset.cableMode && work.mode === 'desktop') work.serialPort = null;
+    if (work.mode !== button.dataset.cableMode && work.mode === 'desktop') {
+      work.serialPort = null;
+      delete section.dataset.directUsbVendorId;
+      delete section.dataset.directUsbProductId;
+    }
     work.mode = button.dataset.cableMode; work.detected = work.opened = false; display();
   }));
   section.querySelectorAll('button[data-cable-action]').forEach(button => button.addEventListener('click', () => action(button.dataset.cableAction)));
@@ -167,6 +194,11 @@ if (typeof document !== 'undefined') {
   navigator.serial?.addEventListener?.('disconnect', event => {
     if (work.serialPort && (event.port === work.serialPort || event.target === work.serialPort)) {
       work.serialPort = null; work.detected = work.opened = false;
+      const root = rootNow();
+      if (root) {
+        delete root.dataset.directUsbVendorId;
+        delete root.dataset.directUsbProductId;
+      }
       report('Port USB odłączony. Status ECU unieważniony.', true); display();
     }
   });
