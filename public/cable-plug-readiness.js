@@ -2,12 +2,15 @@ import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 
 const cleanHex = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value)
   ? value.toUpperCase() : '';
+const cleanFingerprint = value => typeof value === 'string' && /^[a-f0-9]{16,64}$/i.test(value)
+  ? value.toLowerCase() : '';
 
 export function scoreCablePort(port = {}) {
   const path = typeof port.path === 'string' ? port.path.slice(0, 240) : '';
   const manufacturer = typeof port.manufacturer === 'string' ? port.manufacturer.slice(0, 100) : '';
   const vendorId = cleanHex(port.vendorId);
   const productId = cleanHex(port.productId);
+  const hardwareFingerprint = cleanFingerprint(port.hardwareFingerprint);
 
   let score = 0;
   let family = 'UNKNOWN';
@@ -39,6 +42,7 @@ export function scoreCablePort(port = {}) {
     manufacturer,
     vendorId: vendorId || null,
     productId: productId || null,
+    hardwareFingerprint: hardwareFingerprint || null,
     vidPid: vendorId && productId ? `${vendorId}:${productId}` : null,
     family,
     score,
@@ -51,7 +55,7 @@ export function scoreCablePort(port = {}) {
 
 export function cablePortEvidenceKey(port = {}) {
   const scored = scoreCablePort(port);
-  return [scored.path, scored.vendorId || '', scored.productId || ''].join('|');
+  return [scored.path, scored.vendorId || '', scored.productId || '', scored.hardwareFingerprint || ''].join('|');
 }
 
 export function findNewCablePorts(before = [], after = []) {
