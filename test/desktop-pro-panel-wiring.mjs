@@ -25,6 +25,8 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /executeDesktopMe72OutputStatus/);
   assert.match(panel, /deriveMe72OutputStatusFromEvidence/);
   assert.match(panel, /executeDesktopMe72Readiness/);
+  assert.match(panel, /executeDesktopMe72DtcCount/);
+  assert.match(panel, /deriveMe72DtcCountFromEvidence/);
   assert.match(panel, /deriveMe72ReadinessFromEvidence/);
   assert.match(panel, /deriveMe72FuelAdaptationFromEvidence/);
   assert.match(panel, /deriveMe72EngineSnapshotFromEvidence/);
@@ -225,4 +227,17 @@ test('output status UI is finalized-identity gated and status-only', async () =>
   assert.match(panel,/status-only\/read-only/);
   assert.doesNotMatch(panel,/executeDesktopMe72OutputStatus\([\s\S]{0,120}(payload|command|bytes|actuation|value)\s*:/);
   assert.doesNotMatch(panel,/name === 'read-fuel-adaptation'/);
+});
+
+
+test('DTC-count UI is finalized-identity gated and clear-DTC remains absent', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-action="read-dtc-count"/);
+  assert.match(panel,/'read-dtc-count': state\.ready && configured && finalized/);
+  assert.match(panel,/executeDesktopMe72DtcCount\(state\.snapshot\.epoch, window\)/);
+  assert.match(panel,/deriveMe72DtcCountFromEvidence\(state\.evidence\)/);
+  assert.match(panel,/readonlyProfileId !== 'e39-me72-dtc-count-a200'/);
+  assert.match(panel,/nativeIdentityFingerprint !== state\.identityResult\.moduleIdentity/);
+  assert.match(panel,/DTC count sample #/);
+  assert.doesNotMatch(panel,/data-desktop-pro-action="clear-dtc"|desktop_clear_dtc|executeDesktop.*ClearDtc|clearDtc\s*:/i);
 });
