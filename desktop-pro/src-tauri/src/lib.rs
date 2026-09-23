@@ -71,7 +71,7 @@ fn desktop_bind_serial_candidate(
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let inventory = desktop_serial_inventory::list_sanitized_ports()?;
-    // Lock order is always coordinator -> native across every command.
+    // Canonical lock order: coordinator -> native -> broker -> attestation.
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     if native.is_open() {
@@ -127,6 +127,7 @@ fn desktop_read_bounded(
     timeout_ms: u64,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let snapshot = coordinator.snapshot();
@@ -136,10 +137,27 @@ fn desktop_read_bounded(
 
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     match native.read_bounded(epoch, max_bytes, timeout_ms) {
-        Ok(result) => Ok(result),
+        Ok(mut result) => {
+            let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+            let broker_state = broker.snapshot();
+            if result.received_bytes > 0 && broker_state.active_request {
+                match broker.record_receive(epoch, result.protocol, result.received_bytes) {
+                    Ok(receipt) => result.native_request_receipt = Some(receipt),
+                    Err(error) => {
+                        native.close_any();
+                        let _ = coordinator.mark_closed(epoch);
+                        broker.reset(epoch);
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(result)
+        }
         Err(error) => {
             native.close_any();
             let _ = coordinator.mark_closed(epoch);
+            let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+            broker.reset(epoch);
             Err(error)
         }
     }
@@ -198,6 +216,7 @@ fn desktop_prepare_readonly_request(
 fn desktop_consume_readonly_request(
     epoch: u64,
     request_id: String,
+    native_request_receipt: u64,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
@@ -207,7 +226,7 @@ fn desktop_consume_readonly_request(
         return Err("transport_not_configured_for_epoch".into());
     }
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
-    broker.consume(epoch, &request_id)
+    broker.consume(epoch, &request_id, native_request_receipt)
 }
 
 #[tauri::command]
