@@ -98,6 +98,8 @@ export class TrustedCorrelationSession {
       attemptCount: this.#issuedRequestIds.size,
       maxAttempts: MAX_CORRELATION_ATTEMPTS,
       moduleIdentity: verifier.moduleIdentity,
+      confirmedRequestIds: verifier.confirmedRequestIds,
+      confirmedNativeReceipts: verifier.confirmedNativeReceipts,
       repeatCandidateReady: verifier.repeatCandidateReady,
       localAttestationRequired: true,
       identityVerified: false,
