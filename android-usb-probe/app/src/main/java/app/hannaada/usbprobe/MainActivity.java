@@ -36,6 +36,7 @@ import java.util.Map;
 public final class MainActivity extends Activity {
     private static final String ACTION_PERMISSION = "app.hannaada.usbprobe.USB_PERMISSION";
     private UsbManager usbManager;
+    private AndroidKdcanUsbBridge usbSessionBridge;
     private LinearLayout content;
     private boolean receiverRegistered;
     private volatile boolean portTestRunning;
@@ -48,7 +49,10 @@ public final class MainActivity extends Activity {
             if (ACTION_PERMISSION.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) lastPortResult = null;
+                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                    if (usbSessionBridge != null) usbSessionBridge.onUsbDetached();
+                    lastPortResult = "Kabel odłączony — sesja USB i wszystkie dowody unieważnione.";
+                }
                 render();
             }
         }
@@ -57,6 +61,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        usbSessionBridge = new AndroidKdcanUsbBridge(usbManager);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.rgb(17, 22, 31));
@@ -82,6 +87,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         if (receiverRegistered) unregisterReceiver(usbEvents);
         receiverRegistered = false;
+        if (usbSessionBridge != null) usbSessionBridge.closeAndInvalidate();
         super.onDestroy();
     }
 
@@ -158,7 +164,7 @@ public final class MainActivity extends Activity {
 
     private void render() {
         content.removeAllViews();
-        label("HANNA & ADA / USB-SERIAL EVIDENCE v0.5", 22, Color.rgb(100, 168, 255));
+        label("HANNA & ADA / USB-SERIAL SESSION v0.6", 22, Color.rgb(100, 168, 255));
         label("TEST WYŁĄCZNIE POZA AUTEM · ZERO POLECEŃ DO ECU", 13,
                 Color.rgb(255, 145, 145));
         label("Tablet: " + Build.MANUFACTURER + " " + Build.MODEL + " · Android API "
@@ -226,7 +232,8 @@ public final class MainActivity extends Activity {
                 15, Color.rgb(155, 227, 190));
         action("Kopiuj bezpieczny raport USB do ChatGPT", view -> copyReport());
         label("Raport: tylko API Androida, USB Host, VID:PID, liczba interfejsów i zgoda. "
-                + "Test portu NIE komunikuje się z BMW i NIE uruchamia INPA/ISTA. "
+                + "Test portu tworzy krótką sesję transportową, ale NIE czyta, NIE zapisuje "
+                + "i NIE komunikuje się z BMW ani nie uruchamia INPA/ISTA. "
                 + "Działanie z konkretnym urządzeniem Android i tym kablem pozostaje do sprawdzenia.",
                 13, Color.LTGRAY);
     }
@@ -245,11 +252,19 @@ public final class MainActivity extends Activity {
         lastPortResult = null;
         render();
         new Thread(() -> {
-            final String result = UsbSerialLink.testOpenAndClose(usbManager, device);
+            final AndroidKdcanUsbBridge.Result opened = usbSessionBridge.openNoTraffic(device);
+            final AndroidKdcanUsbBridge.Result closed = opened.opened
+                    ? usbSessionBridge.closeAndInvalidate() : opened;
+            final String result = opened.opened
+                    ? "SUKCES: fizyczny port USB-serial otwarty w sesji epoch " + opened.epoch
+                        + " · driver " + opened.driverFamily
+                        + " · następnie zamknięty i unieważniony. Zero transmisji do BMW."
+                    : "BLOKADA: " + opened.stage
+                        + ". Nie utworzono aktywnej sesji diagnostycznej.";
             runOnUiThread(() -> {
                 portTestRunning = false;
                 if (!isFinishing()) {
-                    lastPortResult = result;
+                    lastPortResult = result + " Stan końcowy: " + closed.stage + ".";
                     render();
                 }
             });
