@@ -139,3 +139,30 @@ test('Desktop bounded read never correlates RX bytes to a request that appeared 
   assert.match(bounded, /transport_changed_after_io/);
   assert.match(bounded, /native_snapshot\.epoch != epoch/);
 });
+
+
+test('Desktop serial open releases coordinator and attestation during OS open', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const open = source.slice(
+    source.indexOf('fn desktop_open_configured_port'),
+    source.indexOf('fn desktop_read_bounded')
+  );
+  assert.match(open, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+  const io = open.slice(open.indexOf('// Phase 2:'), open.indexOf('// Phase 3:'));
+  assert.match(io, /native\.lock\(\)/);
+  assert.match(io, /open_configured\(&bound, epoch, &protocol, baud_rate\)/);
+  assert.doesNotMatch(io, /state\.lock\(\)|attestation\.lock\(\)/);
+});
+
+test('Desktop serial open revalidates epoch and native protocol before promotion', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const open = source.slice(
+    source.indexOf('fn desktop_open_configured_port'),
+    source.indexOf('fn desktop_read_bounded')
+  );
+  assert.match(open, /current\.epoch != epoch/);
+  assert.match(open, /native_snapshot\.epoch != epoch/);
+  assert.match(open, /native_snapshot\.protocol != Some\(protocol\.as_str\(\)\)/);
+  assert.match(open, /transport_changed_during_open/);
+  assert.match(open, /Never leave a native handle open if coordinator promotion fails/);
+});
