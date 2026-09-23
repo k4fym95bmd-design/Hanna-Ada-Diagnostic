@@ -35,3 +35,9 @@ At every earlier stage `ecuVerified=false`, `writesEnabled=false`, and `flashEna
 ## Next engineering gate
 
 Capture the actual USB VID:PID and OS driver from this physical adapter through the existing workbench. The single-session USB binding is now implemented; the remaining gap is the verified OS driver plus a real read-only BMW response tied to that same session. Only after a real read-only ECU transcript is available should the protocol-specific identity layer advance the BMW module state.
+
+## Bridge binding now implemented
+
+The Windows bridge now exposes a session-scoped `cableBinding` when the opened COM port has a usable USB VID:PID. The binding is tied to the same bridge session ID and the observed USB identity. If the same COM path suddenly reports a different VID:PID, Hanna & Ada drops the cable binding instead of silently trusting the replacement device. The port can remain physically open while BMW protocol and ECU identity stay unverified.
+
+This still does not create any transmit route. `POST /v1/transmit` remains absent, and the bridge continues to expose only USB enumeration/open/close plus bounded passive RX.
