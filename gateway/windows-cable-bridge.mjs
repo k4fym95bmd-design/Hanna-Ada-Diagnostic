@@ -28,6 +28,17 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   const clearRx = () => { rxMonitor?.dispose(); rxMonitor = null; };
+  const invalidateActiveSession = () => {
+    const stalePort = active;
+    clearRx();
+    kdcanSession = null;
+    active = null;
+    sessionId = null;
+    selected = null;
+    try {
+      if (stalePort?.isOpen) stalePort.close(() => {});
+    } catch {}
+  };
   const equalToken = candidate => {
     const provided = Buffer.from(candidate || '');
     const expected = Buffer.from(token);
@@ -38,11 +49,13 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     const selectedPort = selected !== null ? ports.find(p => p.path === selected) || null : null;
     const detected = selectedPort !== null;
     if (!detected && selected !== null && active?.isOpen) {
-      clearRx();
-      kdcanSession = null;
-      try { active.close(() => {}); } catch {}
-      active = null;
-      sessionId = null;
+      invalidateActiveSession();
+      return {
+        version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+        selectedPath: null, sessionId: null, cableBinding: null,
+        ecuVerified: false, writesEnabled: false, flashEnabled: false,
+        message: 'Kabel zniknął z enumeracji. Sesja została unieważniona.'
+      };
     }
     const opened = !!(detected && active?.isOpen);
     let cableBinding = null;
@@ -53,15 +66,14 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         try {
           kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected });
           cableBinding = kdcanSession.snapshot();
-        } catch (error) {
-          if (/expired|No active/i.test(String(error?.message || ''))) {
-            kdcanSession = new KdcanReadonlySession();
-            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN' });
-            kdcanSession.markPortOpen({ sessionId });
-            cableBinding = kdcanSession.snapshot();
-          } else {
-            kdcanSession = null;
-          }
+        } catch {
+          invalidateActiveSession();
+          return {
+            version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+            selectedPath: null, sessionId: null, cableBinding: null,
+            ecuVerified: false, writesEnabled: false, flashEnabled: false,
+            message: 'Tożsamość kabla lub świeżość sesji zmieniła się. Port zamknięto i sesję unieważniono.'
+          };
         }
       }
     }
@@ -177,7 +189,12 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           rxMonitor = attachPassiveRx(port);
           const localSession = sessionId;
           port.on?.('close', () => {
-            if (sessionId === localSession) { clearRx(); kdcanSession = null; active = null; sessionId = null; }
+            if (sessionId === localSession) {
+              clearRx(); kdcanSession = null; active = null; sessionId = null; selected = null;
+            }
+          });
+          port.on?.('error', () => {
+            if (sessionId === localSession) invalidateActiveSession();
           });
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
