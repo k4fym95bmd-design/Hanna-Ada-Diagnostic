@@ -9,6 +9,7 @@ const FAST = Object.freeze(['rpm', 'coolant']);
 const SLOW = Object.freeze(['maf', 'throttle', 'stft1', 'ltft1', 'stft2', 'ltft2', 'iat', 'speed', 'load', 'voltage']);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LATENCY_WINDOW_SIZE = 32;
+const CYCLE_BUDGET_MS = 2500;
 
 export function selectLiveBatch(supported, cursor = 0) {
   // PID discovery must have provided actual support evidence. Never probe all
@@ -36,7 +37,7 @@ export function createLivePerformanceController({
 
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
-  let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0;
+  let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0, budgetStops = 0;
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
   let latencyCount = 0, latencyCursor = 0;
   let p95Cache = null, p95Dirty = true;
@@ -86,6 +87,7 @@ export function createLivePerformanceController({
       dutyCyclePct,
       wakeCoalesced,
       timerReschedules,
+      budgetStops,
       inFlight: !!currentTask,
       queuedCommands: 0,
       writesEnabled: false,
@@ -158,8 +160,14 @@ export function createLivePerformanceController({
     const task = (async () => {
       const start = now();
       let completed = 0;
+      let budgetLimited = false;
       for (const key of batch.keys) {
         if (!isConnected() || epoch !== owner || (backgroundSensitive && !isVisible())) break;
+        if (now() - start >= CYCLE_BUDGET_MS && completed > 0) {
+          budgetStops++;
+          budgetLimited = true;
+          break;
+        }
         const before = now();
         try {
           const sample = await readPid(key);
@@ -184,7 +192,7 @@ export function createLivePerformanceController({
         cycles++;
         lastCycleMs = clamp(now() - start, 0, 300_000);
       }
-      return Object.freeze({ completed, attempted: batch.keys.length, stopped: !running });
+      return Object.freeze({ completed, attempted: batch.keys.length, budgetLimited, stopped: !running });
     })();
 
     currentTask = task;
