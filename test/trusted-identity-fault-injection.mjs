@@ -53,7 +53,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
         assert.throws(() => session.prepareAttempt(lastRequestId), /replay|already active|local attestation|attempt limit/i);
       } else if (action === 2 && activePlan) {
         const result = session.consumeAttempt({
-          receiveEvidence: makeEvidence(epoch, 'possible-echo'),
+          receiveEvidence: makeEvidence(epoch, 'possible-echo', 10000 + step),
           responseRequestId: activePlan.requestId,
           moduleIdentity: 'ME7.2',
         });
@@ -61,7 +61,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
         activePlan = null;
       } else if (action === 3 && activePlan) {
         const result = session.consumeAttempt({
-          receiveEvidence: makeEvidence(epoch),
+          receiveEvidence: makeEvidence(epoch, 'possible-reply', 20000 + step),
           responseRequestId: activePlan.requestId,
           moduleIdentity: 'ME7.2',
         });
@@ -69,7 +69,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
         activePlan = null;
       } else if (action === 4 && activePlan) {
         const result = session.consumeAttempt({
-          receiveEvidence: makeEvidence(epoch),
+          receiveEvidence: makeEvidence(epoch, 'possible-reply', 30000 + step),
           responseRequestId: activePlan.requestId,
           moduleIdentity: 'ME7.2_ALT',
         });
