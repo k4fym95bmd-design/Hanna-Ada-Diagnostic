@@ -10,14 +10,40 @@ const say = (text, error = false) => {
   const el = $('#haRuntimeStatus');
   if (el) { el.textContent = text; el.classList.toggle('bad', error); }
 };
-function updateMetrics(stats) {
+
+let metricFrame = null;
+let pendingMetrics = null;
+let lastMetricText = '';
+function commitMetrics() {
+  metricFrame = null;
+  const stats = pendingMetrics;
+  pendingMetrics = null;
+  if (!stats) return;
   const el = $('#haPerformanceStats');
   if (!el) return;
   const latency = stats.averageMs === null ? '—' : `${stats.averageMs} ms`;
-  el.textContent = `PRO · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · opóźnienie ${latency} · kolejka 0`;
+  const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
+  const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
+  const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize} · kolejka 0`;
+  if (text !== lastMetricText) {
+    el.textContent = text;
+    lastMetricText = text;
+  }
   const button = $('#haLiveToggle');
-  if (button) button.textContent = stats.running ? 'STOP LIVE' : 'START LIVE';
+  const label = stats.running ? 'STOP LIVE' : 'START LIVE';
+  if (button && button.textContent !== label) button.textContent = label;
 }
+function updateMetrics(stats) {
+  pendingMetrics = stats;
+  if (metricFrame !== null) return;
+  if (typeof requestAnimationFrame === 'function') {
+    metricFrame = requestAnimationFrame(commitMetrics);
+  } else {
+    metricFrame = setTimeout(commitMetrics, 0);
+  }
+}
+
 const controller = createLivePerformanceController({
   readPid: key => obd.readPid(key),
   getSupported: () => obd.supported,
@@ -26,6 +52,7 @@ const controller = createLivePerformanceController({
   onMetrics: updateMetrics,
   onStatus: message => say(message, true),
 });
+
 function subscribeDisconnect() {
   const device = obd.device;
   if (device && typeof device.addEventListener === 'function' && !attachedDevices.has(device)) {
@@ -33,6 +60,7 @@ function subscribeDisconnect() {
     device.addEventListener('gattserverdisconnected', () => { void controller.stop(); updateMetrics(controller.metrics()); });
   }
 }
+
 function startOrStop() {
   if (controller.isRunning()) {
     void controller.stop();
@@ -41,18 +69,21 @@ function startOrStop() {
   }
   subscribeDisconnect();
   if (!controller.start()) { say('Najpierw potwierdź połączenie z ECU.', true); return; }
-  say('PRO Live: do 4 odczytów na cykl · adaptacyjne tempo · bez równoległych poleceń.');
+  say('ULTRA Live: maks. 4 sekwencyjne odczyty · adaptacyjny budżet magistrali · zero równoległych poleceń.');
 }
+
 async function snapshot() {
   subscribeDisconnect();
   const result = await controller.snapshot();
   if (result.skipped === 'BUS_BUSY') say('Magistrala zajęta; nie uruchamiam równoległego odczytu.', true);
   else if (result.skipped === 'ECU_OFFLINE') say('ECU offline; odczyt niewykonany.', true);
   else if (result.skipped === 'NO_VERIFIED_PIDS') say('Najpierw zweryfikuj dostępne PID.', true);
+  else if (result.skipped === 'PID_EVIDENCE_UNAVAILABLE') say('Brak poprawnej listy potwierdzonych PID.', true);
   else if (result.completed < result.attempted) {
     say(`Migawka niepełna: ${result.completed}/${result.attempted} poprawnych odczytów. NO DATA i błędy są pokazane osobno.`, true);
-  } else say(`Migawka PRO: ${result.completed}/${result.attempted} poprawnych odczytów.`);
+  } else say(`Migawka ULTRA: ${result.completed}/${result.attempted} poprawnych odczytów.`);
 }
+
 function bind() {
   const root = $('#haRuntime');
   if (!root) {
@@ -92,6 +123,7 @@ function bind() {
   obd.toggleLive = startOrStop;
   updateMetrics(controller.metrics());
 }
+
 function boot() {
   const view = $('#view');
   if (!view) return;
@@ -100,5 +132,6 @@ function boot() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) controller.wake(); });
   window.addEventListener('pagehide', () => { void controller.stop(); });
 }
+
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
 else boot();
