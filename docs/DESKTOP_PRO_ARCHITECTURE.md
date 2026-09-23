@@ -87,3 +87,23 @@ Release signing is a separate production gate and is not claimed by the current 
 - Calling Rust from frontend: https://v2.tauri.app/develop/calling-rust/
 - Capabilities: https://v2.tauri.app/security/capabilities/
 - Windows installer: https://v2.tauri.app/distribute/windows-installer/
+
+
+## Native serial inventory
+
+Desktop PRO now exposes a narrow `desktop_list_serial_ports` command backed by Rust `serialport::available_ports()`.
+
+The IPC result is intentionally sanitized:
+- port name;
+- transport kind;
+- USB VID/PID when available;
+- manufacturer/product strings when available;
+- a cautious USB-family candidate hint.
+
+Explicitly excluded:
+- USB serial number;
+- raw serial handle;
+- open/write capability;
+- any ECU or BMW verification claim.
+
+Known VID/PID values are hints only. They can label FTDI/CP210X/CH34X/PL2303 candidates but never prove a K+DCAN cable or ECU session.
