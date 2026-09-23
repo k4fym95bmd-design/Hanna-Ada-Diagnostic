@@ -1,8 +1,10 @@
 use crate::desktop_transport_coordinator::DesktopTransportSnapshot;
 use serde::Serialize;
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
+
+const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,6 +160,71 @@ impl DesktopNativeSerialState {
         Ok(self.snapshot())
     }
 
+    pub fn execute_me72_identity(
+        &mut self,
+        expected_epoch: u64,
+        max_bytes: usize,
+        timeout_ms: u64,
+    ) -> Result<DesktopReadResult, String> {
+        if self.epoch != expected_epoch {
+            return Err("stale_epoch".into());
+        }
+        if self.protocol != Some("KWP2000_BMW") {
+            return Err("kwp2000_transport_required".into());
+        }
+        if max_bytes < 1 || max_bytes > 197 {
+            return Err("read_size_out_of_range".into());
+        }
+        if !(10..=5000).contains(&timeout_ms) {
+            return Err("read_timeout_out_of_range".into());
+        }
+
+        let port = self.port.as_mut().ok_or_else(|| "native_port_not_open".to_string())?;
+        port.set_timeout(Duration::from_millis(timeout_ms))
+            .map_err(|_| "serial_timeout_config_failed".to_string())?;
+
+        port.write_all(&ME72_IDENTITY_REQUEST)
+            .map_err(|_| "allowlisted_request_write_failed".to_string())?;
+        port.flush()
+            .map_err(|_| "allowlisted_request_flush_failed".to_string())?;
+
+        let mut buffer = vec![0u8; max_bytes];
+        match port.read(&mut buffer) {
+            Ok(count) => {
+                buffer.truncate(count);
+                Ok(DesktopReadResult {
+                    version: 1,
+                    evidence_contract_version: 1,
+                    evidence_stage: if count == 0 { "PORT_OPEN" } else { "RX_ACTIVITY" },
+                    stage: if count == 0 { "READ_EMPTY" } else { "READ_BYTES" },
+                    epoch: expected_epoch,
+                    protocol: "KWP2000_BMW",
+                    received_bytes: count,
+                    bytes: buffer,
+                    native_request_receipt: None,
+                    ecu_verified: false,
+                    writes_enabled: false,
+                })
+            }
+            Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
+                Ok(DesktopReadResult {
+                    version: 1,
+                    evidence_contract_version: 1,
+                    evidence_stage: "PORT_OPEN",
+                    stage: "READ_TIMEOUT",
+                    epoch: expected_epoch,
+                    protocol: "KWP2000_BMW",
+                    received_bytes: 0,
+                    bytes: Vec::new(),
+                    native_request_receipt: None,
+                    ecu_verified: false,
+                    writes_enabled: false,
+                })
+            }
+            Err(_) => Err("serial_read_failed".into()),
+        }
+    }
+
     pub fn read_bounded(
         &mut self,
         expected_epoch: u64,
@@ -233,6 +300,12 @@ impl DesktopNativeSerialState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn me72_identity_request_material_is_private_and_fixed() {
+        assert_eq!(ME72_IDENTITY_REQUEST, [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8]);
+        assert_eq!(ME72_IDENTITY_REQUEST.iter().fold(0u8, |acc, byte| acc ^ byte), 0);
+    }
 
     #[test]
     fn serial_plan_is_protocol_bounded_and_never_exposes_raw_write() {
