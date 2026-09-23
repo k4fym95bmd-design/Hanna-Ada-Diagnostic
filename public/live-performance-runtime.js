@@ -148,6 +148,13 @@ function bind() {
   };
   obd.readAll = snapshot;
   obd.toggleLive = startOrStop;
+  obd.ultraControllerReady = true;
+  obd.startUltraLive = () => {
+    subscribeDisconnect();
+    return controller.isRunning() ? true : controller.start();
+  };
+  obd.stopUltraLive = () => controller.stop();
+  obd.isUltraLiveRunning = () => controller.isRunning();
   updateMetrics(controller.metrics());
 }
 
@@ -165,7 +172,8 @@ function scheduleBind() {
 function boot() {
   const view = $('#view');
   if (!view) return;
-  new MutationObserver(scheduleBind).observe(view, { childList: true });
+  window.addEventListener('hannaada:module-rendered', scheduleBind);
+  window.addEventListener('hannaada:obd-runtime-mounted', scheduleBind);
   bind();
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
