@@ -4,7 +4,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { attachPassiveRx } from './passive-ds2-rx.mjs';
 import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
@@ -13,7 +13,21 @@ import { buildCableTelemetry } from './cable-session-health.mjs';
 const MAX_BODY = 2048;
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
 const validPort = p => p && typeof p.path === 'string' && p.path.length > 0 && p.path.length <= 240;
-const safePort = p => ({ path: p.path, manufacturer: String(p.manufacturer || '').slice(0, 100), vendorId: p.vendorId || null, productId: p.productId || null });
+const portFingerprint = p => {
+  const privateParts = [p?.serialNumber, p?.pnpId, p?.locationId]
+    .filter(value => typeof value === 'string' && value.length > 0)
+    .join('|');
+  if (!privateParts) return null;
+  const scoped = [p?.vendorId || '', p?.productId || '', privateParts].join('|');
+  return createHash('sha256').update(scoped).digest('hex').slice(0, 24);
+};
+const safePort = p => ({
+  path: p.path,
+  manufacturer: String(p.manufacturer || '').slice(0, 100),
+  vendorId: p.vendorId || null,
+  productId: p.productId || null,
+  hardwareFingerprint: portFingerprint(p),
+});
 const usbNumber = value => {
   if (Number.isInteger(value) && value >= 0 && value <= 0xffff) return value;
   if (typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value)) return Number.parseInt(value, 16);
@@ -64,7 +78,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       const productId = usbNumber(selectedPort?.productId);
       if (vendorId != null && productId != null) {
         try {
-          kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected });
+          kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected, hardwareFingerprint: portFingerprint(selectedPort) });
           cableBinding = kdcanSession.snapshot();
         } catch {
           invalidateActiveSession();
@@ -183,7 +197,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           const productId = usbNumber(matches[0].productId);
           if (vendorId != null && productId != null) {
             kdcanSession = new KdcanReadonlySession();
-            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN' });
+            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'UNKNOWN', hardwareFingerprint: portFingerprint(matches[0]) });
             kdcanSession.markPortOpen({ sessionId });
           }
           rxMonitor = attachPassiveRx(port);
