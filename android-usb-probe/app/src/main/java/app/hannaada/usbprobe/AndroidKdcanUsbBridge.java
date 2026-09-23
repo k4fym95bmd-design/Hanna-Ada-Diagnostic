@@ -162,10 +162,12 @@ public final class AndroidKdcanUsbBridge {
                     UsbSerialPort.DATABITS_8,
                     UsbSerialPort.STOPBITS_1,
                     parity);
+            KdcanTransportSession.Snapshot configured =
+                    transportSession.markConfigured(activeSessionId, activeEpoch);
             return new ConfigurationResult(
                     true,
-                    "STATIC_UART_APPLIED",
-                    state.epoch,
+                    configured.stage,
+                    configured.epoch,
                     policy.baudRate,
                     policy.parity,
                     policy.dtrRequiredDuringSend);
