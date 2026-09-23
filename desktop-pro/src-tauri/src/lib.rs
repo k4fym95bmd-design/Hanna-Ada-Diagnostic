@@ -488,24 +488,55 @@ fn desktop_execute_me72_engine_snapshot(
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
-    // Lock order: coordinator -> native -> broker -> attestation.
+    {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let transport = coordinator.snapshot();
+        if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+            return Err("transport_not_configured_for_epoch".into());
+        }
+    }
+    {
+        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+        attestation.authorize_me72_readonly(epoch)?;
+    }
+    {
+        let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+        broker.begin_readonly_sample(epoch)?;
+    }
+
+    let io_result = match native.lock() {
+        Ok(mut native) => native.execute_me72_engine_snapshot(epoch, 197, 750),
+        Err(_) => {
+            if let Ok(mut broker) = broker.lock() {
+                let _ = broker.finish_readonly_sample(epoch);
+            }
+            return Err("native_serial_state_poisoned".into());
+        }
+    };
+
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let transport = coordinator.snapshot();
-    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
-        return Err("transport_not_configured_for_epoch".into());
-    }
-
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
-    let broker_snapshot = broker.snapshot();
-    if broker_snapshot.active_request {
-        return Err("readonly_sample_requires_idle_broker".into());
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured || native_snapshot.protocol != Some("KWP2000_BMW") {
+        if broker.snapshot().epoch == epoch {
+            let _ = broker.finish_readonly_sample(epoch);
+        }
+        return Err("transport_changed_after_io".into());
     }
 
-    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    let broker_snapshot = broker.snapshot();
+    if !broker_snapshot.readonly_sample_active || broker_snapshot.active_request {
+        return Err("readonly_sample_lease_lost".into());
+    }
     attestation.authorize_me72_readonly(epoch)?;
 
-    match native.execute_me72_engine_snapshot(epoch, 197, 750) {
+    match io_result {
         Ok(mut result) => {
             let (sample_sequence, fingerprint) =
                 match attestation.record_me72_readonly_sample(epoch) {
@@ -518,6 +549,91 @@ fn desktop_execute_me72_engine_snapshot(
                         return Err(error);
                     }
                 };
+            broker.finish_readonly_sample(epoch)?;
+            result.native_identity_fingerprint = Some(fingerprint);
+            result.readonly_sample_sequence = Some(sample_sequence);
+            Ok(result)
+        }
+        Err(error) => {
+            native.close_any();
+            let _ = coordinator.mark_closed(epoch);
+            broker.reset(epoch);
+            attestation.reset_authority();
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+fn desktop_execute_me72_fuel_adaptation(
+    epoch: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let transport = coordinator.snapshot();
+        if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+            return Err("transport_not_configured_for_epoch".into());
+        }
+    }
+    {
+        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+        attestation.authorize_me72_readonly(epoch)?;
+    }
+    {
+        let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+        broker.begin_readonly_sample(epoch)?;
+    }
+
+    let io_result = match native.lock() {
+        Ok(mut native) => native.execute_me72_fuel_adaptation(epoch, 197, 750),
+        Err(_) => {
+            if let Ok(mut broker) = broker.lock() {
+                let _ = broker.finish_readonly_sample(epoch);
+            }
+            return Err("native_serial_state_poisoned".into());
+        }
+    };
+
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured || native_snapshot.protocol != Some("KWP2000_BMW") {
+        if broker.snapshot().epoch == epoch {
+            let _ = broker.finish_readonly_sample(epoch);
+        }
+        return Err("transport_changed_after_io".into());
+    }
+
+    let broker_snapshot = broker.snapshot();
+    if !broker_snapshot.readonly_sample_active || broker_snapshot.active_request {
+        return Err("readonly_sample_lease_lost".into());
+    }
+    attestation.authorize_me72_readonly(epoch)?;
+
+    match io_result {
+        Ok(mut result) => {
+            let (sample_sequence, fingerprint) =
+                match attestation.record_me72_readonly_sample(epoch) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        native.close_any();
+                        let _ = coordinator.mark_closed(epoch);
+                        broker.reset(epoch);
+                        attestation.reset_authority();
+                        return Err(error);
+                    }
+                };
+            broker.finish_readonly_sample(epoch)?;
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
@@ -629,6 +745,7 @@ pub fn run() {
             desktop_execute_me72_identity,
             desktop_execute_me72_roughness,
             desktop_execute_me72_engine_snapshot,
+            desktop_execute_me72_fuel_adaptation,
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
             desktop_request_broker_snapshot,
