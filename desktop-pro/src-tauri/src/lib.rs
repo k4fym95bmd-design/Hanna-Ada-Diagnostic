@@ -213,6 +213,47 @@ fn desktop_prepare_readonly_request(
 }
 
 #[tauri::command]
+fn desktop_execute_me72_identity(
+    epoch: u64,
+    request_id: String,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    // Lock order is coordinator -> native -> broker.
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+        return Err("transport_not_configured_for_epoch".into());
+    }
+
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.authorize_native_execution(
+        epoch,
+        &request_id,
+        "e39-dme-me72-module-identity",
+        "KWP2000_BMW",
+    )?;
+
+    match native.execute_me72_identity(epoch, 197, 750) {
+        Ok(mut result) => {
+            if result.received_bytes > 0 {
+                let receipt = broker.record_receive(epoch, result.protocol, result.received_bytes)?;
+                result.native_request_receipt = Some(receipt);
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            native.close_any();
+            let _ = coordinator.mark_closed(epoch);
+            broker.reset(epoch);
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 fn desktop_consume_readonly_request(
     epoch: u64,
     request_id: String,
@@ -306,6 +347,7 @@ pub fn run() {
             desktop_read_bounded,
             desktop_close_port,
             desktop_prepare_readonly_request,
+            desktop_execute_me72_identity,
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
             desktop_request_broker_snapshot,
