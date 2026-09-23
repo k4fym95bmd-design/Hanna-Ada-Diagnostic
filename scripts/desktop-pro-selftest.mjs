@@ -17,6 +17,7 @@ const steps = [
       'test/trusted-identity-event.mjs',
       'test/trusted-identity-fault-injection.mjs',
       'test/desktop-tauri-locking.mjs',
+      'test/read-only-identity-finalizer.mjs',
     ],
     required: true,
   },
@@ -32,6 +33,7 @@ const syntaxFiles = [
   'public/trusted-identity-verifier.js',
   'public/trusted-correlation-session.js',
   'public/trusted-identity-event.js',
+  'public/read-only-identity-finalizer.js',
 ];
 
 for (const file of syntaxFiles) {
