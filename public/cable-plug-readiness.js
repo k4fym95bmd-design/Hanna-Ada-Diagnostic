@@ -58,7 +58,10 @@ export function assessCablePlugReadiness(ports = []) {
 
   const top = ranked[0] || null;
   const uniqueTop = top && (ranked.length === 1 || top.score > ranked[1].score);
-  const recommendedPath = uniqueTop && top.score >= 40 ? top.path : null;
+  const hasUsbId = !!top?.reasons.includes('usb-id');
+  const hasSerialHint = !!top?.reasons.some(reason =>
+    reason === 'known-usb-serial-family' || reason === 'manufacturer-hint');
+  const recommendedPath = uniqueTop && top.score >= 55 && hasUsbId && hasSerialHint ? top.path : null;
 
   return Object.freeze({
     detectedCount: ranked.length,
