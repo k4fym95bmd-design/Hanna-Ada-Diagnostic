@@ -44,6 +44,7 @@ pub struct DesktopReadResult {
     pub protocol: &'static str,
     pub received_bytes: usize,
     pub bytes: Vec<u8>,
+    pub native_request_receipt: Option<u64>,
     pub ecu_verified: bool,
     pub writes_enabled: bool,
 }
@@ -196,6 +197,7 @@ impl DesktopNativeSerialState {
                     protocol,
                     received_bytes: count,
                     bytes: buffer,
+                    native_request_receipt: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
@@ -210,6 +212,7 @@ impl DesktopNativeSerialState {
                     protocol,
                     received_bytes: 0,
                     bytes: Vec::new(),
+                    native_request_receipt: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
