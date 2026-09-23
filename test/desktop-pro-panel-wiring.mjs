@@ -96,3 +96,12 @@ test('invalid trusted event does not desynchronize native and local request toke
   assert.match(panel, /return;\n\s*}\n\n\s*try \{\n\s*state\.brokerSnapshot = await consumeDesktopReadOnlyRequest/);
   assert.match(panel, /Native request broker odrzucił korelację/);
 });
+
+
+test('native receipt is mandatory before broker consume', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /state\.nativeReadReceipt = result\.nativeRequestReceipt \?\? null/);
+  assert.match(panel, /Trusted identity event wymaga native receipt/);
+  assert.match(panel, /expectedFrameHexes: state\.evidence\.frames\.map/);
+  assert.match(panel, /consumeDesktopReadOnlyRequest\([\s\S]*state\.nativeReadReceipt/);
+});
