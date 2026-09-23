@@ -305,6 +305,48 @@ fn desktop_execute_me72_identity(
 }
 
 #[tauri::command]
+fn desktop_execute_me72_roughness(
+    epoch: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    // Lock order: coordinator -> native -> broker -> attestation.
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+        return Err("transport_not_configured_for_epoch".into());
+    }
+
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    let broker_snapshot = broker.snapshot();
+    if broker_snapshot.active_request {
+        return Err("readonly_sample_requires_idle_broker".into());
+    }
+
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.authorize_me72_readonly(epoch)?;
+
+    match native.execute_me72_roughness(epoch, 197, 750) {
+        Ok(mut result) => {
+            let (sample_sequence, fingerprint) = attestation.record_me72_readonly_sample(epoch)?;
+            result.native_identity_fingerprint = Some(fingerprint);
+            result.readonly_sample_sequence = Some(sample_sequence);
+            Ok(result)
+        }
+        Err(error) => {
+            native.close_any();
+            let _ = coordinator.mark_closed(epoch);
+            broker.reset(epoch);
+            attestation.reset_authority();
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 fn desktop_consume_readonly_request(
     epoch: u64,
     request_id: String,
@@ -399,6 +441,7 @@ pub fn run() {
             desktop_close_port,
             desktop_prepare_readonly_request,
             desktop_execute_me72_identity,
+            desktop_execute_me72_roughness,
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
             desktop_request_broker_snapshot,
