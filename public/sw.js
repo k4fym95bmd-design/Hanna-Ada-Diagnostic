@@ -95,7 +95,8 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  if (!PRECACHE.includes(url.pathname) && !RUNTIME.has(url.pathname)) return;
+  const dependencyAsset = request.destination === 'script' || request.destination === 'style';
+  if (!PRECACHE.includes(url.pathname) && !RUNTIME.has(url.pathname) && !dependencyAsset) return;
 
   event.respondWith((async () => {
     const cached = await caches.match(request);
