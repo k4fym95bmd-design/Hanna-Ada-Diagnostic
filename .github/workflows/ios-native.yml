@@ -12,8 +12,13 @@ on:
       - '.github/workflows/ios-native.yml'
   workflow_dispatch:
 
+concurrency:
+  group: native-ios-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-15
     timeout-minutes: 40
     steps:
