@@ -20,6 +20,7 @@ import {
   executeDesktopMe72FuelAdaptation,
   executeDesktopMe72OutputStatus,
   executeDesktopMe72Readiness,
+  executeDesktopMe72DtcCount,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
@@ -858,6 +859,41 @@ test('output status executor sends epoch only and cannot carry actuation materia
   assert.equal(result.readonlySampleSequence,4);
   assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
   for(const forbidden of ['bytes','payload','command','actuation','state','value']) {
+    assert.equal(forbidden in calls[0][1],false);
+  }
+});
+
+
+test('DTC-count executor sends epoch only and exposes no clear/write material', async () => {
+  const calls=[];
+  const sample=[0xB8,0xF1,0x12,0x02,0xE2,0x03,0xB8];
+  const fingerprint='PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021';
+  const fake={window:{__TAURI__:{core:{invoke:async(name,args)=>{
+    calls.push([name,args]);
+    assert.equal(name,'desktop_execute_me72_dtc_count');
+    assert.deepEqual(args,{epoch:7});
+    return {
+      version:1,
+      evidenceContractVersion:1,
+      stage:'READ_BYTES',
+      evidenceStage:'RX_ACTIVITY',
+      epoch:7,
+      protocol:'KWP2000_BMW',
+      receivedBytes:sample.length,
+      bytes:sample,
+      nativeRequestReceipt:null,
+      nativeIdentityFingerprint:fingerprint,
+      readonlyProfileId:'e39-me72-dtc-count-a200',
+      readonlySampleSequence:6,
+      ecuVerified:false,
+      writesEnabled:false,
+    };
+  }}}}};
+  const result=await executeDesktopMe72DtcCount(7,fake);
+  assert.equal(result.readonlyProfileId,'e39-me72-dtc-count-a200');
+  assert.equal(result.readonlySampleSequence,6);
+  assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
+  for(const forbidden of ['bytes','payload','command','clear','clearDtc','write']) {
     assert.equal(forbidden in calls[0][1],false);
   }
 });
