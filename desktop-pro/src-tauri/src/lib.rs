@@ -69,6 +69,7 @@ fn desktop_bind_serial_candidate(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let inventory = desktop_serial_inventory::list_sanitized_ports()?;
     // Canonical lock order: coordinator -> native -> broker -> attestation.
@@ -80,6 +81,8 @@ fn desktop_bind_serial_candidate(
     let snapshot = coordinator.bind_from_inventory(&inventory, &port_name)?;
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
     broker.reset(snapshot.epoch);
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.reset_authority();
     Ok(snapshot)
 }
 
@@ -88,6 +91,7 @@ fn desktop_clear_serial_candidate(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
@@ -95,6 +99,8 @@ fn desktop_clear_serial_candidate(
     let snapshot = coordinator.clear();
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
     broker.reset(snapshot.epoch);
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.reset_authority();
     Ok(snapshot)
 }
 
@@ -105,10 +111,13 @@ fn desktop_open_configured_port(
     baud_rate: u32,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let bound = coordinator.snapshot();
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.reset_authority();
     native.open_configured(&bound, epoch, &protocol, baud_rate)?;
     match coordinator.mark_open_configured(epoch) {
         Ok(snapshot) => Ok(snapshot),
@@ -128,6 +137,7 @@ fn desktop_read_bounded(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let snapshot = coordinator.snapshot();
@@ -147,6 +157,8 @@ fn desktop_read_bounded(
                         native.close_any();
                         let _ = coordinator.mark_closed(epoch);
                         broker.reset(epoch);
+                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+                        attestation.reset_authority();
                         return Err(error);
                     }
                 }
@@ -158,6 +170,8 @@ fn desktop_read_bounded(
             let _ = coordinator.mark_closed(epoch);
             let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
             broker.reset(epoch);
+            let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+            attestation.reset_authority();
             Err(error)
         }
     }
@@ -169,6 +183,7 @@ fn desktop_close_port(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let snapshot = coordinator.snapshot();
@@ -180,6 +195,8 @@ fn desktop_close_port(
     let snapshot = coordinator.mark_closed(epoch)?;
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
     broker.reset(epoch);
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+    attestation.reset_authority();
     Ok(snapshot)
 }
 
@@ -194,13 +211,14 @@ fn desktop_prepare_readonly_request(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
     let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let transport = coordinator.snapshot();
     let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     let native_snapshot = native.snapshot();
     let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
-    broker.prepare(
+    let prepared = broker.prepare(
         &transport,
         &native_snapshot,
         epoch,
@@ -209,7 +227,12 @@ fn desktop_prepare_readonly_request(
         &protocol,
         timeout_ms,
         max_response_bytes,
-    )
+    )?;
+    if operation_id == "e39-dme-me72-module-identity" {
+        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+        attestation.reset_authority();
+    }
+    Ok(prepared)
 }
 
 #[tauri::command]
@@ -219,8 +242,9 @@ fn desktop_execute_me72_identity(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
-    // Lock order is coordinator -> native -> broker.
+    // Lock order is coordinator -> native -> broker -> attestation.
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let transport = coordinator.snapshot();
     if transport.epoch != epoch || !transport.transport_open || !transport.configured {
@@ -239,9 +263,17 @@ fn desktop_execute_me72_identity(
     match native.execute_me72_identity(epoch, 197, 750) {
         Ok(mut result) => {
             if result.received_bytes > 0 {
-                let fingerprint = result.native_identity_fingerprint
-                    .as_deref()
-                    .ok_or_else(|| "me72_identity_reply_not_verified".to_string())?;
+                let fingerprint = match result.native_identity_fingerprint.as_deref() {
+                    Some(value) => value,
+                    None => {
+                        native.close_any();
+                        let _ = coordinator.mark_closed(epoch);
+                        broker.reset(epoch);
+                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+                        attestation.reset_authority();
+                        return Err("me72_identity_reply_not_verified".into());
+                    }
+                };
                 match broker.record_identity_receive(
                     epoch,
                     result.protocol,
@@ -253,6 +285,8 @@ fn desktop_execute_me72_identity(
                         native.close_any();
                         let _ = coordinator.mark_closed(epoch);
                         broker.reset(epoch);
+                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+                        attestation.reset_authority();
                         return Err(error);
                     }
                 }
@@ -263,6 +297,8 @@ fn desktop_execute_me72_identity(
             native.close_any();
             let _ = coordinator.mark_closed(epoch);
             broker.reset(epoch);
+            let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+            attestation.reset_authority();
             Err(error)
         }
     }
