@@ -82,8 +82,20 @@ function render(panel) {
     ? `Identity plan: ${state.requestPlan.operationId} · epoch ${state.requestPlan.epoch} · request ${state.requestPlan.requestId} · ${state.requestPlan.protocol} · TX MATERIAL NOT EXPOSED · correlation required`
     : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
 
+  const stage = snap?.stage || 'NO_CANDIDATE';
+  const boundClosed = ['USB_CANDIDATE_BOUND','SERIAL_CANDIDATE_BOUND'].includes(stage);
+  const configured = stage === 'PORT_CONFIGURED';
+  const actions = {
+    refresh: state.ready,
+    bind: state.ready && !!state.selected && !['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
+    open: state.ready && boundClosed && Number.isInteger(Number(state.baudRate))
+      && Number(state.baudRate) >= 300 && Number(state.baudRate) <= 1000000,
+    read: state.ready && configured && !!state.evidenceSession,
+    close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
+    clear: state.ready && stage !== 'NO_CANDIDATE',
+  };
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
-    button.disabled = state.busy || !state.ready;
+    button.disabled = state.busy || actions[button.dataset.desktopProAction] !== true;
   });
 }
 
@@ -183,7 +195,15 @@ async function attachDesktopProPanel() {
   const host = await probeDesktopHost(window).catch(() => null);
   if (!host?.status?.available) return;
   state.ready = true;
+  state.ports = [];
+  state.selected = '';
+  state.evidenceSession = null;
+  state.evidence = null;
+  state.requestPlan = null;
   state.snapshot = await getDesktopTransportSnapshot(window).catch(() => null);
+  if (state.snapshot?.stage === 'PORT_CONFIGURED') {
+    state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
+  }
 
   const panel = document.createElement('section');
   panel.dataset.desktopProPanel = '';
