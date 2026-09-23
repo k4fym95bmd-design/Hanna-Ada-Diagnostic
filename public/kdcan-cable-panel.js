@@ -10,7 +10,7 @@ function attachKdcanCard() {
   card.dataset.userKdcanCard = '';
   card.className = 'ha-cable-panel';
   card.innerHTML = `
-    <h3>Twój kabel · K+DCAN USB / INPA</h3>
+    <h3>Twój kabel · K+DCAN USB / INPA · Android-first</h3>
     <p><strong>Rozpoznane ze zdjęcia:</strong> ${USER_KDCAN_CABLE.visibleLabel}. Widoczny jest fizyczny przełącznik 2-pozycyjny.</p>
     <div class="ha-cable-fields">
       <label>Pozycja przełącznika
@@ -45,7 +45,7 @@ function attachKdcanCard() {
     const result = assessUserKdcanCable(args);
     status.textContent = [
       `Profil: ${result.visibleLabel}.`,
-      result.vidPid ? `USB VID:PID ${result.vidPid}.` : 'VID:PID jeszcze nieodczytany z portu Windows.',
+      result.vidPid ? `USB VID:PID ${result.vidPid}.` : 'VID:PID jeszcze nieodczytany z urządzenia USB.',
       `Chipset: ${result.chipsetCandidate}.`,
       `Przełącznik: ${result.selectorPosition}.`,
       'To nadal nie potwierdza sterownika BMW, K-Line/KWP/DS2, ECU ani możliwości zapisu.'
