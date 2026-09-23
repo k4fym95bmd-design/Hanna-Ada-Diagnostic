@@ -2,12 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bindDesktopSerialCandidate,
+  cancelDesktopReadOnlyRequest,
   clearDesktopSerialCandidate,
   closeDesktopPort,
+  consumeDesktopReadOnlyRequest,
+  getDesktopRequestBrokerSnapshot,
   getDesktopTransportSnapshot,
   getTauriInvoke,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
+  prepareDesktopReadOnlyRequest,
   probeDesktopHost,
   readDesktopBounded,
   validateDesktopHostStatus,
@@ -15,7 +19,9 @@ import {
   validateDesktopSerialCandidates,
   validateDesktopTransportSnapshot,
   validateDesktopReadResult,
+  validateDesktopRequestBrokerSnapshot,
 } from '../public/desktop-host-bridge.js';
+import { instantiateReadOnlyRequest } from '../public/read-only-request-registry.js';
 
 test('plain browser stays a safe fallback', async () => {
   const fake = { window: {} };
@@ -418,4 +424,115 @@ test('desktop evidence contract rejects mismatched canonical stage', () => {
     ecuVerified:false,
     writesEnabled:false,
   }), /evidence stage mismatch/i);
+});
+
+
+test('native request broker accepts canonical metadata and never exposes TX', async () => {
+  let active = null;
+  let attempts = 0;
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async (name, args) => {
+            if (name === 'desktop_prepare_readonly_request') {
+              active = { ...args };
+              attempts += 1;
+            } else if (name === 'desktop_consume_readonly_request') {
+              assert.equal(args.requestId, active.requestId);
+              active = null;
+            } else if (name === 'desktop_cancel_readonly_request') {
+              assert.equal(args.requestId, active.requestId);
+              active = null;
+            } else if (name !== 'desktop_request_broker_snapshot') {
+              throw new Error('unexpected command');
+            }
+            return {
+              version: 1,
+              evidenceContractVersion: 1,
+              stage: active ? 'REQUEST_ACTIVE' : 'BROKER_IDLE',
+              epoch: active?.epoch ?? 7,
+              activeRequest: !!active,
+              activeRequestId: active?.requestId ?? null,
+              operationId: active?.operationId ?? null,
+              protocol: active?.protocol ?? null,
+              timeoutMs: active?.timeoutMs ?? null,
+              maxResponseBytes: active?.maxResponseBytes ?? null,
+              attemptCount: attempts,
+              maxAttempts: 32,
+              txBytesExposed: false,
+              writeLike: false,
+              ecuVerified: false,
+              writesEnabled: false,
+              flashEnabled: false,
+            };
+          },
+        },
+      },
+    },
+  };
+
+  const plan = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch: 7,
+    requestId: 'broker-js-request-01',
+  });
+  const opened = await prepareDesktopReadOnlyRequest(plan, fake);
+  assert.equal(opened.stage, 'REQUEST_ACTIVE');
+  assert.equal(opened.txBytesExposed, false);
+
+  const consumed = await consumeDesktopReadOnlyRequest(7, plan.requestId, fake);
+  assert.equal(consumed.stage, 'BROKER_IDLE');
+
+  const plan2 = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch: 7,
+    requestId: 'broker-js-request-02',
+  });
+  await prepareDesktopReadOnlyRequest(plan2, fake);
+  const cancelled = await cancelDesktopReadOnlyRequest(7, plan2.requestId, fake);
+  assert.equal(cancelled.activeRequest, false);
+
+  const snapshot = await getDesktopRequestBrokerSnapshot(fake);
+  assert.equal(snapshot.writesEnabled, false);
+});
+
+test('broker snapshot rejects stale active data and unsafe promotion', () => {
+  assert.throws(() => validateDesktopRequestBrokerSnapshot({
+    version: 1,
+    evidenceContractVersion: 1,
+    stage: 'BROKER_IDLE',
+    epoch: 7,
+    activeRequest: false,
+    activeRequestId: 'stale',
+    operationId: null,
+    protocol: null,
+    timeoutMs: null,
+    maxResponseBytes: null,
+    attemptCount: 1,
+    maxAttempts: 32,
+    txBytesExposed: false,
+    writeLike: false,
+    ecuVerified: false,
+    writesEnabled: false,
+    flashEnabled: false,
+  }), /stale/i);
+
+  assert.throws(() => validateDesktopRequestBrokerSnapshot({
+    version: 1,
+    evidenceContractVersion: 1,
+    stage: 'BROKER_IDLE',
+    epoch: 7,
+    activeRequest: false,
+    activeRequestId: null,
+    operationId: null,
+    protocol: null,
+    timeoutMs: null,
+    maxResponseBytes: null,
+    attemptCount: 1,
+    maxAttempts: 32,
+    txBytesExposed: true,
+    writeLike: false,
+    ecuVerified: false,
+    writesEnabled: false,
+    flashEnabled: false,
+  }), /invalid/i);
 });
