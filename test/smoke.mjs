@@ -100,6 +100,12 @@ try {
   assert.match(app, /M5 Character \/ Booster is a separate premium product/i);
   assert.match(app, /Write\/flash remains locked|Flash is intentionally blocked|WRITE SAFETY/i);
 
+  const tuningViewRes = await fetch(`${base}/tuning-view.js`);
+  assert.equal(tuningViewRes.status, 200);
+  const tuningView = await tuningViewRes.text();
+  assert.match(tuningView, /renderTuningBody/);
+  assert.match(tuningView, /IDENTIFY ECU FIRST/);
+
   const extensionRes = await fetch(`${base}/tuning-stage-extension.js`);
   assert.equal(extensionRes.status, 200);
   const extension = await extensionRes.text();
