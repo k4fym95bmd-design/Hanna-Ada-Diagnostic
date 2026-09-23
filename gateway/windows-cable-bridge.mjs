@@ -147,6 +147,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   };
   const handler = async (req, res) => {
     try {
+      res.setHeader('cache-control', 'no-store');
+      res.setHeader('x-content-type-options', 'nosniff');
       const origin = req.headers.origin;
       if (origin && origin !== allowedOrigin) return json(res, 403, { error: 'ORIGIN_DENIED' });
       if (origin === allowedOrigin) {
@@ -197,7 +199,9 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         });
       }
       if (req.method === 'GET' && route === '/v1/ports') {
-        const ports = (await serial.list()).filter(validPort).map(safePort);
+        const enumerated = (await serial.list()).filter(validPort);
+        await currentStatus(enumerated);
+        const ports = enumerated.map(safePort);
         return json(res, 200, { version:1, bridgeInstanceId, stateRevision, ports, selectedPath: selected });
       }
       if (req.method === 'GET' && route === '/v1/rx') {
