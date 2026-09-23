@@ -9,8 +9,10 @@ const profiles=Object.freeze({
     dataIdentifier:'0x4003',
     parserId:'e39-me72-roughness-4003-v1',
     verificationState:'REFERENCE_VERIFIED',
-    implementationState:'PARSER_IMPLEMENTED',
-    executionEnabled:false,
+    implementationState:'NATIVE_EXECUTOR_IMPLEMENTED',
+    executionState:'NATIVE_ATTESTATION_GATED',
+    executorId:'desktop_execute_me72_roughness',
+    executionEnabled:true,
     requiresVerifiedIdentity:true,
     requiresNativeAttestation:true,
     txBytesExposed:false,
@@ -34,9 +36,11 @@ export function listMe72ReadOnlyDataProfiles(){
   return Object.freeze(Object.values(profiles));
 }
 
-export function assertMe72DataExecutionLocked(id){
+export function assertMe72DataExecutionGated(id){
   const profile=getMe72ReadOnlyDataProfile(id);
-  if(profile.executionEnabled !== false
+  if(profile.executionEnabled !== true
+      || profile.executionState !== 'NATIVE_ATTESTATION_GATED'
+      || profile.executorId !== 'desktop_execute_me72_roughness'
       || profile.requiresVerifiedIdentity !== true
       || profile.requiresNativeAttestation !== true
       || profile.txBytesExposed !== false
