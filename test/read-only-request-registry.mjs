@@ -54,3 +54,20 @@ test('unknown or modified request plans fail closed', () => {
     writesEnabled: true,
   }), /invalid/i);
 });
+
+
+test('request ids are restricted to a transport-safe alphabet and canonical plan fields are immutable', () => {
+  assert.throws(() => instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch:1,
+    requestId:'bad request id!',
+  }), /request id/i);
+
+  const plan = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch:2,
+    requestId:'identity:epoch-2',
+  });
+  assert.equal(plan.requiresEpochBinding, true);
+  assert.throws(() => validateReadOnlyRequestPlan({ ...plan, expectedDirection:'anything' }), /diverged/i);
+  assert.throws(() => validateReadOnlyRequestPlan({ ...plan, requestMaterial:'bytes-here' }), /diverged/i);
+  assert.throws(() => validateReadOnlyRequestPlan({ ...plan, payload:[1,2,3] }), /forbidden/i);
+});
