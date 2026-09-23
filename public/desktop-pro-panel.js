@@ -212,9 +212,9 @@ function render(panel) {
 
   const dtcCount = state.dtcCount;
   panel.querySelector('[data-desktop-pro-dtc-count]').textContent = dtcCount
-    ? `DTC count sample #${state.dtcCountSequence} · stored faults ${dtcCount.faultCount} · CLEAR DTC LOCKED`
+    ? `DTC count sample #${state.dtcCountSequence} · contract-only count ${dtcCount.faultCount} · HARDWARE UNVERIFIED · CLEAR DTC LOCKED`
     : finalized
-      ? 'DTC count A2 00: gotowy do pojedynczego read-only odczytu · clear-DTC zablokowane.'
+      ? 'DTC count A2 00: contract-only read-only probe · brak captured hardware vector · clear-DTC zablokowane.'
       : 'DTC count A2 00: zablokowany do READ_ONLY_IDENTITY_VERIFIED.';
 
   const stage = snap?.stage || 'NO_CANDIDATE';
@@ -460,9 +460,6 @@ async function action(panel, name) {
       state.readinessStatus = null;
       state.readinessSequence = null;
       state.readinessIdentityFingerprint = null;
-      state.dtcCount = null;
-      state.dtcCountSequence = null;
-      state.dtcCountIdentityFingerprint = null;
       state.dtcCount = null;
       state.dtcCountSequence = null;
       state.dtcCountIdentityFingerprint = null;
