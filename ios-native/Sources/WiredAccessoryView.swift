@@ -7,10 +7,12 @@ import ExternalAccessory
 final class WiredAccessoryState: ObservableObject {
     @Published private(set) var accessoryNames: [String] = []
     @Published private(set) var status = "Nie sprawdzono akcesoriów."
+    @Published private(set) var evidenceStage: EvidenceStage = .noCable
 
     func refresh() {
         let accessories = EAAccessoryManager.shared().connectedAccessories
         accessoryNames = accessories.map { $0.name }
+        evidenceStage = accessories.isEmpty ? .noCable : .usbSeen
         status = accessories.isEmpty
             ? "iOS nie udostępnia aplikacji żadnego akcesorium przewodowego."
             : "Wykryto akcesorium w iOS. To nie potwierdza protokołu, dostępu szeregowego ani ECU."
@@ -51,6 +53,9 @@ struct WiredAccessoryView: View {
                         Label("AKCESORIA UDOSTĘPNIONE PRZEZ iOS", systemImage: "cable.connector")
                             .font(.headline)
                         Text(hardware.status).foregroundStyle(.secondary)
+                        Text("Evidence Contract v\(EvidenceContract.version) · \(hardware.evidenceStage.rawValue)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
                         ForEach(Array(hardware.accessoryNames.enumerated()), id: \.offset) { item in
                             Label(item.element, systemImage: "cable.connector")
                                 .foregroundStyle(.orange)
