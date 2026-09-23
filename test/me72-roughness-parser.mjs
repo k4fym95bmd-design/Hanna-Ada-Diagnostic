@@ -7,6 +7,15 @@ import {
 
 const sample='B8 F1 12 18 62 40 03 FF 70 FF 4E 00 00 FF D8 00 32 00 90 00 0C 00 8E 01 00 E5 01 26 98';
 
+function mutateFrameAndRepairChecksum(frameHex, mutate) {
+  const bytes = frameHex.split(' ').map(value => Number.parseInt(value, 16));
+  mutate(bytes);
+  bytes[bytes.length - 1] = bytes
+    .slice(0, -1)
+    .reduce((checksum, byte) => checksum ^ byte, 0);
+  return bytes.map(byte => byte.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+}
+
 test('ME7.2 0x4003 parser decodes all eight signed roughness channels', () => {
   const result=parseMe72CylinderRoughnessFrame(sample);
   assert.equal(result.dataIdentifier,'0x4003');
@@ -22,7 +31,8 @@ test('ME7.2 0x4003 parser decodes all eight signed roughness channels', () => {
 test('roughness parser rejects bad checksum, header, DID and truncation', () => {
   assert.throws(() => parseMe72CylinderRoughnessFrame(sample.replace(/98$/,'99')),/checksum/i);
   assert.throws(() => parseMe72CylinderRoughnessFrame(sample.replace(/^B8/,'B9')),/header/i);
-  assert.throws(() => parseMe72CylinderRoughnessFrame(sample.replace('62 40 03','62 40 04')),/0x4003/i);
+  const wrongDid = mutateFrameAndRepairChecksum(sample, bytes => { bytes[6] = 0x04; });
+  assert.throws(() => parseMe72CylinderRoughnessFrame(wrongDid),/0x4003/i);
   assert.throws(() => parseMe72CylinderRoughnessFrame('B8 F1 12 03 62 40 03 6B'),/too short|0x4003/i);
 });
 
