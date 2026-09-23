@@ -239,7 +239,15 @@ fn desktop_execute_me72_identity(
     match native.execute_me72_identity(epoch, 197, 750) {
         Ok(mut result) => {
             if result.received_bytes > 0 {
-                match broker.record_receive(epoch, result.protocol, result.received_bytes) {
+                let fingerprint = result.native_identity_fingerprint
+                    .as_deref()
+                    .ok_or_else(|| "me72_identity_reply_not_verified".to_string())?;
+                match broker.record_identity_receive(
+                    epoch,
+                    result.protocol,
+                    result.received_bytes,
+                    fingerprint,
+                ) {
                     Ok(receipt) => result.native_request_receipt = Some(receipt),
                     Err(error) => {
                         native.close_any();
