@@ -185,3 +185,12 @@ test('modern background scheduling and intent modulepreload stay capability-gate
   assert.match(bootstrap, /navigator\.hardwareConcurrency/);
   assert.match(bootstrap, /warmForModule\(button\.dataset\.module, true\)/);
 });
+
+
+test('main diagnostic trace keeps a fixed memory budget', () => {
+  assert.match(app, /const TRACE_LIMIT=160/);
+  assert.match(app, /function appendTrace\(\.\.\.entries\)/);
+  assert.match(app, /state\.trace\.length>TRACE_LIMIT/);
+  assert.match(app, /state\.trace\.splice\(0,state\.trace\.length-TRACE_LIMIT\)/);
+  assert.match(app, /appendTrace\('SYS  UI simulation only/);
+});
