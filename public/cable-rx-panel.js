@@ -1,4 +1,4 @@
-import { validateBridgeUrl } from './cable-connection-model.js';
+import { validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
 import { EVIDENCE_CONTRACT_VERSION, EVIDENCE_STAGES, EVIDENCE_GATES } from './evidence-contract.js';
 
 // Add passive RX evidence to the EXISTING Windows bridge tab. No TX endpoint,
@@ -96,9 +96,20 @@ function attach() {
         throw new TypeError('Nieprawidłowy snapshot mostu.');
       }
       const status = snapshot.status;
+      const safeStatus = validateBridgeStatus(status);
       const data = snapshot.rx;
+      const telemetry = snapshot.telemetry;
+      const integer = value => Number.isSafeInteger(value) && value >= 0;
+      if (!telemetry || telemetry.contractVersion !== EVIDENCE_CONTRACT_VERSION
+        || !EVIDENCE_STAGES.includes(telemetry.stage) || telemetry.stage === 'READ_ONLY_IDENTITY_VERIFIED'
+        || !EVIDENCE_GATES.includes(telemetry.nextGate)
+        || telemetry.ecuVerified !== false || telemetry.writesEnabled !== false || telemetry.flashEnabled !== false
+        || telemetry.stateRevision !== status.stateRevision || telemetry.sessionEpoch !== status.sessionEpoch
+        || !integer(telemetry.observedBytes) || !integer(telemetry.candidateFrames)) {
+        throw new TypeError('Snapshot ma niespójny łańcuch dowodowy.');
+      }
       if (!Array.isArray(data.frames) || data.frames.length > 16) throw new TypeError('Nieprawidłowe ramki snapshotu.');
-      if (!status.portOpen || !/^[a-f0-9]{40}$/i.test(status.sessionId || '')) {
+      if (!safeStatus.portOpen || !/^[a-f0-9]{40}$/i.test(status.sessionId || '')) {
         result.textContent = 'Port zamknięty. Brak bieżącej sesji RX.';
         return;
       }
@@ -125,7 +136,7 @@ function attach() {
         return `${frame.directionHint}: ${frame.frameHex}`;
       });
       const bytes = Number.isSafeInteger(data.observedBytes) && data.observedBytes >= 0 ? data.observedBytes : '?';
-      if (panel.isConnected) result.textContent = `Odebrano bajtów: ${bytes}\nDS2 (kandydaci): ${frames.length}\n${frames.join('\n') || 'Brak ramek DS2.'}\nKWP2000 / ME7.2 (kandydaci): ${kwpFrames.length}\n${kwpFrames.join('\n') || 'Brak ramek KWP.'}\nUWAGA: możliwe echo/szum. ECU niepotwierdzone; nie wysłano komend.`;
+      if (panel.isConnected) result.textContent = `Etap dowodowy: ${telemetry.stage}\nRewizja sesji: ${telemetry.stateRevision}\nOdebrano bajtów: ${bytes}\nDS2 (kandydaci): ${frames.length}\n${frames.join('\n') || 'Brak ramek DS2.'}\nKWP2000 / ME7.2 (kandydaci): ${kwpFrames.length}\n${kwpFrames.join('\n') || 'Brak ramek KWP.'}\nUWAGA: możliwe echo/szum. ECU niepotwierdzone; nie wysłano komend.`;
     } catch (error) {
       if (panel.isConnected) result.textContent = error?.name === 'AbortError' ? 'Przekroczony czas odbioru mostu.' : (error instanceof TypeError ? error.message : 'Nasłuch RX nie powiódł się.');
     } finally { clearTimeout(timeout); button.disabled = false; }
