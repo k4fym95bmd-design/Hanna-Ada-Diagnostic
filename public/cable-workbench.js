@@ -61,6 +61,9 @@ function display() {
   $(root, '[data-cable-android]').textContent = platform() === 'android'
     ? 'Android wykryty. Oddzielny natywny USB Probe może potwierdzić USB Host, sterownik i otwarcie portu. Web UI nie otrzyma tych danych automatycznie.'
     : 'Ten ekran nie jest natywnym Androidem. Moduł Android USB Probe pozostaje częścią tego samego repozytorium.';
+  root.dispatchEvent(new CustomEvent('hannaada:cable-workbench-state', {
+    detail: { mode: work.mode, detected: work.detected, opened: work.opened, bridgeOnline: work.bridgeOnline }
+  }));
 }
 async function action(name) {
   const root = rootNow(); if (!root || work.busy) return;
@@ -261,6 +264,7 @@ function attach() {
     <div class="ha-cable-panel" data-cable-panel="android" hidden><h3>Android · USB Host / OTG</h3><p data-cable-android></p><p>Natywny moduł USB Probe w repozytorium wykonuje odczyt VID:PID, zgodę Androida oraz otwarcie/zamknięcie portu. Integracja tego modułu z webowym ekranem i protokół BMW nie są jeszcze wdrożone. Sam Chrome nie gwarantuje obsługi konkretnego kabla.</p></div>
     <div class="ha-cable-result" role="status" aria-live="polite"><strong data-cable-message>Nie wybrano portu.</strong><span data-cable-next></span></div><p class="ha-cable-disclaimer">BMW E39 1999 z okrągłym złączem: zgodność adaptera 20-pin ↔ 16-pin i dostęp do linii modułów trzeba potwierdzić dla konkretnego egzemplarza. Żaden tryb nie udostępnia kodowania, kasowania błędów ani flashowania.</p>`;
   view.appendChild(section);
+  window.dispatchEvent(new CustomEvent('hannaada:cable-workbench-mounted'));
   const urlInput = section.querySelector('[data-cable-url]');
   if (platform() === 'windows' && urlInput && !urlInput.value) urlInput.value = 'http://127.0.0.1:8765';
   section.querySelector('[data-cable-port]').addEventListener('change', event => { work.selectedPath = event.target.value; });
@@ -284,7 +288,10 @@ function attach() {
   display();
 }
 if (typeof document !== 'undefined') {
-  const start = () => { const view = document.querySelector('#view'); if (!view) return; new MutationObserver(attach).observe(view, { childList: true }); attach(); };
+  const start = () => {
+    window.addEventListener('hannaada:module-rendered', attach);
+    attach();
+  };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
   navigator.serial?.addEventListener?.('disconnect', event => {
     if (work.serialPort && (event.port === work.serialPort || event.target === work.serialPort)) {
