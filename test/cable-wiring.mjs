@@ -41,3 +41,10 @@ test('long cable wait is aborted when the VCI view is left', () => {
   assert.match(ui, /cableWaitAbort\?\.abort\(\)/);
   assert.match(ui, /bridgeRequest\('\/v1\/readiness', undefined, \{ signal \}\)/);
 });
+
+
+test('abortable cable wait removes settled abort listeners', () => {
+  assert.match(ui, /const cleanup = \(\) => signal\?\.removeEventListener\?\.\('abort', abort\)/);
+  assert.match(ui, /const done = \(\) => \{ cleanup\(\); resolve\(\); \}/);
+  assert.match(ui, /if \(timer !== null\) clearTimeout\(timer\)/);
+});
