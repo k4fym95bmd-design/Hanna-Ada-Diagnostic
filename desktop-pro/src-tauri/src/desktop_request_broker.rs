@@ -158,6 +158,33 @@ impl DesktopReadOnlyRequestBroker {
         Ok(self.snapshot())
     }
 
+    pub fn authorize_native_execution(
+        &mut self,
+        epoch: u64,
+        request_id: &str,
+        operation_id: &str,
+        protocol: &str,
+    ) -> Result<(), String> {
+        self.expire_if_needed();
+        if self.epoch != epoch {
+            return Err("stale_epoch".into());
+        }
+        let active = self.active.as_ref().ok_or_else(|| "no_active_request".to_string())?;
+        if active.request_id != request_id {
+            return Err("request_correlation_mismatch".into());
+        }
+        if active.operation_id != operation_id {
+            return Err("operation_not_active".into());
+        }
+        if active.protocol != protocol {
+            return Err("native_protocol_mismatch".into());
+        }
+        if active.receive_receipt.is_some() || active.received_bytes != 0 {
+            return Err("request_already_received_bytes".into());
+        }
+        Ok(())
+    }
+
     pub fn record_receive(
         &mut self,
         epoch: u64,
@@ -373,6 +400,42 @@ mod tests {
                 "KWP2000_BMW", 750, 197,
             ).unwrap_err(),
             "request_id_replay"
+        );
+    }
+
+    #[test]
+    fn native_execution_requires_exact_active_request() {
+        let (transport, native) = configured_transport();
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+        broker.prepare(
+            &transport, &native, 7,
+            "e39-dme-me72-module-identity",
+            "broker-request-native",
+            "KWP2000_BMW", 750, 197,
+        ).unwrap();
+
+        broker.authorize_native_execution(
+            7, "broker-request-native",
+            "e39-dme-me72-module-identity",
+            "KWP2000_BMW"
+        ).unwrap();
+
+        assert_eq!(
+            broker.authorize_native_execution(
+                7, "wrong-request-id",
+                "e39-dme-me72-module-identity",
+                "KWP2000_BMW"
+            ).unwrap_err(),
+            "request_correlation_mismatch"
+        );
+        assert_eq!(
+            broker.authorize_native_execution(
+                7, "broker-request-native",
+                "e39-legacy-module-identity",
+                "KWP2000_BMW"
+            ).unwrap_err(),
+            "operation_not_active"
         );
     }
 
