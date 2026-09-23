@@ -28,9 +28,7 @@ function attachOemCard() {
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(attachOemCard).observe(view, { childList: true, subtree: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attachOemCard);
     attachOemCard();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
