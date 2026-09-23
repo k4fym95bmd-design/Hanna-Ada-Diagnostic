@@ -2,10 +2,19 @@ import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { brotliCompress, constants as zlibConstants, gzip } from 'node:zlib';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicRoot = resolve(root, 'public');
 const port = Number(process.env.PORT || 3000);
+const brotliAsync = promisify(brotliCompress);
+const gzipAsync = promisify(gzip);
+const BODY_CACHE_LIMIT = 32;
+const COMPRESSION_CACHE_LIMIT = 64;
+const bodyCache = new Map();
+const compressionCache = new Map();
+const compressibleExtensions = new Set(['.html','.js','.css','.json','.svg','.webmanifest']);
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -39,6 +48,66 @@ function weakEtag(info) {
   return `W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`;
 }
 
+function remember(map, key, value, limit) {
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  while (map.size > limit) map.delete(map.keys().next().value);
+  return value;
+}
+
+function quality(header, encoding) {
+  for (const part of String(header || '').toLowerCase().split(',')) {
+    const [name, ...params] = part.trim().split(';');
+    if (name !== encoding && name !== '*') continue;
+    const q = params
+      .map(item => item.trim())
+      .find(item => item.startsWith('q='));
+    if (!q) return 1;
+    const value = Number(q.slice(2));
+    return Number.isFinite(value) ? value : 0;
+  }
+  return 0;
+}
+
+function selectEncoding(req, extension, size) {
+  if (size < 1024 || !compressibleExtensions.has(extension)) return null;
+  const header = req.headers['accept-encoding'];
+  if (quality(header, 'br') > 0) return 'br';
+  if (quality(header, 'gzip') > 0) return 'gzip';
+  return null;
+}
+
+async function cachedBody(path, etag) {
+  const cached = bodyCache.get(path);
+  if (cached?.etag === etag) {
+    bodyCache.delete(path);
+    bodyCache.set(path, cached);
+    return cached.body;
+  }
+  const body = await readFile(path);
+  return remember(bodyCache, path, { etag, body }, BODY_CACHE_LIMIT).body;
+}
+
+async function encodedBody(path, etag, encoding, body) {
+  if (!encoding) return body;
+  const key = `${path}|${etag}|${encoding}`;
+  const cached = compressionCache.get(key);
+  if (cached) {
+    compressionCache.delete(key);
+    compressionCache.set(key, cached);
+    return cached;
+  }
+  const compressed = encoding === 'br'
+    ? await brotliAsync(body, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: 4,
+          [zlibConstants.BROTLI_PARAM_SIZE_HINT]: body.length,
+        },
+      })
+    : await gzipAsync(body, { level: 6 });
+  return remember(compressionCache, key, compressed, COMPRESSION_CACHE_LIMIT);
+}
+
 async function sendFile(req, res, path, { cacheControl = 'public, max-age=60, must-revalidate' } = {}) {
   try {
     const info = await stat(path);
@@ -47,34 +116,35 @@ async function sendFile(req, res, path, { cacheControl = 'public, max-age=60, mu
       return;
     }
 
+    const extension = extname(path);
     const etag = weakEtag(info);
-    const headers = securityHeaders({
-      'Content-Type': contentTypes[extname(path)] || 'application/octet-stream',
-      'Content-Length': String(info.size),
+    const vary = compressibleExtensions.has(extension) ? 'Accept-Encoding' : undefined;
+    const baseHeaders = securityHeaders({
+      'Content-Type': contentTypes[extension] || 'application/octet-stream',
       'Cache-Control': cacheControl,
       ETag: etag,
       'Last-Modified': info.mtime.toUTCString(),
+      ...(vary ? { Vary: vary } : {}),
     });
 
     if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, securityHeaders({
-        'Cache-Control': cacheControl,
-        ETag: etag,
-        'Last-Modified': info.mtime.toUTCString(),
-      }));
+      res.writeHead(304, baseHeaders);
       res.end();
       return;
     }
 
-    if (req.method === 'HEAD') {
-      res.writeHead(200, headers);
-      res.end();
-      return;
-    }
+    const body = await cachedBody(path, etag);
+    const encoding = selectEncoding(req, extension, body.length);
+    const output = await encodedBody(path, etag, encoding, body);
+    const headers = {
+      ...baseHeaders,
+      'Content-Length': String(output.length),
+      ...(encoding ? { 'Content-Encoding': encoding } : {}),
+    };
 
-    const body = await readFile(path);
     res.writeHead(200, headers);
-    res.end(body);
+    if (req.method === 'HEAD') res.end();
+    else res.end(output);
   } catch {
     sendError(res, 404, 'not_found');
   }
@@ -116,7 +186,6 @@ const server = http.createServer(async (req, res) => {
   const requested = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
   const file = resolve(publicRoot, requested);
   const childPath = relative(publicRoot, file);
-  // A string prefix check would also accept a sibling named public-other.
   if (childPath === '..' || childPath.startsWith(`..${sep}`) || isAbsolute(childPath)) {
     sendError(res, 403, 'forbidden');
     return;
