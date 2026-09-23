@@ -32,3 +32,13 @@ test('Desktop PRO panel gates actions by transport stage instead of enabling eve
   assert.match(panel, /close: state\.ready && \['PORT_OPEN','PORT_CONFIGURED'\]\.includes\(stage\)/);
   assert.match(panel, /Zamknij i otwórz ponownie/);
 });
+
+
+test('identity planning controls actually exist and are stage-gated', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /data-desktop-pro-request/);
+  assert.match(panel, /data-desktop-pro-request-plan/);
+  assert.match(panel, /data-desktop-pro-action="plan-identity"/);
+  assert.match(panel, /'plan-identity': state\.ready && configured/);
+  assert.match(panel, /requestOperationId = state\.requestOptions\.find\(item => item\.protocol === state\.protocol\)/);
+});
