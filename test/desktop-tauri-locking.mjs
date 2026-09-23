@@ -54,3 +54,62 @@ test('Desktop PRO hot RX loops reuse fixed stack scratch buffers', async () => {
   assert.doesNotMatch(source, /let mut chunk = vec!\[0u8; chunk_len\]/);
   assert.match(source, /port\.read\(&mut chunk\[\.\.chunk_len\]\)/);
 });
+
+
+test('Desktop PRO identity and roughness split preflight from physical serial I/O', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const identity = source.slice(
+    source.indexOf('fn desktop_execute_me72_identity'),
+    source.indexOf('fn desktop_execute_me72_roughness')
+  );
+  const roughness = source.slice(
+    source.indexOf('fn desktop_execute_me72_roughness'),
+    source.indexOf('fn desktop_consume_readonly_request')
+  );
+
+  assert.match(identity, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+  assert.match(roughness, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+
+  const identityIo = identity.slice(identity.indexOf('// Phase 2:'), identity.indexOf('// Phase 3:'));
+  const roughnessIo = roughness.slice(roughness.indexOf('// Phase 2:'), roughness.indexOf('// Phase 3:'));
+
+  assert.match(identityIo, /native\.lock\(\)/);
+  assert.doesNotMatch(identityIo, /state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
+
+  assert.match(roughnessIo, /native\.lock\(\)/);
+  assert.doesNotMatch(roughnessIo, /state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
+});
+
+test('Desktop PRO revalidates transport and request authority after serial I/O', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const identity = source.slice(
+    source.indexOf('fn desktop_execute_me72_identity'),
+    source.indexOf('fn desktop_execute_me72_roughness')
+  );
+  const roughness = source.slice(
+    source.indexOf('fn desktop_execute_me72_roughness'),
+    source.indexOf('fn desktop_consume_readonly_request')
+  );
+
+  for (const command of [identity, roughness]) {
+    assert.match(command, /transport\.epoch != epoch/);
+    assert.match(command, /native_snapshot\.epoch != epoch/);
+    assert.match(command, /!native_snapshot\.transport_open/);
+    assert.match(command, /native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
+    assert.match(command, /transport_changed_after_io/);
+  }
+
+  assert.ok((identity.match(/authorize_native_execution\(/g) || []).length >= 2);
+  assert.match(roughness, /readonly_sample_active/);
+  assert.match(roughness, /authorize_me72_readonly\(epoch\)/);
+});
+
+test('Desktop broker lease blocks request prepare while roughness sample is in flight', async () => {
+  const broker = await readFile(new URL('../desktop-pro/src-tauri/src/desktop_request_broker.rs', import.meta.url), 'utf8');
+  assert.match(broker, /readonly_sample_active: bool/);
+  assert.match(broker, /begin_readonly_sample/);
+  assert.match(broker, /finish_readonly_sample/);
+  assert.match(broker, /return Err\("readonly_sample_active"\.into\(\)\)/);
+  assert.match(broker, /READONLY_SAMPLE_ACTIVE/);
+  assert.match(broker, /self\.readonly_sample_active = false/);
+});
