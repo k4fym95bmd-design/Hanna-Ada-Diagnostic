@@ -293,8 +293,8 @@ impl DesktopNativeSerialState {
                 .map_err(|_| "serial_timeout_config_failed".to_string())?;
 
             let chunk_len = (max_bytes - buffer.len()).min(64);
-            let mut chunk = vec![0u8; chunk_len];
-            match port.read(&mut chunk) {
+            let mut chunk = [0u8; 64];
+            match port.read(&mut chunk[..chunk_len]) {
                 Ok(0) => {}
                 Ok(count) => {
                     buffer.extend_from_slice(&chunk[..count]);
@@ -365,8 +365,8 @@ impl DesktopNativeSerialState {
             port.set_timeout(per_read)
                 .map_err(|_| "serial_timeout_config_failed".to_string())?;
             let chunk_len = (max_bytes - buffer.len()).min(64);
-            let mut chunk = vec![0u8; chunk_len];
-            match port.read(&mut chunk) {
+            let mut chunk = [0u8; 64];
+            match port.read(&mut chunk[..chunk_len]) {
                 Ok(0) => {}
                 Ok(count) => {
                     buffer.extend_from_slice(&chunk[..count]);
