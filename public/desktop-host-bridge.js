@@ -247,6 +247,16 @@ export function validateDesktopReadResult(value) {
     throw new TypeError('Read result attempted unsafe capability promotion');
   }
   const nativeRequestReceipt = value.nativeRequestReceipt ?? null;
+  const nativeIdentityFingerprint = value.nativeIdentityFingerprint ?? null;
+  if (nativeIdentityFingerprint !== null
+      && (typeof nativeIdentityFingerprint !== 'string'
+        || !/^[A-Za-z0-9._:-]{8,128}$/.test(nativeIdentityFingerprint))) {
+    throw new TypeError('Invalid native identity fingerprint');
+  }
+  if (nativeIdentityFingerprint !== null
+      && (value.protocol !== 'KWP2000_BMW' || value.stage !== 'READ_BYTES')) {
+    throw new TypeError('Native identity fingerprint requires KWP READ_BYTES');
+  }
   if (nativeRequestReceipt !== null
       && (!Number.isSafeInteger(nativeRequestReceipt) || nativeRequestReceipt < 1)) {
     throw new TypeError('Invalid native request receipt');
@@ -276,6 +286,7 @@ export function validateDesktopReadResult(value) {
   return Object.freeze({
     ...value,
     nativeRequestReceipt,
+    nativeIdentityFingerprint,
     bytes: Object.freeze([...value.bytes]),
   });
 }
@@ -333,15 +344,24 @@ export function validateDesktopRequestBrokerSnapshot(value) {
   }
   const evidencedAttempts = Object.freeze(value.evidencedAttempts.map(item => {
     if (!item || typeof item !== 'object'
+        || typeof item.operationId !== 'string'
+        || !['e39-dme-me72-module-identity','e39-legacy-module-identity'].includes(item.operationId)
         || typeof item.requestId !== 'string'
         || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
+        || (item.nativeIdentityFingerprint !== null
+            && (typeof item.nativeIdentityFingerprint !== 'string'
+              || !/^[A-Za-z0-9._:-]{8,128}$/.test(item.nativeIdentityFingerprint)))
+        || (item.operationId === 'e39-dme-me72-module-identity'
+            && item.nativeIdentityFingerprint === null)
         || !Number.isSafeInteger(item.nativeReceiveReceipt)
         || item.nativeReceiveReceipt < 1) {
       throw new TypeError('Invalid native evidence ledger item');
     }
     return Object.freeze({
+      operationId: item.operationId,
       requestId: item.requestId,
       nativeReceiveReceipt: item.nativeReceiveReceipt,
+      nativeIdentityFingerprint: item.nativeIdentityFingerprint,
     });
   }));
   if (new Set(evidencedAttempts.map(item => item.requestId)).size !== evidencedAttempts.length
@@ -476,6 +496,12 @@ export function validateDesktopLocalIdentityAttestation(value) {
         || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
         || !Number.isSafeInteger(item.nativeReceiveReceipt)
         || item.nativeReceiveReceipt < 1)
+      || (value.nativeIdentityFingerprint !== null
+          && (typeof value.nativeIdentityFingerprint !== 'string'
+            || !/^[A-Za-z0-9._:-]{8,128}$/.test(value.nativeIdentityFingerprint)))
+      || typeof value.nativeIdentityConsistent !== 'boolean'
+      || (value.protocol === 'KWP2000_BMW'
+          && (value.nativeIdentityConsistent !== true || value.nativeIdentityFingerprint === null))
       || value.rawSerialWriteExposed !== false
       || value.identityVerified !== false
       || value.ecuVerified !== false
