@@ -35,9 +35,11 @@ const attestation = () => ({
   brokerAttemptCount: 2,
   brokerEvidencedAttemptCount: 2,
   brokerEvidencedAttempts: [
-    { requestId:'identity-request-A', nativeReceiveReceipt:41 },
-    { requestId:'identity-request-B', nativeReceiveReceipt:42 },
+    { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-A', nativeReceiveReceipt:41, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
+    { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-B', nativeReceiveReceipt:42, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
   ],
+  nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
+  nativeIdentityConsistent:true,
   rawSerialWriteExposed: false,
   identityVerified: false,
   ecuVerified: false,
@@ -112,8 +114,8 @@ test('native ledger must match correlation request-receipt pairs', () => {
     localAttestation: {
       ...attestation(),
       brokerEvidencedAttempts: [
-        { requestId:'identity-request-A', nativeReceiveReceipt:41 },
-        { requestId:'identity-request-B', nativeReceiveReceipt:99 },
+        { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-A', nativeReceiveReceipt:41, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
+        { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-B', nativeReceiveReceipt:99, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
       ],
     },
   }), /ledger does not match/i);
@@ -123,8 +125,23 @@ test('duplicate native ledger receipts are rejected', () => {
   assert.throws(() => validateDesktopLocalAttestation({
     ...attestation(),
     brokerEvidencedAttempts: [
-      { requestId:'identity-request-A', nativeReceiveReceipt:41 },
-      { requestId:'identity-request-B', nativeReceiveReceipt:41 },
+      { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-A', nativeReceiveReceipt:41, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
+      { operationId:'e39-dme-me72-module-identity', requestId:'identity-request-B', nativeReceiveReceipt:41, nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021' },
     ],
   }), /ledger/i);
+});
+
+
+test('native fingerprint must match parser-derived identity', () => {
+  assert.throws(() => finalizeReadOnlyIdentity({
+    correlationSnapshot: correlation(),
+    localAttestation: {
+      ...attestation(),
+      nativeIdentityFingerprint:'PN9999999-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
+      brokerEvidencedAttempts: attestation().brokerEvidencedAttempts.map(item => ({
+        ...item,
+        nativeIdentityFingerprint:'PN9999999-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
+      })),
+    },
+  }), /fingerprint does not match/i);
 });
