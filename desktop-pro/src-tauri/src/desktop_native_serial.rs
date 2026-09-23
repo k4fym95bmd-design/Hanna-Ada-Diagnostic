@@ -683,6 +683,34 @@ mod tests {
     }
 
     #[test]
+    fn fuel_adaptation_profile_is_allowlisted_and_did_isolated() {
+        assert_eq!(
+            ME72_FUEL_ADAPTATION_REQUEST,
+            [0xB8,0x12,0xF1,0x03,0x22,0x40,0x04,0x3E]
+        );
+        assert_eq!(
+            ME72_FUEL_ADAPTATION_REQUEST.iter().fold(0u8, |acc, byte| acc ^ byte),
+            0
+        );
+        let reply = [
+            0xB8,0xF1,0x12,0x13,0x62,0x40,0x04,0x00,0x2C,0x00,0x20,0x82,
+            0x83,0x80,0x0C,0x6C,0x6C,0x6C,0x6C,0x00,0xF5,0x01,0x15,0x0E
+        ];
+        assert!(has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_FUEL_ADAPTATION_PROFILE
+        ));
+        assert!(!has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_ROUGHNESS_PROFILE
+        ));
+        assert!(!has_complete_me72_read_data_reply(
+            &reply,
+            &ME72_ENGINE_SNAPSHOT_PROFILE
+        ));
+    }
+
+    #[test]
     fn engine_snapshot_request_and_reply_are_fixed_and_read_only() {
         assert_eq!(
             ME72_ENGINE_SNAPSHOT_REQUEST,
