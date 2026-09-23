@@ -57,3 +57,19 @@ test('fuel adaptation profile is native-attestation-gated', () => {
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
   assert.equal(listMe72ReadOnlyDataProfiles().length,3);
 });
+
+
+test('readiness profile is native-attestation-gated', () => {
+  const profile=getMe72ReadOnlyDataProfile('e39-me72-readiness-4007');
+  assert.equal(profile.operationId,'e39-dme-me72-readiness-status');
+  assert.equal(profile.dataIdentifier,'0x4007');
+  assert.equal(profile.parserId,'e39-me72-readiness-4007-v1');
+  assert.equal(profile.executorId,'desktop_execute_me72_readiness');
+  assert.equal(profile.executionEnabled,true);
+  assert.equal(profile.requiresVerifiedIdentity,true);
+  assert.equal(profile.requiresNativeAttestation,true);
+  assert.equal(profile.txBytesExposed,false);
+  assert.equal(profile.writesEnabled,false);
+  assert.equal(assertMe72DataExecutionGated(profile.id),profile);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,4);
+});
