@@ -69,3 +69,21 @@ test('authenticated bridge lists and opens only enumerated ports and never expos
   assert.equal(closed.json.portOpen, false);
   assert.equal(closed.json.cableDetected, false);
 });
+
+
+test('readiness endpoint keeps detection separate from ECU verification', async t => {
+  const bridge = createCableBridge({ serial: serial(), token, allowedOrigin: origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const url = `http://127.0.0.1:${bridge.server.address().port}`;
+  const response = await fetch(url + '/v1/readiness', {
+    headers: { Origin: origin, Authorization: `Bearer ${token}` },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.readOnly, true);
+  assert.equal(body.arbitraryTx, false);
+  assert.equal(body.ports[0].path, 'COM7');
+  assert.equal(body.status.ecuVerified, false);
+  assert.equal(body.status.writesEnabled, false);
+});
