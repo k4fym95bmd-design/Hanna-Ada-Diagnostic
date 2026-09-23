@@ -1,3 +1,8 @@
+# IMPORTANT: while PR #35 remains DRAFT and GitHub-hosted runner entitlement is blocked,
+# keep the job-level draft guard below. Removing it causes repeated pre-run failures
+# (runner_id=0, steps=[]) and burns Actions attempts without executing code.
+# Only remove the guard after a controlled manual probe receives a real runner.
+
 name: CI
 
 on:
