@@ -7,8 +7,9 @@ const mobile = readFileSync(new URL('../public/mobile-shell.js', import.meta.url
 const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 
 test('mobile shell registers one local service worker after initial load', () => {
-  assert.match(mobile, /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(mobile, /serviceWorker\s*\.register\('\/sw\.js', \{ updateViaCache: 'none' \}\)/);
   assert.match(mobile, /window\.addEventListener\('load'/);
+  assert.match(mobile, /requestIdleCallback/);
 });
 
 test('service worker caches only explicit same-origin GET shell assets', () => {
@@ -40,4 +41,11 @@ test('main shell avoids rebuilding navigation on every render and drops stale as
   assert.match(app, /const owner=\+\+renderEpoch/);
   assert.match(app, /if\(owner!==renderEpoch\)return/);
   assert.doesNotMatch(app, /root\.querySelectorAll\('button'\)\.forEach\(b=>b\.onclick/);
+});
+
+
+test('navigation preload is enabled when the browser supports it', () => {
+  assert.match(sw, /registration\.navigationPreload/);
+  assert.match(sw, /navigationPreload\.enable\(\)/);
+  assert.match(sw, /event\.preloadResponse/);
 });
