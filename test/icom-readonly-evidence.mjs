@@ -50,3 +50,13 @@ test('unexpected interface or unverified module is rejected', () => {
     modules: [{ verified: false, sessionId, moduleId: 'DME', identity: 'Bosch ME7.2' }],
   }, sessionId), /Unverified/i);
 });
+
+
+test('simulated ICOM evidence can never be accepted as vehicle proof', () => {
+  assert.throws(() => validateIcomReadOnlyEnvelope({ ...base, simulated: true }, sessionId), /unsafe/i);
+});
+
+test('duplicate module identities are rejected', () => {
+  const module = { verified: true, sessionId, moduleId: 'DME', identity: 'Bosch ME7.2' };
+  assert.throws(() => validateIcomReadOnlyEnvelope({ ...base, modules: [module, { ...module }] }, sessionId), /Duplicate/i);
+});
