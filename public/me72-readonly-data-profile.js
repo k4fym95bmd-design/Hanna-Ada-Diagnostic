@@ -162,9 +162,9 @@ const dtcCountProfile=Object.freeze({
   writesEnabled:false,
   flashEnabled:false,
   sourceRefs:Object.freeze([
-    'DS2PlusPlus ME7.2 KWP0 profile: dtc_count command A2 00, error_code.count at payload start_pos 1',
-    'DS2PlusPlus DPP JSON format: payload index 0 is response status',
-    'No captured ME7.2 A2 00 response vector is claimed',
+    'DS2PlusPlus dpp-json/dme/me-7.2/dme_me7_2.json file_version 5 at commit e67b23710b8f88dc8ae1277d90555a0c2db310d7: dtc_count command A2 00, error_code.count at payload start_pos 1',
+    'The same pinned profile also defines dtc_load_bank1 as A2 00 with only error_code.count, so no full-list contract is inferred',
+    'No captured ME7.2 A2 00 hardware response vector is claimed',
   ]),
 });
 
