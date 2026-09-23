@@ -248,6 +248,8 @@ export function validateDesktopReadResult(value) {
   }
   const nativeRequestReceipt = value.nativeRequestReceipt ?? null;
   const nativeIdentityFingerprint = value.nativeIdentityFingerprint ?? null;
+  const readonlyProfileId = value.readonlyProfileId ?? null;
+  const readonlySampleSequence = value.readonlySampleSequence ?? null;
   if (nativeIdentityFingerprint !== null
       && (typeof nativeIdentityFingerprint !== 'string'
         || !/^[A-Za-z0-9._:-]{8,128}$/.test(nativeIdentityFingerprint))) {
@@ -256,6 +258,19 @@ export function validateDesktopReadResult(value) {
   if (nativeIdentityFingerprint !== null
       && (value.protocol !== 'KWP2000_BMW' || value.stage !== 'READ_BYTES')) {
     throw new TypeError('Native identity fingerprint requires KWP READ_BYTES');
+  }
+  if ((readonlyProfileId === null) !== (readonlySampleSequence === null)) {
+    throw new TypeError('Incomplete read-only sample provenance');
+  }
+  if (readonlyProfileId !== null) {
+    if (readonlyProfileId !== 'e39-me72-roughness-4003'
+        || !Number.isSafeInteger(readonlySampleSequence)
+        || readonlySampleSequence < 1
+        || value.protocol !== 'KWP2000_BMW'
+        || value.stage !== 'READ_BYTES'
+        || nativeIdentityFingerprint === null) {
+      throw new TypeError('Invalid read-only sample provenance');
+    }
   }
   if (nativeRequestReceipt !== null
       && (!Number.isSafeInteger(nativeRequestReceipt) || nativeRequestReceipt < 1)) {
@@ -287,6 +302,8 @@ export function validateDesktopReadResult(value) {
     ...value,
     nativeRequestReceipt,
     nativeIdentityFingerprint,
+    readonlyProfileId,
+    readonlySampleSequence,
     bytes: Object.freeze([...value.bytes]),
   });
 }
@@ -316,6 +333,15 @@ export async function executeDesktopMe72Identity(epoch, requestId, globalObject 
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
     await invoke('desktop_execute_me72_identity', { epoch, requestId })
+  );
+}
+
+export async function executeDesktopMe72Roughness(epoch, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_execute_me72_roughness', { epoch })
   );
 }
 
