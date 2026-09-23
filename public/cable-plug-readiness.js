@@ -49,6 +49,19 @@ export function scoreCablePort(port = {}) {
   });
 }
 
+export function cablePortEvidenceKey(port = {}) {
+  const scored = scoreCablePort(port);
+  return [scored.path, scored.vendorId || '', scored.productId || ''].join('|');
+}
+
+export function findNewCablePorts(before = [], after = []) {
+  if (!Array.isArray(before) || !Array.isArray(after) || before.length > 100 || after.length > 100) {
+    throw new TypeError('Invalid serial port list');
+  }
+  const baseline = new Set(before.map(cablePortEvidenceKey));
+  return Object.freeze(after.filter(port => !baseline.has(cablePortEvidenceKey(port))).map(port => ({ ...port })));
+}
+
 export function assessCablePlugReadiness(ports = []) {
   if (!Array.isArray(ports) || ports.length > 100) throw new TypeError('Invalid serial port list');
   const ranked = ports
