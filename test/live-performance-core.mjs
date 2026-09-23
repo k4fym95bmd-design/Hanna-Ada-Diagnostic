@@ -29,7 +29,7 @@ test('caps every cycle to four supported reads and rotates slow PIDs without gue
   assert.deepEqual(second.keys, ['rpm','coolant','stft1','ltft1']);
   assert.equal(first.keys.length, 4);
   assert.deepEqual(selectLiveBatch(new Set([0x0c]), 0).keys, ['rpm','voltage']);
-  assert.deepEqual(selectLiveBatch(new Set(), 0).keys, ['voltage']);
+  assert.deepEqual(selectLiveBatch(new Set(), 0).keys, []);
 });
 
 test('executes sequentially, refuses parallel snapshots and keeps bus lock during stop', async () => {
@@ -330,4 +330,44 @@ test('selectLiveBatch respects a bounded adaptive cap while retaining a rotating
   assert.deepEqual(limited.keys, ['rpm','coolant','maf']);
   assert.equal(limited.keys.length, 3);
   assert.deepEqual(selectLiveBatch(all, 0, 99).keys, ['rpm','coolant','maf','throttle']);
+});
+
+
+test('repeated single-PID failures enter bounded cooldown while healthy channels keep running', async () => {
+  let voltageAttempts = 0;
+  const seen = [];
+  const c = createLivePerformanceController({
+    getSupported: () => new Set([0x0c]),
+    isConnected: () => true,
+    readPid: async key => {
+      seen.push(key);
+      if (key === 'voltage') { voltageAttempts++; return null; }
+      return 700;
+    },
+  });
+
+  await c.snapshot();
+  await c.snapshot();
+  const attemptsAfterTwo = voltageAttempts;
+  const third = await c.snapshot();
+
+  assert.equal(attemptsAfterTwo, 2);
+  assert.equal(voltageAttempts, 2, 'failing adapter-voltage read should cool down for the next cycle');
+  assert.ok(third.completed >= 1, 'healthy RPM remains available during voltage cooldown');
+  assert.equal(c.metrics().pidBackoffs, 1);
+  assert.ok(c.metrics().coolingPids >= 0);
+  assert.equal(c.metrics().writesEnabled, false);
+});
+
+test('empty supported PID evidence never falls through to adapter voltage polling', async () => {
+  let calls = 0;
+  const c = createLivePerformanceController({
+    getSupported: () => new Set(),
+    isConnected: () => true,
+    readPid: async () => { calls++; return 12.4; },
+  });
+  const result = await c.snapshot();
+  assert.deepEqual(result, { skipped: 'NO_VERIFIED_PIDS' });
+  assert.equal(calls, 0);
+  assert.equal(c.metrics().reads, 0);
 });
