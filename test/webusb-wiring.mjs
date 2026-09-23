@@ -4,13 +4,15 @@ import { readFileSync } from 'node:fs';
 
 const source = name => readFileSync(new URL(`../public/${name}`, import.meta.url), 'utf8');
 const html = source('index.html');
+const bootstrap = source('ultra-bootstrap.js');
 const bridge = source('webusb-cable-discovery.js');
 const ui = source('webusb-workbench-extension.js');
 
 test('existing Hanna Ada page retains BLE/VCI and mounts WebUSB extension only once', () => {
-  assert.equal((html.match(/src="\/webusb-workbench-extension\.js"/g) || []).length, 1);
-  assert.equal((html.match(/src="\/cable-workbench\.js"/g) || []).length, 1);
-  assert.equal((html.match(/src="\/obd-runtime\.js"/g) || []).length, 1);
+  assert.equal((bootstrap.match(/importOnce\('\/webusb-workbench-extension\.js'\)/g) || []).length, 1);
+  assert.equal((bootstrap.match(/importOnce\('\/cable-workbench\.js'\)/g) || []).length, 1);
+  assert.equal((bootstrap.match(/importOnce\('\/obd-runtime\.js'\)/g) || []).length, 1);
+  assert.match(bootstrap, /'usb' in navigator/);
   assert.match(ui, /#haCableWorkbench \[data-cable-panel="android"\]/);
   assert.match(ui, /data-webusb-select/);
   assert.match(ui, /data-webusb-probe/);
