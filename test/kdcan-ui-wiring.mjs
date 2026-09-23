@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const bootstrap = readFileSync(new URL('../public/ultra-bootstrap.js', import.meta.url), 'utf8');
 const workbench = readFileSync(new URL('../public/cable-workbench.js', import.meta.url), 'utf8');
 const panel = readFileSync(new URL('../public/kdcan-cable-panel.js', import.meta.url), 'utf8');
 const webusb = readFileSync(new URL('../public/webusb-workbench-extension.js', import.meta.url), 'utf8');
