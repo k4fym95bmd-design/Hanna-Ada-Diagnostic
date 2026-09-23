@@ -15,6 +15,7 @@ import {
   probeDesktopHost,
   readDesktopBounded,
   executeDesktopMe72Identity,
+  executeDesktopMe72Roughness,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
@@ -616,4 +617,63 @@ test('ME7.2 executor sends only epoch and request id over IPC', async () => {
     () => executeDesktopMe72Identity(7, 'bad id', fake),
     /request id/i
   );
+});
+
+
+test('roughness executor sends epoch only and validates native sample provenance', async () => {
+  const calls=[];
+  const sample=[
+    0xB8,0xF1,0x12,0x18,0x62,0x40,0x03,0xFF,0x70,0xFF,0x4E,0x00,
+    0x00,0xFF,0xD8,0x00,0x32,0x00,0x90,0x00,0x0C,0x00,0x8E,0x01,
+    0x00,0xE5,0x01,0x26,0x98
+  ];
+  const fake={window:{__TAURI__:{core:{invoke:async(name,args)=>{
+    calls.push([name,args]);
+    assert.equal(name,'desktop_execute_me72_roughness');
+    assert.deepEqual(args,{epoch:7});
+    return {
+      version:1,
+      evidenceContractVersion:1,
+      stage:'READ_BYTES',
+      evidenceStage:'RX_ACTIVITY',
+      epoch:7,
+      protocol:'KWP2000_BMW',
+      receivedBytes:sample.length,
+      bytes:sample,
+      nativeRequestReceipt:null,
+      nativeIdentityFingerprint:'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
+      readonlyProfileId:'e39-me72-roughness-4003',
+      readonlySampleSequence:1,
+      ecuVerified:false,
+      writesEnabled:false,
+    };
+  }}}}};
+
+  const result=await executeDesktopMe72Roughness(7,fake);
+  assert.equal(result.readonlyProfileId,'e39-me72-roughness-4003');
+  assert.equal(result.readonlySampleSequence,1);
+  assert.equal(calls.length,1);
+  assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
+  assert.equal('bytes' in calls[0][1],false);
+  assert.equal('payload' in calls[0][1],false);
+  assert.equal('command' in calls[0][1],false);
+});
+
+test('read-only sample provenance cannot exist without attested identity fingerprint', () => {
+  assert.throws(() => validateDesktopReadResult({
+    version:1,
+    evidenceContractVersion:1,
+    stage:'READ_BYTES',
+    evidenceStage:'RX_ACTIVITY',
+    epoch:7,
+    protocol:'KWP2000_BMW',
+    receivedBytes:1,
+    bytes:[0x00],
+    nativeRequestReceipt:null,
+    nativeIdentityFingerprint:null,
+    readonlyProfileId:'e39-me72-roughness-4003',
+    readonlySampleSequence:1,
+    ecuVerified:false,
+    writesEnabled:false,
+  }), /sample provenance/i);
 });
