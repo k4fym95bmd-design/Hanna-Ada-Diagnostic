@@ -9,6 +9,7 @@ pub struct DesktopLocalAttestationState {
     authorized_epoch: Option<u64>,
     authorized_protocol: Option<&'static str>,
     authorized_identity_fingerprint: Option<String>,
+    readonly_sample_sequence: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,6 +130,16 @@ impl DesktopLocalAttestationState {
             .ok_or_else(|| "me72_readonly_identity_fingerprint_required".to_string())
     }
 
+    pub fn record_me72_readonly_sample(&mut self, epoch: u64) -> Result<(u64, String), String> {
+        let fingerprint = self.authorize_me72_readonly(epoch)?;
+        self.readonly_sample_sequence = if self.readonly_sample_sequence == u64::MAX {
+            1
+        } else {
+            self.readonly_sample_sequence + 1
+        };
+        Ok((self.readonly_sample_sequence, fingerprint))
+    }
+
     pub fn reset_authority(&mut self) {
         self.authorized_epoch = None;
         self.authorized_protocol = None;
@@ -241,6 +252,9 @@ mod tests {
             state.authorize_me72_readonly(7).unwrap(),
             "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
         );
+        let (sample_seq, sample_identity) = state.record_me72_readonly_sample(7).unwrap();
+        assert_eq!(sample_seq, 1);
+        assert_eq!(sample_identity, "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021");
         state.reset_authority();
         assert_eq!(
             state.authorize_me72_readonly(7).unwrap_err(),
