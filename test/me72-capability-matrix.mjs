@@ -41,3 +41,13 @@ test('no enabled capability exposes raw TX or write-like execution',()=>{
     assert.notEqual(item.state,Me72CapabilityState.BLOCKED_REFERENCE_INCONSISTENT);
   }
 });
+
+
+test('full DTC list block is tied to the pinned ME7.2 source evidence',()=>{
+  const item=listMe72Capabilities().find(entry=>entry.id==='e39-me72-dtc-list');
+  assert.match(item.reason,/file_version 5/);
+  assert.match(item.reason,/e67b2371/);
+  assert.match(item.reason,/dtc_count/);
+  assert.match(item.reason,/dtc_load_bank1/);
+  assert.doesNotMatch(item.reason,/every known revision/i);
+});
