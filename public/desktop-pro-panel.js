@@ -18,6 +18,7 @@ import { TrustedCorrelationSession } from './trusted-correlation-session.js';
 import { validateTrustedIdentityCandidateEvent } from './trusted-identity-event.js';
 import { finalizeReadOnlyIdentity } from './read-only-identity-finalizer.js';
 import { getIdentityParserProfile, isIdentityParserVerified } from './identity-parser-profile.js';
+import { deriveMe72IdentityFromEvidence } from './me72-identity-parser.js';
 
 const state = {
   ready: false,
@@ -418,12 +419,19 @@ async function attachDesktopProPanel() {
           || state.evidence.frames.length < 1) {
         throw new TypeError('Brak parser evidence powiązanego z native receipt.');
       }
+      const parsedIdentity = plan.operationId === 'e39-dme-me72-module-identity'
+        ? deriveMe72IdentityFromEvidence(state.evidence)
+        : null;
+      if (!parsedIdentity) {
+        throw new TypeError('VERIFIED_PROFILE_PARSER_REQUIRED');
+      }
       detail = validateTrustedIdentityCandidateEvent(event?.detail, {
         epoch: plan.epoch,
         requestId: plan.requestId,
         protocol: plan.protocol,
         nativeReadReceipt: state.nativeReadReceipt,
         expectedFrameHexes: state.evidence.frames.map(frame => frame.frameHex),
+        expectedModuleIdentity: parsedIdentity.fingerprint,
       });
     } catch (error) {
       state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
@@ -458,7 +466,7 @@ async function attachDesktopProPanel() {
       state.nativeReadReceipt = null;
       state.localAttestation = null;
       state.message = state.identityResult.repeatCandidateReady
-        ? '2/2 REPEATED_CORRELATED_IDENTITY_CANDIDATE. Teraz wymagany jest LOCAL ATTEST.'
+        ? `2/2 REPEATED_CORRELATED_IDENTITY_CANDIDATE · ${state.identityResult.moduleIdentity}. Teraz wymagany jest LOCAL ATTEST.`
         : `${state.identityResult.stage} · ${state.identityResult.confirmations}/2. Przygotuj nowy, niezależny attempt.`;
     } catch (error) {
       state.correlationSession.cancelActiveAttempt();
