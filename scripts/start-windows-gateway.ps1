@@ -83,8 +83,8 @@ if ($BridgeHost -in @("127.0.0.1","localhost","::1")) {
   Write-Host "Sprawdzam capabilities mostu..."
   $headers = @{ Authorization = "Bearer $token"; Origin = $AllowedOrigin }
   $bridgeReady = $false
-  $bridgeScheme = $BridgeUsesTls ? "https" : "http"
-  $bridgeProbeHost = $BridgeHost -eq "::1" ? "[::1]" : $BridgeHost
+  $bridgeScheme = if ($BridgeUsesTls) { "https" } else { "http" }
+  $bridgeProbeHost = if ($BridgeHost -eq "::1") { "[::1]" } else { $BridgeHost }
   $bridgeProbeUrl = ("{0}://{1}:{2}/v1/capabilities" -f $bridgeScheme,$bridgeProbeHost,$BridgePort)
   for ($i = 0; $i -lt 30; $i++) {
     try {
