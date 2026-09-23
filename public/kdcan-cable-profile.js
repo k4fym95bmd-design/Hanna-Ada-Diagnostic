@@ -1,51 +1,85 @@
-import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
+// Target profile for the exact generic cable shown by the user:
+// "K+DCAN USB Interface (INPA Compatible)" with a physical switch.
+//
+// This file deliberately separates what the label/photo proves from what must be
+// verified at runtime. A switch position, VID:PID or open COM port never proves
+// BMW protocol access or ECU identity.
 
-// Visual profile for the user's photographed cable. The label and selector are visible,
-// but the internal USB chipset, driver, serial settings and BMW protocol support are NOT.
-export const USER_KDCAN_CABLE = Object.freeze({
-  visibleLabel: 'K+DCAN USB Interface (INPA Compatible)',
-  familyHint: 'K+DCAN / INPA-compatible',
-  selectorPresent: true,
-  chipsetVerified: false,
-  serialDriverVerified: false,
-  bmwProtocolVerified: false,
-  ecuVerified: false,
-  writesEnabled: false,
-  flashEnabled: false,
+export const KDCAN_INPA_SWITCH_TARGET = Object.freeze({
+  id: 'generic-kdcan-inpa-switch',
+  label: 'K+DCAN USB Interface (INPA Compatible)',
+  physicalSwitch: true,
+  switchMeaning: 'UNVERIFIED',
+  targetVehicle: 'BMW E39 540i (1999)',
+  writeCapability: false,
+  codingCapability: false,
+  flashCapability: false,
 });
 
-export function assessUserKdcanCable({
-  vendorId,
-  productId,
-  portOpen = false,
-  selectorPosition = 'unknown',
-} = {}) {
-  const allowedSelector = new Set(['unknown', 'position-1', 'position-2']);
-  if (!allowedSelector.has(selectorPosition)) throw new TypeError('Invalid cable selector position');
-
-  let usb = null;
-  if (Number.isInteger(vendorId) && Number.isInteger(productId)) {
-    usb = identifyUsbSerialCandidate({ vendorId, productId });
-  } else if (vendorId != null || productId != null) {
-    throw new TypeError('VID and PID must be provided together');
-  }
-
+export function usbIdentity({ vendorId, productId, manufacturer = '' } = {}) {
+  const valid = Number.isInteger(vendorId) && vendorId >= 0 && vendorId <= 0xffff
+    && Number.isInteger(productId) && productId >= 0 && productId <= 0xffff;
+  if (!valid) return Object.freeze({ vidPid: null, manufacturer: String(manufacturer || '').slice(0, 100), verified: false });
+  const hex = n => n.toString(16).toUpperCase().padStart(4, '0');
   return Object.freeze({
-    visibleLabel: USER_KDCAN_CABLE.visibleLabel,
-    familyHint: USER_KDCAN_CABLE.familyHint,
-    selectorPresent: true,
-    selectorPosition,
-    vidPid: usb?.vidPid ?? null,
-    chipsetCandidate: usb?.candidate ?? 'Nieustalony — potrzebny VID:PID z systemu',
-    chipsetVerified: false,
-    serialDriverVerified: false,
-    usbSerialOpen: portOpen === true,
-    bmwProtocolVerified: false,
+    vidPid: `${hex(vendorId)}:${hex(productId)}`,
+    manufacturer: String(manufacturer || '').slice(0, 100),
+    verified: true,
+  });
+}
+
+export function resolveSwitchEvidence({ position = 'UNKNOWN', pin78Continuity = null } = {}) {
+  const normalized = ['A', 'B', 'UNKNOWN'].includes(position) ? position : 'UNKNOWN';
+  const measured = typeof pin78Continuity === 'boolean';
+  return Object.freeze({
+    position: normalized,
+    pin78Continuity: measured ? pin78Continuity : null,
+    meaningVerified: measured,
+    description: measured
+      ? `Pozycja ${normalized}: ciągłość pinów 7↔8 = ${pin78Continuity ? 'TAK' : 'NIE'} (pomiar lokalny).`
+      : 'Znaczenie przełącznika niepotwierdzone. Nie przypisuj pozycji do pinów na podstawie wyglądu kabla.',
+  });
+}
+
+export function resolveE39Connector({ round20Present = null } = {}) {
+  if (round20Present === true) {
+    return Object.freeze({
+      mode: 'ROUND_20PIN',
+      adapterNeeded: true,
+      nextStep: 'Użyj zgodnego adaptera BMW 20-pin ↔ OBD-II i najpierw wykonaj odczyt tylko do identyfikacji modułów.',
+    });
+  }
+  if (round20Present === false) {
+    return Object.freeze({
+      mode: 'OBD2_16PIN',
+      adapterNeeded: false,
+      nextStep: 'Użyj złącza OBD-II 16-pin; zakres dostępnych modułów nadal wymaga potwierdzenia w aucie.',
+    });
+  }
+  return Object.freeze({
+    mode: 'VERIFY_ON_VEHICLE',
+    adapterNeeded: null,
+    nextStep: 'Sprawdź, czy egzemplarz ma okrągłe BMW 20-pin pod maską. Nie zakładaj pełnego dostępu przez samo 16-pin.',
+  });
+}
+
+export function kdcanRuntimeStatus({ usb = {}, portOpen = false, switchEvidence = {}, connector = {} } = {}) {
+  const identity = usbIdentity(usb);
+  const sw = resolveSwitchEvidence(switchEvidence);
+  const vehicle = resolveE39Connector(connector);
+  return Object.freeze({
+    target: KDCAN_INPA_SWITCH_TARGET,
+    usb: identity,
+    portOpen: portOpen === true,
+    switch: sw,
+    vehicleConnector: vehicle,
     ecuVerified: false,
     writesEnabled: false,
+    codingEnabled: false,
     flashEnabled: false,
-    nextStep: usb
-      ? 'VID:PID rozpoznany tylko jako wskazówka rodziny układu. Potwierdź sterownik i zachowaj BMW/ECU jako niezweryfikowane.'
-      : 'Najpierw odczytaj VID:PID z wybranego portu USB. Nie zgaduj chipsetu po obudowie kabla.',
+    nextGate: !identity.verified ? 'Odczytaj VID:PID kabla.'
+      : !portOpen ? 'Otwórz właściwy port USB-serial bez wysyłania poleceń.'
+      : !sw.meaningVerified ? 'Zweryfikuj znaczenie przełącznika na tym konkretnym kablu.'
+      : 'Następny etap: kontrolowany read-only handshake BMW z jednoznaczną odpowiedzią ECU.',
   });
 }
