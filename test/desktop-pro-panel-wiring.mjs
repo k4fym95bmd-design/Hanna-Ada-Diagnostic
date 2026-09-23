@@ -20,6 +20,8 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /prepareDesktopReadOnlyRequest/);
   assert.match(panel, /executeDesktopMe72Identity/);
   assert.match(panel, /executeDesktopMe72Roughness/);
+  assert.match(panel, /executeDesktopMe72EngineSnapshot/);
+  assert.match(panel, /deriveMe72EngineSnapshotFromEvidence/);
   assert.match(panel, /deriveMe72CylinderRoughnessFromEvidence/);
   assert.match(panel, /deriveMe72IdentityFromEvidence/);
   assert.match(panel, /consumeDesktopReadOnlyRequest/);
@@ -165,4 +167,17 @@ test('Desktop PRO releases trusted-event listener when leaving VCI', async () =>
   assert.match(panel, /event\.detail\?\.module !== 'vci'/);
   assert.match(panel, /panelAbort\.abort\(\)/);
   assert.match(panel, /hannaada:module-rendered/);
+});
+
+
+test('engine snapshot UI is finalized-identity gated and provenance-bound', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-action="read-engine"/);
+  assert.match(panel,/'read-engine': state\.ready && configured && finalized/);
+  assert.match(panel,/executeDesktopMe72EngineSnapshot\(state\.snapshot\.epoch, window\)/);
+  assert.match(panel,/deriveMe72EngineSnapshotFromEvidence\(state\.evidence\)/);
+  assert.match(panel,/readonlyProfileId !== 'e39-me72-engine-snapshot-4000'/);
+  assert.match(panel,/nativeIdentityFingerprint !== state\.identityResult\.moduleIdentity/);
+  assert.match(panel,/Engine sample #/);
+  assert.doesNotMatch(panel,/executeDesktopMe72EngineSnapshot\([\s\S]{0,120}(payload|command|bytes)\s*:/);
 });
