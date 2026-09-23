@@ -603,8 +603,12 @@ async function attachDesktopProPanel() {
 }
 
 if (typeof document !== 'undefined') {
+  const onModuleRendered = event => {
+    if (event.detail?.module !== 'vci') panelAbort.abort();
+  };
   const start = () => {
     window.addEventListener('hannaada:cable-workbench-mounted', attachDesktopProPanel);
+    window.addEventListener('hannaada:module-rendered', onModuleRendered);
     attachDesktopProPanel();
   };
   if (document.readyState === 'loading') {
