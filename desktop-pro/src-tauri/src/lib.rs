@@ -101,6 +101,31 @@ fn desktop_open_configured_port(
 }
 
 #[tauri::command]
+fn desktop_read_bounded(
+    epoch: u64,
+    max_bytes: usize,
+    timeout_ms: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let snapshot = coordinator.snapshot();
+    if snapshot.epoch != epoch || !snapshot.transport_open || !snapshot.configured {
+        return Err("transport_not_configured_for_epoch".into());
+    }
+
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    match native.read_bounded(epoch, max_bytes, timeout_ms) {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            native.close_any();
+            let _ = coordinator.mark_closed(epoch);
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
 fn desktop_close_port(
     epoch: u64,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
@@ -147,6 +172,7 @@ pub fn run() {
             desktop_bind_serial_candidate,
             desktop_clear_serial_candidate,
             desktop_open_configured_port,
+            desktop_read_bounded,
             desktop_close_port,
             desktop_transport_snapshot,
             desktop_safety_policy
