@@ -238,6 +238,7 @@ const READONLY_SAMPLE_PROFILE_IDS = Object.freeze([
   'e39-me72-fuel-adaptation-4004',
   'e39-me72-output-status-4005',
   'e39-me72-readiness-4007',
+  'e39-me72-dtc-count-a200',
 ]);
 
 export function validateDesktopReadResult(value) {
@@ -386,6 +387,15 @@ export async function executeDesktopMe72OutputStatus(epoch, globalObject = globa
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
     await invoke('desktop_execute_me72_output_status', { epoch })
+  );
+}
+
+export async function executeDesktopMe72DtcCount(epoch, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_execute_me72_dtc_count', { epoch })
   );
 }
 
