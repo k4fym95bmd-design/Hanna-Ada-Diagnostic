@@ -35,10 +35,13 @@ jobs:
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UsbReadiness.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UsbSerialEvidence.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyFrameEvidence.java \
+            android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyEvidenceCorrelation.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/UsbReportTest.java \
-            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyFrameEvidenceTest.java
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyFrameEvidenceTest.java \
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyEvidenceCorrelationTest.java
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.UsbReportTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyFrameEvidenceTest
+          java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyEvidenceCorrelationTest
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
