@@ -9,7 +9,7 @@ const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
 const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 'desktop';
 const errText = e => e instanceof TypeError ? e.message : 'Operacja nie powiodła się. Sprawdź uprawnienia, sterownik i połączenie.';
-const usbId = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';
+const usbId = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';\nconst usbHex = value => Number.isInteger(value) && value >= 0 && value <= 0xFFFF ? value.toString(16).toUpperCase().padStart(4, '0') : '';
 const rootNow = () => document.querySelector('#haCableWorkbench');
 const report = (message, failed = false) => { work.message = message; const r = rootNow(); if (r) { $(r, '[data-cable-message]').textContent = message; $(r, '[data-cable-message]').classList.toggle('ha-cable-error', failed); } };
 function display() {
