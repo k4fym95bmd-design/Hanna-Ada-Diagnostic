@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getTauriInvoke,
+  listDesktopSerialCandidates,
   probeDesktopHost,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
+  validateDesktopSerialCandidates,
 } from '../public/desktop-host-bridge.js';
 
 test('plain browser stays a safe fallback', async () => {
@@ -86,4 +88,68 @@ test('unsafe native promotion is rejected', () => {
     actuationEnabled: false,
     flashEnabled: false,
   }), /unsafe/i);
+});
+
+
+test('desktop serial inventory is sanitized and never promotes transport', async () => {
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async name => {
+            if (name !== 'desktop_list_serial_ports') throw new Error('unexpected command');
+            return [{
+              portName: 'COM7',
+              kind: 'usb',
+              vid: 0x0403,
+              pid: 0x6001,
+              manufacturer: 'FTDI',
+              product: 'USB Serial',
+              candidateFamily: 'FTDI',
+              usbIdentityOnly: true,
+              transportVerified: false,
+              ecuVerified: false,
+              writesEnabled: false,
+            }];
+          },
+        },
+      },
+    },
+  };
+  const items = await listDesktopSerialCandidates(fake);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].portName, 'COM7');
+  assert.equal(items[0].candidateFamily, 'FTDI');
+  assert.equal(items[0].transportVerified, false);
+});
+
+test('desktop serial inventory rejects serial numbers and fake verification', () => {
+  assert.throws(() => validateDesktopSerialCandidates([{
+    portName: 'COM7',
+    kind: 'usb',
+    vid: 0x0403,
+    pid: 0x6001,
+    manufacturer: 'FTDI',
+    product: 'USB Serial',
+    serialNumber: 'private',
+    candidateFamily: 'FTDI',
+    usbIdentityOnly: true,
+    transportVerified: false,
+    ecuVerified: false,
+    writesEnabled: false,
+  }]), /serial number/i);
+
+  assert.throws(() => validateDesktopSerialCandidates([{
+    portName: 'COM7',
+    kind: 'usb',
+    vid: 0x0403,
+    pid: 0x6001,
+    manufacturer: 'FTDI',
+    product: 'USB Serial',
+    candidateFamily: 'FTDI',
+    usbIdentityOnly: true,
+    transportVerified: true,
+    ecuVerified: false,
+    writesEnabled: false,
+  }]), /unsafe/i);
 });
