@@ -22,6 +22,10 @@ document.getElementById('nav')?.addEventListener('click', event => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
+    const register = () => navigator.serviceWorker
+      .register('/sw.js', { updateViaCache: 'none' })
+      .catch(() => {});
+    if ('requestIdleCallback' in window) window.requestIdleCallback(register, { timeout: 1500 });
+    else setTimeout(register, 0);
+  }, { once: true });
 }
