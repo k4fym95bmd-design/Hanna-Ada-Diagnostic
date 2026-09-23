@@ -134,13 +134,23 @@ const TUNING_MODULES = Object.freeze([
 const OBD_MODULES = Object.freeze([
   '/obd-runtime.js',
   '/terminal-readonly-guard.js',
+  '/diagnostic-core.js',
   '/diagnostic-core-v2.js',
+  '/live-performance-core.js',
   '/live-performance-runtime.js',
 ]);
 const CABLE_MODULES = Object.freeze([
   '/cable-workbench.js',
+  '/cable-connection-model.js',
+  '/evidence-contract.js',
+  '/bridge-state-ordering.js',
+  '/bridge-error-policy.js',
+  '/cable-plug-readiness.js',
+  '/usb-chipset-candidates.js',
+  '/kdcan-cable-profile.js',
   '/cable-rx-panel.js',
   '/kdcan-cable-panel.js',
+  '/universal-transport-router.js',
   '/universal-platform-panel.js',
 ]);
 const HARDWARE_MODULES = Object.freeze([
@@ -232,6 +242,10 @@ document.getElementById('nav')?.addEventListener('focusin', event => {
   const button = event.target.closest?.('.nav-button[data-module]');
   if (button) warmForModule(button.dataset.module);
 });
+document.getElementById('nav')?.addEventListener('pointerdown', event => {
+  const button = event.target.closest?.('.nav-button[data-module]');
+  if (button) warmForModule(button.dataset.module);
+}, { passive: true });
 
 (async () => {
   await waitForVisible();
