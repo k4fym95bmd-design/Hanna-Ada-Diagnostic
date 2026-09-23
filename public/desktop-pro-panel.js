@@ -73,14 +73,20 @@ function render(panel) {
 
   const select = panel.querySelector('[data-desktop-pro-port]');
   const before = select.value;
-  select.replaceChildren(...state.ports.map(port => {
-    const opt = document.createElement('option');
-    opt.value = port.portName;
-    const family = port.candidateFamily ? ` · ${port.candidateFamily}` : '';
-    const usb = fmtUsb(port);
-    opt.textContent = `${port.portName}${usb ? ` · ${usb}` : ''}${family}`;
-    return opt;
-  }));
+  const portOptionsKey = state.ports.map(port =>
+    [port.portName, port.candidateFamily || '', fmtUsb(port)].join('|')
+  ).join('||');
+  if (select.dataset.optionsKey !== portOptionsKey) {
+    select.replaceChildren(...state.ports.map(port => {
+      const opt = document.createElement('option');
+      opt.value = port.portName;
+      const family = port.candidateFamily ? ` · ${port.candidateFamily}` : '';
+      const usb = fmtUsb(port);
+      opt.textContent = `${port.portName}${usb ? ` · ${usb}` : ''}${family}`;
+      return opt;
+    }));
+    select.dataset.optionsKey = portOptionsKey;
+  }
   const desired = state.selected || before;
   if (state.ports.some(port => port.portName === desired)) select.value = desired;
   state.selected = select.value || '';
@@ -94,12 +100,18 @@ function render(panel) {
     : 'Evidence: brak odebranych danych.';
 
   const requestSelect = panel.querySelector('[data-desktop-pro-request]');
-  requestSelect.replaceChildren(...state.requestOptions.map(item => {
-    const opt = document.createElement('option');
-    opt.value = item.id;
-    opt.textContent = `${item.moduleFamily} · ${item.protocol} · ${item.operation}`;
-    return opt;
-  }));
+  const requestOptionsKey = state.requestOptions.map(item =>
+    [item.id,item.moduleFamily,item.protocol,item.operation].join('|')
+  ).join('||');
+  if (requestSelect.dataset.optionsKey !== requestOptionsKey) {
+    requestSelect.replaceChildren(...state.requestOptions.map(item => {
+      const opt = document.createElement('option');
+      opt.value = item.id;
+      opt.textContent = `${item.moduleFamily} · ${item.protocol} · ${item.operation}`;
+      return opt;
+    }));
+    requestSelect.dataset.optionsKey = requestOptionsKey;
+  }
   if (!state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol)) {
     state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
     state.requestPlan = null;
