@@ -61,6 +61,7 @@ pub struct DesktopReadOnlyRequestBroker {
     receipt_sequence: u64,
     evidenced_attempt_count: usize,
     evidenced_attempts: Vec<DesktopEvidencedAttempt>,
+    readonly_sample_active: bool,
 }
 
 fn canonical_operation(id: &str) -> Option<(&'static str, &'static str, u64, usize)> {
@@ -96,6 +97,7 @@ impl DesktopReadOnlyRequestBroker {
         self.issued_request_ids.clear();
         self.evidenced_attempt_count = 0;
         self.evidenced_attempts.clear();
+        self.readonly_sample_active = false;
     }
 
     pub fn prepare(
@@ -136,6 +138,9 @@ impl DesktopReadOnlyRequestBroker {
         if self.active.is_some() {
             return Err("request_already_active".into());
         }
+        if self.readonly_sample_active {
+            return Err("readonly_sample_active".into());
+        }
         if self.epoch != 0 && self.epoch != epoch {
             return Err("broker_epoch_mismatch".into());
         }
@@ -159,6 +164,39 @@ impl DesktopReadOnlyRequestBroker {
             received_bytes: 0,
             identity_fingerprint: None,
         });
+        Ok(self.snapshot())
+    }
+
+    pub fn begin_readonly_sample(
+        &mut self,
+        epoch: u64,
+    ) -> Result<DesktopRequestBrokerSnapshot, String> {
+        self.expire_if_needed();
+        if self.epoch != 0 && self.epoch != epoch {
+            return Err("broker_epoch_mismatch".into());
+        }
+        if self.active.is_some() {
+            return Err("readonly_sample_requires_idle_broker".into());
+        }
+        if self.readonly_sample_active {
+            return Err("readonly_sample_already_active".into());
+        }
+        self.epoch = epoch;
+        self.readonly_sample_active = true;
+        Ok(self.snapshot())
+    }
+
+    pub fn finish_readonly_sample(
+        &mut self,
+        epoch: u64,
+    ) -> Result<DesktopRequestBrokerSnapshot, String> {
+        if self.epoch != epoch {
+            return Err("stale_epoch".into());
+        }
+        if !self.readonly_sample_active {
+            return Err("no_readonly_sample_active".into());
+        }
+        self.readonly_sample_active = false;
         Ok(self.snapshot())
     }
 
@@ -334,7 +372,13 @@ impl DesktopReadOnlyRequestBroker {
         DesktopRequestBrokerSnapshot {
             version: 1,
             evidence_contract_version: 1,
-            stage: if active.is_some() { "REQUEST_ACTIVE" } else { "BROKER_IDLE" },
+            stage: if active.is_some() {
+                "REQUEST_ACTIVE"
+            } else if self.readonly_sample_active {
+                "READONLY_SAMPLE_ACTIVE"
+            } else {
+                "BROKER_IDLE"
+            },
             epoch: self.epoch,
             active_request: active.is_some(),
             active_request_id: active.map(|r| r.request_id.clone()),
@@ -348,6 +392,7 @@ impl DesktopReadOnlyRequestBroker {
             max_attempts: MAX_ATTEMPTS,
             active_receive_receipt: active.and_then(|r| r.receive_receipt),
             active_received_bytes: active.map(|r| r.received_bytes).unwrap_or(0),
+            readonly_sample_active: self.readonly_sample_active,
             tx_bytes_exposed: false,
             write_like: false,
             ecu_verified: false,
@@ -393,6 +438,37 @@ mod tests {
             writes_enabled: false,
         };
         (transport, native)
+    }
+
+    #[test]
+    fn readonly_sample_lease_blocks_request_prepare_until_finished_or_reset() {
+        let (transport, native) = configured_transport();
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+
+        let leased = broker.begin_readonly_sample(7).unwrap();
+        assert!(leased.readonly_sample_active);
+        assert_eq!(leased.stage, "READONLY_SAMPLE_ACTIVE");
+
+        assert_eq!(
+            broker.prepare(
+                &transport, &native, 7,
+                "e39-dme-me72-module-identity",
+                "broker-request-during-sample",
+                "KWP2000_BMW", 750, 197,
+            ).unwrap_err(),
+            "readonly_sample_active"
+        );
+
+        let finished = broker.finish_readonly_sample(7).unwrap();
+        assert!(!finished.readonly_sample_active);
+        assert_eq!(finished.stage, "BROKER_IDLE");
+
+        broker.begin_readonly_sample(7).unwrap();
+        broker.reset(8);
+        let reset = broker.snapshot();
+        assert!(!reset.readonly_sample_active);
+        assert_eq!(reset.epoch, 8);
     }
 
     #[test]
