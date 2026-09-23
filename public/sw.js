@@ -52,6 +52,9 @@ self.addEventListener('activate', event => {
     await Promise.all(names
       .filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME)
       .map(name => caches.delete(name)));
+    if (self.registration.navigationPreload) {
+      await self.registration.navigationPreload.enable().catch(() => undefined);
+    }
     await self.clients.claim();
   })());
 });
@@ -69,7 +72,8 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(request, { cache: 'no-cache' });
+        const preloaded = await event.preloadResponse;
+        const fresh = preloaded || await fetch(request, { cache: 'no-cache' });
         if (cacheable(fresh)) {
           const cache = await caches.open(CACHE_NAME);
           event.waitUntil(cache.put('/', fresh.clone()));
