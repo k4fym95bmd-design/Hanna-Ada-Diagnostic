@@ -2,7 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DesktopReceiveEvidenceSession } from '../public/desktop-receive-evidence.js';
 
-const read = (protocol, epoch, bytes, stage = bytes.length ? 'READ_BYTES' : 'READ_TIMEOUT') => ({
+const read = (
+  protocol,
+  epoch,
+  bytes,
+  stage = bytes.length ? 'READ_BYTES' : 'READ_TIMEOUT',
+  nativeRequestReceipt = null
+) => ({
   version: 1,
   evidenceContractVersion: 1,
   stage,
@@ -11,18 +17,20 @@ const read = (protocol, epoch, bytes, stage = bytes.length ? 'READ_BYTES' : 'REA
   protocol,
   receivedBytes: bytes.length,
   bytes,
+  nativeRequestReceipt,
   ecuVerified: false,
   writesEnabled: false,
 });
 
 test('desktop DS2 evidence assembles fragmented reads but never verifies ECU', () => {
   const session = new DesktopReceiveEvidenceSession({ epoch: 9, protocol: 'DS2' });
-  let snap = session.ingest(read('DS2', 9, [0x12, 0x04]));
+  let snap = session.ingest(read('DS2', 9, [0x12, 0x04], 'READ_BYTES', 77));
   assert.equal(snap.candidateFrames, 0);
-  snap = session.ingest(read('DS2', 9, [0x00, 0x16]));
+  snap = session.ingest(read('DS2', 9, [0x00, 0x16], 'READ_BYTES', 77));
   assert.equal(snap.candidateFrames, 1);
   assert.equal(snap.stage, 'FRAME_CANDIDATE');
   assert.equal(snap.frames[0].frameHex, '12 04 00 16');
+  assert.equal(snap.nativeReadReceipt, 77);
   assert.equal(snap.ecuVerified, false);
   assert.equal(snap.writesEnabled, false);
 });
