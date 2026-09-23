@@ -18,11 +18,13 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /TrustedCorrelationSession/);
   assert.match(panel, /validateTrustedIdentityCandidateEvent/);
   assert.match(panel, /prepareDesktopReadOnlyRequest/);
+  assert.match(panel, /executeDesktopMe72Identity/);
+  assert.match(panel, /deriveMe72IdentityFromEvidence/);
   assert.match(panel, /consumeDesktopReadOnlyRequest/);
   assert.match(panel, /cancelDesktopReadOnlyRequest/);
   assert.match(panel, /attestDesktopIdentityContext/);
   assert.match(panel, /finalizeReadOnlyIdentity/);
-  assert.match(panel, /PLAN IDENTITY/);
+  assert.match(panel, /RUN IDENTITY/);
   assert.match(panel, /hannaada:trusted-identity-candidate/);
   assert.match(panel, /confirmations.*\/2/);
 
@@ -112,4 +114,15 @@ test('desktop identity UX blocks attestation without verified profile parser', a
   assert.match(panel, /isIdentityParserVerified/);
   assert.match(panel, /VERIFIED PROFILE PARSER REQUIRED/);
   assert.match(panel, /VERIFIED_PROFILE_PARSER_REQUIRED/);
+});
+
+
+test('ME7.2 RUN IDENTITY is automatic and parser-derived', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /executeDesktopMe72Identity\([\s\S]*localPlan\.epoch[\s\S]*localPlan\.requestId/);
+  assert.match(panel, /state\.evidenceSession\.reset\(\)/);
+  assert.match(panel, /deriveMe72IdentityFromEvidence\(state\.evidence\)/);
+  assert.match(panel, /moduleIdentity: parsedIdentity\.fingerprint/);
+  assert.match(panel, /consumeDesktopReadOnlyRequest\([\s\S]*state\.nativeReadReceipt/);
+  assert.doesNotMatch(panel, /executeDesktopMe72Identity\([\s\S]{0,160}(bytes|payload|command)\s*:/);
 });
