@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { request } from 'node:http';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
 const port = 32000 + Math.floor(Math.random() * 10000);
 const base = `http://127.0.0.1:${port}`;
@@ -26,6 +27,23 @@ function rawRequest(path, method = 'GET', headers = {}) {
       response.setEncoding('utf8');
       response.on('data', chunk => { body += chunk; });
       response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body }));
+      response.on('error', reject);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+function rawBufferRequest(path, method = 'GET', headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = request({ hostname: '127.0.0.1', port, path, method, headers }, response => {
+      const chunks = [];
+      response.on('data', chunk => { chunks.push(Buffer.from(chunk)); });
+      response.on('end', () => resolve({
+        status: response.statusCode,
+        headers: response.headers,
+        body: Buffer.concat(chunks),
+      }));
       response.on('error', reject);
     });
     req.on('error', reject);
@@ -109,4 +127,31 @@ test('HEAD static response returns metadata only', async t => {
   assert.equal(head.body, '');
   assert.equal(head.headers['content-length'], String(Buffer.byteLength(get.body)));
   assert.equal(head.headers.etag, get.headers.etag);
+});
+
+
+test('compresses large text assets with negotiated Brotli or gzip', async t => {
+  const child = spawn(process.execPath, ['server.mjs'], {
+    env: { ...process.env, PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => child.kill('SIGTERM'));
+  await waitForServer(child);
+
+  const plain = await rawBufferRequest('/app.js');
+  const br = await rawBufferRequest('/app.js', 'GET', { 'Accept-Encoding': 'br, gzip' });
+  assert.equal(br.status, 200);
+  assert.equal(br.headers['content-encoding'], 'br');
+  assert.match(br.headers.vary || '', /Accept-Encoding/i);
+  assert.ok(br.body.length < plain.body.length);
+  assert.match(brotliDecompressSync(br.body).toString('utf8'), /Hanna & Ada ready/);
+
+  const gz = await rawBufferRequest('/app.js', 'GET', { 'Accept-Encoding': 'gzip' });
+  assert.equal(gz.headers['content-encoding'], 'gzip');
+  assert.match(gunzipSync(gz.body).toString('utf8'), /Hanna & Ada ready/);
+
+  const head = await rawBufferRequest('/app.js', 'HEAD', { 'Accept-Encoding': 'br' });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers['content-encoding'], 'br');
+  assert.equal(head.body.length, 0);
 });
