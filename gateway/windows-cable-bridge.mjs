@@ -95,6 +95,21 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         return json(res, 200, { version: 1, sessionId: status.sessionId, portOpen: status.portOpen, ...sample, ecuVerified: false,
           message: 'Wyłącznie pasywny odbiór: ramka lub echo nie dowodzą odpowiedzi ECU. Brak komend TX.' });
       }
+      if (req.method === 'GET' && route === '/v1/snapshot') {
+        const status = await currentStatus();
+        const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], kwpFrames: [], ecuVerified: false };
+        return json(res, 200, {
+          version: 1,
+          snapshotVersion: 1,
+          capturedAt: Date.now(),
+          status,
+          rx: { ...sample, ecuVerified: false },
+          ecuVerified: false,
+          writesEnabled: false,
+          flashEnabled: false,
+          message: 'Atomowy snapshot read-only bieżącej sesji kabla; brak TX.'
+        });
+      }
       if (req.method === 'POST' && route === '/v1/open') {
         if (busy || active?.isOpen) return json(res, 409, { error: 'PORT_BUSY' });
         busy = true;
