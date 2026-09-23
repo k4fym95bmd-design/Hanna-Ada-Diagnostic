@@ -7,6 +7,10 @@ function attach() {
   if (!panel || panel.querySelector('[data-cable-rx-read]')) return;
   const wrap = document.createElement('div');
   wrap.className = 'ha-cable-foot';
+  const healthButton = document.createElement('button');
+  healthButton.type = 'button';
+  healthButton.dataset.cableHealthRead = '';
+  healthButton.textContent = 'PODSUMUJ SESJĘ';
   const button = document.createElement('button');
   button.type = 'button';
   button.dataset.cableRxRead = '';
@@ -17,8 +21,59 @@ function attach() {
   result.setAttribute('aria-live', 'polite');
   result.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto';
   result.textContent = 'Nasłuch dostępny po otwarciu portu. Bez wysyłania poleceń.';
-  wrap.append(button, result);
+  wrap.append(healthButton, button, result);
   panel.appendChild(wrap);
+  healthButton.addEventListener('click', async () => {
+    if (healthButton.disabled) return;
+    healthButton.disabled = true;
+    result.textContent = 'Sprawdzanie stanu bieżącej sesji kabla…';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const root = document.querySelector('#haCableWorkbench');
+      if (!root || !root.contains(panel)) return;
+      const url = validateBridgeUrl(root.querySelector('[data-cable-url]')?.value.trim() || '');
+      const token = root.querySelector('[data-cable-token]')?.value || '';
+      if (token.length < 32) throw new TypeError('Brak tokenu mostu (minimum 32 znaki).');
+      const response = await fetch(`${url}/v1/telemetry`, {
+        headers: { Authorization: `Bearer ${token}` },
+        mode: 'cors', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+      });
+      if (!response.ok) throw new TypeError(`Most telemetry zwrócił HTTP ${response.status}.`);
+      const data = await response.json();
+      const allowedStages = ['NO_CABLE','ENUMERATED','PORT_OPEN','RX_ACTIVITY','FRAME_CANDIDATES'];
+      const allowedGates = ['ENUMERATE_USB','OPEN_SERIAL_TRANSPORT','BIND_USB_IDENTITY','COLLECT_PASSIVE_EVIDENCE','MATCH_READ_ONLY_IDENTITY_RESPONSE'];
+      const integer = value => Number.isSafeInteger(value) && value >= 0;
+      if (!data || data.version !== 1 || !allowedStages.includes(data.stage)
+        || !allowedGates.includes(data.nextGate)
+        || data.ecuVerified !== false || data.writesEnabled !== false || data.flashEnabled !== false
+        || !integer(data.observedBytes) || !integer(data.ds2FrameCount) || !integer(data.kwpFrameCount)
+        || !integer(data.candidateFrames) || data.candidateFrames !== data.ds2FrameCount + data.kwpFrameCount
+        || !Array.isArray(data.flags) || data.flags.length > 10) {
+        throw new TypeError('Nieprawidłowe podsumowanie sesji.');
+      }
+      if (panel.isConnected) {
+        result.textContent = [
+          `Etap: ${data.stage}`,
+          `USB związane z sesją: ${data.hardwareBound ? 'TAK' : 'NIE'}`,
+          `Port otwarty: ${data.portOpen ? 'TAK' : 'NIE'}`,
+          `Bajty RX: ${data.observedBytes}`,
+          `DS2 kandydaci: ${data.ds2FrameCount}`,
+          `KWP kandydaci: ${data.kwpFrameCount}`,
+          `Flagi: ${data.flags.join(', ') || 'brak'}`,
+          `Następna bramka: ${data.nextGate}`,
+          'ECU nadal niepotwierdzone; zapis i flash zablokowane.'
+        ].join('\n');
+      }
+    } catch (error) {
+      if (panel.isConnected) result.textContent = error?.name === 'AbortError'
+        ? 'Przekroczony czas odczytu stanu sesji.'
+        : (error instanceof TypeError ? error.message : 'Podsumowanie sesji nie powiodło się.');
+    } finally {
+      clearTimeout(timeout);
+      healthButton.disabled = false;
+    }
+  });
   button.addEventListener('click', async () => {
     if (button.disabled) return;
     button.disabled = true;
