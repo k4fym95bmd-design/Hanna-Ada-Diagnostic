@@ -1,3 +1,5 @@
+import { EVIDENCE_CONTRACT_VERSION } from './evidence-contract.js';
+
 // Desktop host adapter for the existing Hanna & Ada frontend.
 // No package bundler is required because Tauri 2 injects window.__TAURI__ when
 // app.withGlobalTauri=true. Browser mode remains a safe fallback.
@@ -7,6 +9,7 @@ const SAFE_FALLBACK = Object.freeze({
   host: 'browser',
   mode: 'web-fallback',
   platform: 'web',
+  evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
   offlineCapable: false,
   transportAuthority: 'browser-limited',
   ecuVerified: false,
@@ -24,6 +27,7 @@ export function validateDesktopHostStatus(value) {
   if (!value || typeof value !== 'object' || value.version !== 1
       || value.host !== 'tauri' || value.mode !== 'desktop-pro'
       || typeof value.platform !== 'string' || !value.platform
+      || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
       || value.transportAuthority !== 'native-desktop') {
     throw new TypeError('Invalid desktop host status');
   }
@@ -120,7 +124,9 @@ export async function listDesktopSerialCandidates(globalObject = globalThis) {
 
 export function validateDesktopTransportSnapshot(value) {
   if (!value || typeof value !== 'object' || value.version !== 1
+      || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
       || typeof value.stage !== 'string'
+      || typeof value.evidenceStage !== 'string'
       || !Number.isInteger(value.epoch) || value.epoch < 0) {
     throw new TypeError('Invalid desktop transport snapshot');
   }
@@ -182,6 +188,16 @@ export function validateDesktopTransportSnapshot(value) {
       throw new TypeError('Native legacy port open requires USB candidate');
     }
   }
+  const expectedEvidenceStage = value.stage === 'NO_CANDIDATE'
+    ? 'NO_CABLE'
+    : value.kind !== 'usb'
+      ? 'NO_CABLE'
+      : value.transportOpen
+        ? 'PORT_OPEN'
+        : 'HARDWARE_BOUND';
+  if (value.evidenceStage !== expectedEvidenceStage) {
+    throw new TypeError('Desktop evidence stage mismatch');
+  }
   return Object.freeze({ ...value });
 }
 
@@ -217,6 +233,8 @@ export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globa
 
 export function validateDesktopReadResult(value) {
   if (!value || typeof value !== 'object' || value.version !== 1
+      || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
+      || typeof value.evidenceStage !== 'string'
       || !['READ_BYTES', 'READ_EMPTY', 'READ_TIMEOUT'].includes(value.stage)
       || !Number.isInteger(value.epoch) || value.epoch < 1
       || !['DS2', 'KWP2000_BMW'].includes(value.protocol)
@@ -241,6 +259,10 @@ export function validateDesktopReadResult(value) {
   }
   if (value.stage !== 'READ_BYTES' && value.bytes.length !== 0) {
     throw new TypeError('Non-data read stage carried bytes');
+  }
+  const expectedEvidenceStage = value.stage === 'READ_BYTES' ? 'RX_ACTIVITY' : 'PORT_OPEN';
+  if (value.evidenceStage !== expectedEvidenceStage) {
+    throw new TypeError('Desktop read evidence stage mismatch');
   }
   return Object.freeze({ ...value, bytes: Object.freeze([...value.bytes]) });
 }
@@ -271,7 +293,9 @@ export async function getDesktopTransportSnapshot(globalObject = globalThis) {
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) return Object.freeze({
     version: 1,
+    evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
     stage: 'NO_CANDIDATE',
+    evidenceStage: 'NO_CABLE',
     epoch: 0,
     portName: null,
     kind: null,
