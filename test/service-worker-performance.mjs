@@ -143,3 +143,20 @@ test('bootstrap uses intent modulepreload and caps idle prefetch concurrency', (
   assert.match(bootstrap, /warmForModule\(module\)[\s\S]*modulePreload/);
   assert.doesNotMatch(bootstrap, /\[\.\.\.TUNING_MODULES, \.\.\.OBD_MODULES, \.\.\.CABLE_MODULES\]\.forEach\(prefetchModule\)/);
 });
+
+
+test('idle warmup is deliberately tiny while intent warms dependency graphs', () => {
+  assert.match(bootstrap, /prefetchModule\('\/obd-runtime\.js'\)/);
+  assert.match(bootstrap, /prefetchModule\('\/cable-workbench\.js'\)/);
+  assert.match(bootstrap, /pointerdown/);
+  assert.match(bootstrap, /'\/live-performance-core\.js'/);
+  assert.match(bootstrap, /'\/cable-connection-model\.js'/);
+  assert.doesNotMatch(bootstrap, /\[\.\.\.TUNING_MODULES, \.\.\.OBD_MODULES, \.\.\.CABLE_MODULES\]\.forEach\(prefetchModule\)/);
+});
+
+test('tuning catalog has one in-flight request and no service-worker cache ambiguity', () => {
+  assert.match(app, /let tuningRequest=null/);
+  assert.match(app, /if\(!tuningRequest\)tuningRequest=fetch/);
+  assert.match(app, /cache:'no-store'/);
+  assert.match(app, /finally\(\(\)=>\{tuningRequest=null\}\)/);
+});
