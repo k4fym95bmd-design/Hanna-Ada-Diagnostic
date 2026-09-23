@@ -76,3 +76,16 @@ test('iOS ExternalAccessory notifications are foreground-owned and idempotent', 
   assert.match(wired, /if phase == \.active \{[\s\S]*hardware\.startWatching\(\)[\s\S]*hardware\.stopWatching\(\)/);
   assert.match(wired, /hardware\.refreshFromNotification\(\)/);
 });
+
+
+test('iOS desync tears down the physical GATT session before any reconnect', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  const helper = manager.slice(
+    manager.indexOf('private func markCommandChannelDesynced'),
+    manager.indexOf('private func resetSession')
+  );
+  assert.match(helper, /disconnectingPeripheral = current/);
+  assert.match(helper, /central\.cancelPeripheralConnection\(current\)/);
+  assert.match(helper, /resetSession\(keepDevices: true\)/);
+  assert.match(helper, /commandChannelDesynced = true/);
+});
