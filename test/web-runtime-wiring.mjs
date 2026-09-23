@@ -33,3 +33,14 @@ test('OBD console and counters batch DOM work instead of repainting per BLE frag
   assert.doesNotMatch(runtime, /console\.log\('\[H&A OBD\]',kind,msg\)\}/);
   assert.match(runtime, /stopLive,parseDtc/);
 });
+
+
+test('OBD injection observes only view replacement and caches live value nodes', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /const valueNodeCache=new Map\(\)/);
+  assert.match(runtime, /e=valueNodeCache\.get\(key\)/);
+  assert.match(runtime, /e\?\.isConnected/);
+  assert.match(runtime, /new MutationObserver\(scheduleInject\)\.observe\(runtimeView,\{childList:true\}\)/);
+  assert.doesNotMatch(runtime, /MutationObserver\([^\n]+\)\.observe\([^\n]+subtree:true/);
+  assert.match(runtime, /if\(injectFrame!==null\)return/);
+});
