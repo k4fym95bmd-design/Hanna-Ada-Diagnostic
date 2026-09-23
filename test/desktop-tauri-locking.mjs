@@ -183,3 +183,18 @@ test('engine and fuel samples use broker lease and post-I/O revalidation', async
     assert.doesNotMatch(block,/raw_write|request_bytes|payload:/i);
   }
 });
+
+
+test('readiness sample uses broker lease and post-I/O revalidation', async () => {
+  const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const block = source.slice(
+    source.indexOf('fn desktop_execute_me72_readiness'),
+    source.indexOf('fn desktop_consume_readonly_request')
+  );
+  assert.match(block,/begin_readonly_sample\(epoch\)/);
+  assert.match(block,/readonly_sample_active/);
+  assert.match(block,/native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
+  assert.match(block,/authorize_me72_readonly\(epoch\)/);
+  assert.match(block,/finish_readonly_sample\(epoch\)/);
+  assert.doesNotMatch(block,/raw_write|request_bytes|payload:/i);
+});
