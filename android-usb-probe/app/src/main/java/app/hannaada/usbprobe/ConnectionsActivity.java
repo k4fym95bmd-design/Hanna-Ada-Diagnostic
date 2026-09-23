@@ -21,6 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /** User-facing hardware transport selection. No mock ECU data or vehicle writes. */
 public final class ConnectionsActivity extends Activity {
@@ -43,11 +46,18 @@ public final class ConnectionsActivity extends Activity {
     private boolean bleBusy;
     private String bleStatus;
     private boolean bleConnected;
+    private volatile long connectionUiEpoch;
+    private ExecutorService transportExecutor;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
         bleLink = new BleLink(this);
+        transportExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread worker = new Thread(runnable, "hannaada-connection-worker");
+            worker.setDaemon(true);
+            return worker;
+        });
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         ScrollView scroll = new ScrollView(this);
@@ -67,7 +77,7 @@ public final class ConnectionsActivity extends Activity {
     }
 
     @Override protected void onPause() {
-        super.onPause();
+        connectionUiEpoch++;
         if (bleLink != null) bleLink.stopAll();
         if (bleScanning || bleBusy) {
             bleScanning = false;
@@ -75,10 +85,18 @@ public final class ConnectionsActivity extends Activity {
             bleConnected = false;
             bleStatus = "Test BLE przerwany po opuszczeniu ekranu.";
         }
+        if (bluetoothBusy) {
+            bluetoothBusy = false;
+            bluetoothConnected = false;
+            bluetoothResult = "Test SPP przerwany po opuszczeniu ekranu.";
+        }
+        super.onPause();
     }
 
     @Override protected void onDestroy() {
+        connectionUiEpoch++;
         if (bleLink != null) bleLink.stopAll();
+        if (transportExecutor != null) transportExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -258,6 +276,7 @@ public final class ConnectionsActivity extends Activity {
 
     private void startBleScan() {
         if (bleScanning || bleBusy) return;
+        final long owner = ++connectionUiEpoch;
         nearbyBle.clear();
         bleScanning = true;
         bleConnected = false;
@@ -265,14 +284,14 @@ public final class ConnectionsActivity extends Activity {
         render();
         bleLink.startScan(new BleLink.ScanListener() {
             @Override public void onDevice(BluetoothDevice device, String name) {
-                if (!bleScanning || isFinishing()) return;
+                if (owner != connectionUiEpoch || !bleScanning || isFinishing()) return;
                 if (nearbyBle.size() < MAX_DISCOVERED && !nearbyBle.contains(device)) {
                     nearbyBle.add(device);
                     render();
                 }
             }
             @Override public void onFinished(String message) {
-                if (isFinishing() || !bleScanning) return;
+                if (owner != connectionUiEpoch || isFinishing() || !bleScanning) return;
                 bleScanning = false;
                 bleStatus = message;
                 render();
@@ -282,12 +301,14 @@ public final class ConnectionsActivity extends Activity {
 
     private void testBle(BluetoothDevice device) {
         if (bleBusy || bleScanning || device == null) return;
+        final long owner = ++connectionUiEpoch;
         bleBusy = true;
         bleStatus = null;
         bleConnected = false;
         render();
         bleLink.testConnection(device, (message, connected) -> {
-            if (isFinishing()) return;
+            if (owner != connectionUiEpoch || isFinishing()
+                    || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
             bleBusy = false;
             bleConnected = connected;
             bleStatus = message;
@@ -297,20 +318,28 @@ public final class ConnectionsActivity extends Activity {
 
     private void testBluetooth(BluetoothDevice device) {
         if (bluetoothBusy || device == null || !BluetoothLink.hasPermission(this)) return;
+        final long owner = ++connectionUiEpoch;
         bluetoothBusy = true;
         bluetoothResult = null;
         bluetoothConnected = false;
         render();
-        new Thread(() -> {
-            String result = BluetoothLink.testPairedSppConnection(this, device);
-            runOnUiThread(() -> {
-                bluetoothBusy = false;
-                if (!isFinishing()) {
+        try {
+            transportExecutor.execute(() -> {
+                String result = BluetoothLink.testPairedSppConnection(this, device);
+                runOnUiThread(() -> {
+                    if (owner != connectionUiEpoch || isFinishing()
+                            || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                    bluetoothBusy = false;
                     bluetoothResult = result;
                     bluetoothConnected = result.startsWith("SPP: połączono");
                     render();
-                }
+                });
             });
-        }, "hannaada-bt-spp-test").start();
+        } catch (RejectedExecutionException rejected) {
+            bluetoothBusy = false;
+            bluetoothConnected = false;
+            bluetoothResult = "Worker połączeń został zatrzymany; uruchom test ponownie.";
+            render();
+        }
     }
 }
