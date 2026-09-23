@@ -1,3 +1,5 @@
+import { requireVerifiedIdentityParserProfile } from './identity-parser-profile.js';
+
 export function validateDesktopLocalAttestation(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
       || value.version !== 1
@@ -70,6 +72,12 @@ export function finalizeReadOnlyIdentity({
     throw new TypeError('Repeated correlated identity candidate required');
   }
 
+  const parserProfile = requireVerifiedIdentityParserProfile({
+    operationId: correlationSnapshot.operationId,
+    protocol: correlationSnapshot.protocol,
+    moduleFamily: correlationSnapshot.moduleFamily,
+  });
+
   const attestation = validateDesktopLocalAttestation(localAttestation);
   if (attestation.epoch !== correlationSnapshot.epoch
       || attestation.protocol !== correlationSnapshot.protocol) {
@@ -100,6 +108,7 @@ export function finalizeReadOnlyIdentity({
     confirmations: correlationSnapshot.confirmations,
     evidenceRequestIds: Object.freeze([...correlationSnapshot.confirmedRequestIds]),
     nativeReceiveReceipts: Object.freeze([...correlationSnapshot.confirmedNativeReceipts]),
+    parserProfileId: parserProfile.id,
     attestationSequence: attestation.sequence,
     identityVerified: true,
     ecuVerified: false,
