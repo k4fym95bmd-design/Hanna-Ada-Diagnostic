@@ -118,3 +118,20 @@ test('iOS late disconnect callback cannot downgrade desync error to disconnected
   assert.match(finish, /reconnect required/);
   assert.match(finish, /return/);
 });
+
+
+test('iOS Scan Disconnect and background invalidate any older disconnect watchdog', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  assert.match(manager, /private func abandonDisconnectOwnership\(\)/);
+  assert.match(manager, /cancelDisconnectWatchdog\(\)/);
+  assert.match(manager, /disconnectingPeripheral = nil/);
+  assert.match(manager, /pendingConnection = nil/);
+
+  const scan = manager.slice(manager.indexOf('func scan()'), manager.indexOf('func connect(to device: Device)'));
+  const disconnect = manager.slice(manager.indexOf('func disconnect()'), manager.indexOf('func suspendForBackground()'));
+  const background = manager.slice(manager.indexOf('func suspendForBackground()'), manager.indexOf('private func beginDisconnect'));
+
+  for (const body of [scan, disconnect, background]) {
+    assert.match(body, /abandonDisconnectOwnership\(\)/);
+  }
+});
