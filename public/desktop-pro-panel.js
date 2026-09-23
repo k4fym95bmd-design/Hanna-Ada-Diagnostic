@@ -74,9 +74,11 @@ function render(panel) {
     opt.textContent = `${item.moduleFamily} · ${item.protocol} · ${item.operation}`;
     return opt;
   }));
-  if (state.requestOptions.some(item => item.id === state.requestOperationId)) {
-    requestSelect.value = state.requestOperationId;
+  if (!state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol)) {
+    state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
+    state.requestPlan = null;
   }
+  if (state.requestOperationId) requestSelect.value = state.requestOperationId;
 
   panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
     ? `Identity plan: ${state.requestPlan.operationId} · epoch ${state.requestPlan.epoch} · request ${state.requestPlan.requestId} · ${state.requestPlan.protocol} · TX MATERIAL NOT EXPOSED · correlation required`
@@ -91,6 +93,8 @@ function render(panel) {
     open: state.ready && boundClosed && Number.isInteger(Number(state.baudRate))
       && Number(state.baudRate) >= 300 && Number(state.baudRate) <= 1000000,
     read: state.ready && configured && !!state.evidenceSession,
+    'plan-identity': state.ready && configured
+      && state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol),
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -225,15 +229,20 @@ async function attachDesktopProPanel() {
       <label>Baud z profilu komunikacyjnego
         <input data-desktop-pro-baud type="number" min="300" max="1000000" placeholder="brak wartości domyślnej" />
       </label>
+      <label>Plan read-only
+        <select data-desktop-pro-request aria-label="Desktop PRO read-only request plan"></select>
+      </label>
     </div>
     <div class="ha-cable-actions">
       <button type="button" data-desktop-pro-action="refresh">1. PORTY</button>
       <button type="button" data-desktop-pro-action="bind">2. BIND</button>
       <button type="button" data-desktop-pro-action="open">3. OPEN + CONFIG</button>
+      <button type="button" data-desktop-pro-action="plan-identity">4. PLAN IDENTITY</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
     </div>
+    <p data-desktop-pro-request-plan></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
     <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. Poprawna rama może osiągnąć tylko FRAME_CANDIDATE.</p>
@@ -241,12 +250,20 @@ async function attachDesktopProPanel() {
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
     state.protocol = event.target.value;
+    state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
+    state.requestPlan = null;
+    render(panel);
   });
   panel.querySelector('[data-desktop-pro-baud]').addEventListener('input', event => {
     state.baudRate = event.target.value;
   });
   panel.querySelector('[data-desktop-pro-port]').addEventListener('change', event => {
     state.selected = event.target.value;
+  });
+  panel.querySelector('[data-desktop-pro-request]').addEventListener('change', event => {
+    state.requestOperationId = event.target.value;
+    state.requestPlan = null;
+    render(panel);
   });
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
     button.addEventListener('click', () => action(panel, button.dataset.desktopProAction));
