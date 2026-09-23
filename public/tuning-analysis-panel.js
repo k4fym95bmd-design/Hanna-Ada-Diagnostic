@@ -2,8 +2,8 @@ import { assessTuningAnalysis, createAnalysisSummary } from './tuning-analysis-c
 
 function patchTuningAnalysis() {
   const view = document.querySelector('#view');
-  if (!view) return;
-  const heading = [...view.querySelectorAll('h1')].find(el => /Stages|Tuning/i.test(el.textContent || ''));
+  if (!view || view.dataset.module !== 'tuning') return;
+  const heading = view.querySelector('.hero h1');
   if (!heading) return;
   let box = view.querySelector('[data-tuning-analysis-only]');
   if (!box) {
