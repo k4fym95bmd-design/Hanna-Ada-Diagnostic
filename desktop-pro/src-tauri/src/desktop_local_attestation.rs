@@ -1,5 +1,5 @@
 use crate::desktop_native_serial::DesktopNativeSerialSnapshot;
-use crate::desktop_request_broker::DesktopRequestBrokerSnapshot;
+use crate::desktop_request_broker::{DesktopEvidencedAttempt, DesktopRequestBrokerSnapshot};
 use crate::desktop_transport_coordinator::DesktopTransportSnapshot;
 use serde::Serialize;
 
@@ -22,6 +22,7 @@ pub struct DesktopLocalAttestation {
     pub broker_idle: bool,
     pub broker_attempt_count: usize,
     pub broker_evidenced_attempt_count: usize,
+    pub broker_evidenced_attempts: Vec<DesktopEvidencedAttempt>,
     pub raw_serial_write_exposed: bool,
     pub identity_verified: bool,
     pub ecu_verified: bool,
@@ -54,6 +55,9 @@ impl DesktopLocalAttestationState {
         if broker.evidenced_attempt_count < 2 {
             return Err("attestation_requires_two_evidenced_attempts".into());
         }
+        if broker.evidenced_attempts.len() != broker.evidenced_attempt_count {
+            return Err("attestation_evidence_ledger_mismatch".into());
+        }
 
         self.sequence = if self.sequence == u64::MAX { 1 } else { self.sequence + 1 };
 
@@ -75,6 +79,7 @@ impl DesktopLocalAttestationState {
             broker_idle: true,
             broker_attempt_count: broker.attempt_count,
             broker_evidenced_attempt_count: broker.evidenced_attempt_count,
+            broker_evidenced_attempts: broker.evidenced_attempts.clone(),
             raw_serial_write_exposed: false,
             identity_verified: false,
             ecu_verified: false,
@@ -138,6 +143,10 @@ mod tests {
             max_response_bytes: None,
             attempt_count: attempts,
             evidenced_attempt_count: evidenced,
+            evidenced_attempts: (0..evidenced).map(|i| DesktopEvidencedAttempt {
+                request_id: format!("evidenced-request-{}", i + 1),
+                native_receive_receipt: (i + 1) as u64,
+            }).collect(),
             max_attempts: 32,
             active_receive_receipt: if active { Some(1) } else { None },
             active_received_bytes: if active { 4 } else { 0 },
@@ -170,6 +179,8 @@ mod tests {
         assert!(attested.transport_configured);
         assert!(attested.broker_idle);
         assert_eq!(attested.broker_evidenced_attempt_count, 2);
+        assert_eq!(attested.broker_evidenced_attempts.len(), 2);
+        assert_eq!(attested.broker_evidenced_attempts[0].native_receive_receipt, 1);
         assert!(!attested.raw_serial_write_exposed);
         assert!(!attested.identity_verified);
         assert!(!attested.ecu_verified);
