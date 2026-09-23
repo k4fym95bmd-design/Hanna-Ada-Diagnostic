@@ -139,16 +139,47 @@ test('browser-side verifier can never emit the canonical verified stage', () => 
     protocol:'KWP2000_BMW',
     moduleFamily:'DME_ME72',
   });
+  let last;
   for (const id of ['identity-safe-0001','identity-safe-0002','identity-safe-0003']) {
-    const result = verifier.recordAttempt({
+    last = verifier.recordAttempt({
       requestPlan:plan(id),
       receiveEvidence:evidence(),
       responseRequestId:id,
       moduleIdentity:'ME7.2',
     });
-    assert.notEqual(result.stage, 'READ_ONLY_IDENTITY_VERIFIED');
-    assert.equal(result.identityVerified, false);
-    assert.equal(result.ecuVerified, false);
+    assert.notEqual(last.stage, 'READ_ONLY_IDENTITY_VERIFIED');
+    assert.equal(last.identityVerified, false);
+    assert.equal(last.ecuVerified, false);
   }
+  assert.equal(last.stage, 'LOCAL_ATTESTATION_REQUIRED');
+  assert.equal(last.repeatCandidateReady, true);
   assert.equal(verifier.snapshot().identityVerified, false);
+});
+
+
+test('verifier attempt memory is bounded when correlation never succeeds', () => {
+  const verifier = new TrustedIdentityVerifier({
+    epoch:7,
+    operationId:'e39-dme-me72-module-identity',
+    protocol:'KWP2000_BMW',
+    moduleFamily:'DME_ME72',
+  });
+  for (let i=0; i<32; i++) {
+    const id = `identity-noise-${String(i).padStart(2,'0')}`;
+    const result = verifier.recordAttempt({
+      requestPlan:plan(id),
+      receiveEvidence:evidence({ directionHint:'possible-echo' }),
+      responseRequestId:id,
+      moduleIdentity:'ME7.2',
+    });
+    assert.equal(result.identityVerified, false);
+  }
+  const overflow = verifier.recordAttempt({
+    requestPlan:plan('identity-noise-overflow'),
+    receiveEvidence:evidence({ directionHint:'possible-echo' }),
+    responseRequestId:'identity-noise-overflow',
+    moduleIdentity:'ME7.2',
+  });
+  assert.equal(overflow.stage, 'ATTEMPT_LIMIT_REACHED');
+  assert.equal(verifier.snapshot().attemptCount, 32);
 });
