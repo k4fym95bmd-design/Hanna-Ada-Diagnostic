@@ -1,6 +1,7 @@
 mod desktop_serial_inventory;
 mod desktop_native_serial;
 mod desktop_transport_coordinator;
+mod desktop_request_broker;
 
 use serde::Serialize;
 use std::sync::Mutex;
@@ -66,6 +67,7 @@ fn desktop_bind_serial_candidate(
     port_name: String,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let inventory = desktop_serial_inventory::list_sanitized_ports()?;
     // Lock order is always coordinator -> native across every command.
@@ -74,18 +76,25 @@ fn desktop_bind_serial_candidate(
     if native.is_open() {
         return Err("close_native_port_before_rebind".into());
     }
-    coordinator.bind_from_inventory(&inventory, &port_name)
+    let snapshot = coordinator.bind_from_inventory(&inventory, &port_name)?;
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.reset(snapshot.epoch);
+    Ok(snapshot)
 }
 
 #[tauri::command]
 fn desktop_clear_serial_candidate(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     native.close_any();
-    Ok(coordinator.clear())
+    let snapshot = coordinator.clear();
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.reset(snapshot.epoch);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -140,6 +149,7 @@ fn desktop_close_port(
     epoch: u64,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     let snapshot = coordinator.snapshot();
@@ -148,7 +158,73 @@ fn desktop_close_port(
     }
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
     native.close_any();
-    coordinator.mark_closed(epoch)
+    let snapshot = coordinator.mark_closed(epoch)?;
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.reset(epoch);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn desktop_prepare_readonly_request(
+    epoch: u64,
+    operation_id: String,
+    request_id: String,
+    protocol: String,
+    timeout_ms: u64,
+    max_response_bytes: usize,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
+    let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.prepare(
+        &transport,
+        &native_snapshot,
+        epoch,
+        &operation_id,
+        &request_id,
+        &protocol,
+        timeout_ms,
+        max_response_bytes,
+    )
+}
+
+#[tauri::command]
+fn desktop_consume_readonly_request(
+    epoch: u64,
+    request_id: String,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
+    let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let transport = coordinator.snapshot();
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured {
+        return Err("transport_not_configured_for_epoch".into());
+    }
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.consume(epoch, &request_id)
+}
+
+#[tauri::command]
+fn desktop_cancel_readonly_request(
+    epoch: u64,
+    request_id: String,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    broker.cancel(epoch, &request_id)
+}
+
+#[tauri::command]
+fn desktop_request_broker_snapshot(
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+) -> Result<desktop_request_broker::DesktopRequestBrokerSnapshot, String> {
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    Ok(broker.snapshot())
 }
 
 #[tauri::command]
@@ -180,6 +256,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(desktop_transport_coordinator::DesktopTransportCoordinator::default()))
         .manage(Mutex::new(desktop_native_serial::DesktopNativeSerialState::default()))
+        .manage(Mutex::new(desktop_request_broker::DesktopReadOnlyRequestBroker::default()))
         .invoke_handler(tauri::generate_handler![
             desktop_host_status,
             desktop_list_serial_ports,
@@ -188,6 +265,10 @@ pub fn run() {
             desktop_open_configured_port,
             desktop_read_bounded,
             desktop_close_port,
+            desktop_prepare_readonly_request,
+            desktop_consume_readonly_request,
+            desktop_cancel_readonly_request,
+            desktop_request_broker_snapshot,
             desktop_transport_snapshot,
             desktop_safety_policy
         ])
