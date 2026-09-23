@@ -253,3 +253,12 @@ test('output status UI preserves post-cat heater mapping conflict', async () => 
   assert.doesNotMatch(panel,/outputStatus\.oxygenHeaterAfterBank1/);
   assert.doesNotMatch(panel,/outputStatus\.oxygenHeaterAfterBank2/);
 });
+
+
+test('fuel adaptation is rendered once in Desktop PRO', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-fuel/);
+  assert.doesNotMatch(panel,/data-desktop-pro-fuel-adaptation/);
+  assert.equal((panel.match(/const fuel = state\.fuelAdaptation/g) || []).length,1);
+  assert.equal((panel.match(/state\.fuelAdaptationSequence/g) || []).length > 0,true);
+});
