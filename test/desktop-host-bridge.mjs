@@ -18,6 +18,7 @@ import {
   executeDesktopMe72Roughness,
   executeDesktopMe72EngineSnapshot,
   executeDesktopMe72FuelAdaptation,
+  executeDesktopMe72Readiness,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
@@ -783,6 +784,41 @@ test('fuel adaptation executor sends epoch only and validates native provenance'
   const result=await executeDesktopMe72FuelAdaptation(7,fake);
   assert.equal(result.readonlyProfileId,'e39-me72-fuel-adaptation-4004');
   assert.equal(result.readonlySampleSequence,3);
+  assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
+  assert.equal('bytes' in calls[0][1],false);
+  assert.equal('payload' in calls[0][1],false);
+  assert.equal('command' in calls[0][1],false);
+});
+
+
+test('readiness executor sends epoch only and validates native provenance', async () => {
+  const calls=[];
+  const sample=[0xB8,0xF1,0x12,0x05,0x62,0x40,0x07,0xFD,0x10,0x96];
+  const fingerprint='PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021';
+  const fake={window:{__TAURI__:{core:{invoke:async(name,args)=>{
+    calls.push([name,args]);
+    assert.equal(name,'desktop_execute_me72_readiness');
+    assert.deepEqual(args,{epoch:7});
+    return {
+      version:1,
+      evidenceContractVersion:1,
+      stage:'READ_BYTES',
+      evidenceStage:'RX_ACTIVITY',
+      epoch:7,
+      protocol:'KWP2000_BMW',
+      receivedBytes:sample.length,
+      bytes:sample,
+      nativeRequestReceipt:null,
+      nativeIdentityFingerprint:fingerprint,
+      readonlyProfileId:'e39-me72-readiness-4007',
+      readonlySampleSequence:4,
+      ecuVerified:false,
+      writesEnabled:false,
+    };
+  }}}}};
+  const result=await executeDesktopMe72Readiness(7,fake);
+  assert.equal(result.readonlyProfileId,'e39-me72-readiness-4007');
+  assert.equal(result.readonlySampleSequence,4);
   assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
   assert.equal('bytes' in calls[0][1],false);
   assert.equal('payload' in calls[0][1],false);
