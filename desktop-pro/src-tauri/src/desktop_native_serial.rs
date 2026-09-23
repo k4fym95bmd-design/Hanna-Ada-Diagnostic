@@ -8,6 +8,7 @@ const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
 const ME72_ROUGHNESS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x03, 0x39];
 const ME72_ENGINE_SNAPSHOT_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x00, 0x3A];
 const ME72_FUEL_ADAPTATION_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x04, 0x3E];
+const ME72_READINESS_REQUEST: [u8; 8] = [0xB8, 0x12, 0xF1, 0x03, 0x22, 0x40, 0x07, 0x3D];
 
 #[derive(Clone, Copy)]
 struct Me72ReadDataProfile {
@@ -52,6 +53,17 @@ const ME72_FUEL_ADAPTATION_PROFILE: Me72ReadDataProfile = Me72ReadDataProfile {
     write_error: "allowlisted_fuel_adaptation_write_failed",
     flush_error: "allowlisted_fuel_adaptation_flush_failed",
     reply_error: "me72_fuel_adaptation_reply_not_verified",
+};
+
+const ME72_READINESS_PROFILE: Me72ReadDataProfile = Me72ReadDataProfile {
+    request: &ME72_READINESS_REQUEST,
+    did: [0x40, 0x07],
+    min_payload_len: 5,
+    min_response_bytes: 10,
+    profile_id: "e39-me72-readiness-4007",
+    write_error: "allowlisted_readiness_write_failed",
+    flush_error: "allowlisted_readiness_flush_failed",
+    reply_error: "me72_readiness_reply_not_verified",
 };
 
 fn ascii_field(bytes: &[u8]) -> Option<String> {
@@ -503,6 +515,20 @@ impl DesktopNativeSerialState {
         )
     }
 
+    pub fn execute_me72_readiness(
+        &mut self,
+        expected_epoch: u64,
+        max_bytes: usize,
+        timeout_ms: u64,
+    ) -> Result<DesktopReadResult, String> {
+        self.execute_me72_read_data(
+            expected_epoch,
+            max_bytes,
+            timeout_ms,
+            &ME72_READINESS_PROFILE,
+        )
+    }
+
     pub fn read_bounded(
         &mut self,
         expected_epoch: u64,
@@ -651,6 +677,26 @@ mod tests {
         ));
         assert_eq!(ME72_ROUGHNESS_PROFILE.request, &ME72_ROUGHNESS_REQUEST);
         assert_eq!(ME72_ENGINE_SNAPSHOT_PROFILE.request, &ME72_ENGINE_SNAPSHOT_REQUEST);
+    }
+
+    #[test]
+    fn readiness_request_and_reply_are_fixed_and_read_only() {
+        assert_eq!(
+            ME72_READINESS_REQUEST,
+            [0xB8,0x12,0xF1,0x03,0x22,0x40,0x07,0x3D]
+        );
+        assert_eq!(ME72_READINESS_REQUEST.iter().fold(0u8, |acc, byte| acc ^ byte), 0);
+
+        let echo = ME72_READINESS_REQUEST;
+        assert!(!has_complete_me72_read_data_reply(&echo, &ME72_READINESS_PROFILE));
+
+        let reply = [0xB8,0xF1,0x12,0x05,0x62,0x40,0x07,0xFD,0x10,0x96];
+        let mut combined = echo.to_vec();
+        combined.extend_from_slice(&reply);
+        assert!(has_complete_me72_read_data_reply(&combined, &ME72_READINESS_PROFILE));
+        let last = combined.len() - 1;
+        combined[last] ^= 0x01;
+        assert!(!has_complete_me72_read_data_reply(&combined, &ME72_READINESS_PROFILE));
     }
 
     #[test]
