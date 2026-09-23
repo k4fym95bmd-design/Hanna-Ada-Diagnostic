@@ -162,16 +162,24 @@ impl DesktopReadOnlyRequestBroker {
             return Err("receive_bytes_required".into());
         }
 
-        let active = self.active.as_mut().ok_or_else(|| "no_active_request".to_string())?;
-        if active.protocol != protocol {
+        let (active_protocol, current_bytes, max_bytes, existing_receipt) = {
+            let active = self.active.as_ref().ok_or_else(|| "no_active_request".to_string())?;
+            (
+                active.protocol,
+                active.received_bytes,
+                active.max_response_bytes,
+                active.receive_receipt,
+            )
+        };
+        if active_protocol != protocol {
             return Err("receive_protocol_mismatch".into());
         }
-        if active.received_bytes > active.max_response_bytes.saturating_sub(received_bytes) {
+        if current_bytes > max_bytes.saturating_sub(received_bytes) {
             self.active = None;
             return Err("receive_response_overflow".into());
         }
 
-        let receipt = match active.receive_receipt {
+        let receipt = match existing_receipt {
             Some(value) => value,
             None => {
                 self.receipt_sequence = if self.receipt_sequence == u64::MAX {
@@ -179,10 +187,14 @@ impl DesktopReadOnlyRequestBroker {
                 } else {
                     self.receipt_sequence + 1
                 };
-                active.receive_receipt = Some(self.receipt_sequence);
                 self.receipt_sequence
             }
         };
+
+        let active = self.active.as_mut().ok_or_else(|| "no_active_request".to_string())?;
+        if active.receive_receipt.is_none() {
+            active.receive_receipt = Some(receipt);
+        }
         active.received_bytes += received_bytes;
         Ok(receipt)
     }
@@ -259,7 +271,6 @@ impl DesktopReadOnlyRequestBroker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::desktop_serial_inventory::DesktopSerialCandidate;
 
     fn configured_transport() -> (DesktopTransportSnapshot, DesktopNativeSerialSnapshot) {
         let transport = DesktopTransportSnapshot {
