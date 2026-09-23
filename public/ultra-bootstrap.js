@@ -1,6 +1,17 @@
 const loaded = new Map();
 const loadedStyles = new Map();
 const prefetched = new Set();
+const modulePreloaded = new Set();
+const prefetchQueue = [];
+let prefetchInFlight = 0;
+
+const deviceMemory = Number(navigator.deviceMemory || 4);
+const hardwareConcurrency = Number(navigator.hardwareConcurrency || 4);
+const connection = navigator.connection;
+const constrainedDevice = deviceMemory <= 2 || hardwareConcurrency <= 2;
+const constrainedNetwork = connection?.saveData === true || ['slow-2g','2g'].includes(connection?.effectiveType);
+const PREFETCH_CONCURRENCY = constrainedDevice || constrainedNetwork ? 1 : 2;
+const BACKGROUND_PREFETCH_LIMIT = constrainedDevice || constrainedNetwork ? 0 : 4;
 
 const importOnce = path => {
   if (!loaded.has(path)) {
@@ -29,30 +40,65 @@ const loadStyle = path => {
   return loadedStyles.get(path);
 };
 
-const networkAllowsPrefetch = () => {
-  const connection = navigator.connection;
-  return !(connection?.saveData || ['slow-2g','2g'].includes(connection?.effectiveType));
+const networkAllowsPrefetch = () => !constrainedNetwork;
+
+const scheduleBackground = task => {
+  if (globalThis.scheduler?.postTask) {
+    return scheduler.postTask(task, { priority: 'background' }).catch(() => undefined);
+  }
+  if ('requestIdleCallback' in window) {
+    return new Promise(resolve => window.requestIdleCallback(() => resolve(task()), { timeout: 1200 }));
+  }
+  return new Promise(resolve => setTimeout(() => resolve(task()), 0));
+};
+
+const pumpPrefetch = () => {
+  while (prefetchInFlight < PREFETCH_CONCURRENCY && prefetchQueue.length) {
+    const path = prefetchQueue.shift();
+    prefetchInFlight++;
+    void scheduleBackground(async () => {
+      if (document.hidden || !networkAllowsPrefetch()) return;
+      const probe = document.createElement('link');
+      if (probe.relList?.supports?.('prefetch') === true) {
+        probe.rel = 'prefetch';
+        probe.as = 'script';
+        probe.href = path;
+        probe.fetchPriority = 'low';
+        document.head.appendChild(probe);
+        return;
+      }
+      await fetch(path, {
+        method: 'GET',
+        cache: 'force-cache',
+        credentials: 'same-origin',
+        priority: 'low',
+      }).catch(() => undefined);
+    }).finally(() => {
+      prefetchInFlight--;
+      pumpPrefetch();
+    });
+  }
 };
 
 const prefetchModule = path => {
   if (prefetched.has(path) || !networkAllowsPrefetch()) return;
   prefetched.add(path);
-  const probe = document.createElement('link');
-  const supportsPrefetch = probe.relList?.supports?.('prefetch') === true;
-  if (supportsPrefetch) {
-    probe.rel = 'prefetch';
-    probe.as = 'script';
-    probe.href = path;
-    probe.fetchPriority = 'low';
-    document.head.appendChild(probe);
+  prefetchQueue.push(path);
+  pumpPrefetch();
+};
+
+const modulePreload = path => {
+  if (modulePreloaded.has(path) || loaded.has(path) || !networkAllowsPrefetch()) return;
+  modulePreloaded.add(path);
+  const link = document.createElement('link');
+  if (link.relList?.supports?.('modulepreload') !== true) {
+    prefetchModule(path);
     return;
   }
-  fetch(path, {
-    method: 'GET',
-    cache: 'force-cache',
-    credentials: 'same-origin',
-    priority: 'low',
-  }).catch(() => {});
+  link.rel = 'modulepreload';
+  link.href = path;
+  link.fetchPriority = constrainedDevice ? 'low' : 'auto';
+  document.head.appendChild(link);
 };
 
 const waitForVisible = () => new Promise(resolve => {
@@ -159,15 +205,15 @@ async function loadForModule(module) {
 
 function warmForModule(module) {
   if (!networkAllowsPrefetch()) return;
-  if (module === 'tuning') TUNING_MODULES.forEach(prefetchModule);
+  if (module === 'tuning') TUNING_MODULES.forEach(modulePreload);
   if (module === 'vci') {
-    OBD_MODULES.forEach(prefetchModule);
-    CABLE_MODULES.forEach(prefetchModule);
-    HARDWARE_MODULES.forEach(prefetchModule);
+    OBD_MODULES.forEach(modulePreload);
+    CABLE_MODULES.forEach(modulePreload);
+    HARDWARE_MODULES.forEach(modulePreload);
   }
   if (module === 'bmw-expert') {
-    CABLE_MODULES.forEach(prefetchModule);
-    HARDWARE_MODULES.forEach(prefetchModule);
+    CABLE_MODULES.forEach(modulePreload);
+    HARDWARE_MODULES.forEach(modulePreload);
   }
 }
 
@@ -197,12 +243,12 @@ document.getElementById('nav')?.addEventListener('focusin', event => {
   await loadForModule(initialModule);
 
   await idle();
-  // Background work is fetch-only. Execution waits for explicit module intent.
-  [...TUNING_MODULES, ...OBD_MODULES, ...CABLE_MODULES].forEach(prefetchModule);
-  prefetchModule('/oem-icom-panel.js');
-  if ('usb' in navigator) prefetchModule('/webusb-workbench-extension.js');
-  if (window.__TAURI_INTERNALS__ || window.__TAURI__) {
-    prefetchModule('/desktop-host-bridge.js');
-    prefetchModule('/desktop-pro-panel.js');
+  // Background work is intentionally capped. Compile-heavy modulepreload is reserved
+  // for explicit pointer/focus intent; idle time only warms a few likely entry points.
+  if (BACKGROUND_PREFETCH_LIMIT > 0) {
+    const likely = ['/obd-runtime.js','/cable-workbench.js','/tuning-stage-extension.js'];
+    if ('usb' in navigator) likely.push('/webusb-workbench-extension.js');
+    if (window.__TAURI_INTERNALS__ || window.__TAURI__) likely.push('/desktop-pro-panel.js');
+    likely.slice(0, BACKGROUND_PREFETCH_LIMIT).forEach(prefetchModule);
   }
 })();
