@@ -130,6 +130,7 @@ const idle = () => new Promise(resolve => {
 });
 
 const TUNING_MODULES = Object.freeze([
+  '/tuning-view.js',
   '/tuning-stage-extension.js',
   '/tuning-analysis-panel.js',
 ]);
