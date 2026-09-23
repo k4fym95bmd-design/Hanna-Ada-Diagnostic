@@ -405,3 +405,66 @@ test('failed passive monitor initialization closes the serial port and leaves no
   assert.equal(status.json.sessionId, null);
   assert.equal(status.json.ecuVerified, false);
 });
+
+
+test('exact multi-origin CORS allows Windows and mobile clients without wildcard trust', async t => {
+  const localOrigin = 'http://localhost:3000';
+  const mobileOrigin = 'https://bmw.floot.app';
+  const bridge = createCableBridge({
+    serial: serial(),
+    token,
+    allowedOrigins: [localOrigin, mobileOrigin],
+  });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+
+  const ask = async source => {
+    const response = await fetch(base + '/v1/capabilities', {
+      headers: { Origin: source, Authorization: `Bearer ${token}` },
+    });
+    return {
+      code: response.status,
+      allowOrigin: response.headers.get('access-control-allow-origin'),
+      body: await response.json(),
+    };
+  };
+
+  const local = await ask(localOrigin);
+  assert.equal(local.code, 200);
+  assert.equal(local.allowOrigin, localOrigin);
+  assert.equal(local.body.trustedOriginCount, 2);
+
+  const mobile = await ask(mobileOrigin);
+  assert.equal(mobile.code, 200);
+  assert.equal(mobile.allowOrigin, mobileOrigin);
+
+  const evil = await ask('https://evil.test');
+  assert.equal(evil.code, 403);
+  assert.equal(evil.allowOrigin, null);
+});
+
+test('trusted origin configuration is exact bounded and rejects remote HTTP', () => {
+  assert.throws(() => createCableBridge({
+    serial: serial(), token, allowedOrigins: [],
+  }), /1 and 4/i);
+  assert.throws(() => createCableBridge({
+    serial: serial(), token,
+    allowedOrigins: [
+      'https://one.test','https://two.test','https://three.test',
+      'https://four.test','https://five.test',
+    ],
+  }), /1 and 4/i);
+  assert.throws(() => createCableBridge({
+    serial: serial(), token,
+    allowedOrigins: ['http://192.168.1.20:3000'],
+  }), /require HTTPS/i);
+  assert.throws(() => createCableBridge({
+    serial: serial(), token,
+    allowedOrigins: ['https://bmw.floot.app/path'],
+  }), /exact origin/i);
+  assert.throws(() => createCableBridge({
+    serial: serial(), token,
+    allowedOrigins: ['https://user:secret@bmw.floot.app'],
+  }), /exact origin/i);
+});
