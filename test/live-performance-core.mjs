@@ -126,7 +126,7 @@ test('adaptive pacing stays bounded and metrics never claim writes', async () =>
   await c.stop();
 });
 
-test('hiding page mid-batch stops new reads after the in-flight response', async () => {
+test('hiding page mid-batch stops new reads after the in-flight response without rearming timers', async () => {
   const timer = mockTimer(); let visible = true, count = 0;
   const c = createLivePerformanceController({
     readPid: async () => { count++; visible = false; return 1; },
@@ -135,10 +135,30 @@ test('hiding page mid-batch stops new reads after the in-flight response', async
   });
   c.start(); await timer.tick();
   assert.equal(count, 1);
-  assert.equal(timer.active()[0].ms, 600);
+  assert.equal(timer.active().length, 0, 'mid-batch hide must not leave a background wake timer');
+  assert.equal(c.metrics().backgroundPauses, 1);
+  assert.equal(c.wake(), false);
+  visible = true;
+  assert.equal(c.wake(), true);
   await timer.tick();
-  assert.equal(count, 1);
-  assert.equal(timer.active()[0].ms, 2000);
+  assert.equal(count, 2);
+  assert.equal(timer.active().length, 0, 'second mid-batch hide must also remain timer-free');
+  await c.stop();
+});
+
+test('running snapshot does not rearm live timer if page becomes hidden during the read', async () => {
+  const timer = mockTimer(); let visible = true, count = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { count++; visible = false; return 1; },
+    getSupported: () => new Set([0x0c]), isConnected: () => true,
+    isVisible: () => visible, ...timer,
+  });
+  c.start();
+  const result = await c.snapshot();
+  assert.equal(result.completed, 2);
+  assert.equal(count, 2);
+  assert.equal(timer.active().length, 0);
+  assert.equal(c.metrics().backgroundPauses, 1);
   await c.stop();
 });
 
