@@ -11,7 +11,7 @@ const correlation = () => ({
   protocol: 'KWP2000_BMW',
   moduleFamily: 'DME_ME72',
   confirmations: 2,
-  moduleIdentity: 'ME7.2',
+  moduleIdentity: 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
   confirmedRequestIds: ['identity-request-A','identity-request-B'],
   confirmedNativeReceipts: [41,42],
   repeatCandidateReady: true,
@@ -45,22 +45,28 @@ const attestation = () => ({
   flashEnabled: false,
 });
 
-test('finalizer blocks current ME7.2 path until profile parser is verified', () => {
-  assert.throws(() => finalizeReadOnlyIdentity({
+test('reference-verified ME7.2 parser allows native-attested read-only identity finalization', () => {
+  const result = finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: attestation(),
-  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
+  });
+  assert.equal(result.stage, 'READ_ONLY_IDENTITY_VERIFIED');
+  assert.equal(result.parserProfileId, 'e39-me72-identity-parser');
+  assert.equal(result.identityVerified, true);
+  assert.equal(result.ecuVerified, false);
+  assert.equal(result.writesEnabled, false);
+  assert.equal(result.flashEnabled, false);
 });
 
 test('attestation and correlation epoch/protocol must match exactly', () => {
   assert.throws(() => finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: { ...attestation(), epoch: 8 },
-  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
+  }), /does not match/i);
   assert.throws(() => finalizeReadOnlyIdentity({
     correlationSnapshot: correlation(),
     localAttestation: { ...attestation(), protocol: 'DS2' },
-  }), /VERIFIED_PROFILE_PARSER_REQUIRED/);
+  }), /does not match/i);
 });
 
 test('attestation rejects unsafe native capability promotion', () => {
