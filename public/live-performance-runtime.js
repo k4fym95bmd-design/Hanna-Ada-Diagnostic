@@ -14,6 +14,8 @@ const say = (text, error = false) => {
 let metricFrame = null;
 let pendingMetrics = null;
 let lastMetricText = '';
+let runtimeAttached = false;
+let bindFrame = null;
 function commitMetrics() {
   metricFrame = null;
   const stats = pendingMetrics;
@@ -26,7 +28,7 @@ function commitMetrics() {
   const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
   const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
   const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
-  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize} · budżet ${stats.budgetStops} · kolejka 0`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · budżet ${stats.budgetStops} · kolejka 0`;
   if (text !== lastMetricText) {
     el.textContent = text;
     lastMetricText = text;
@@ -49,7 +51,7 @@ const controller = createLivePerformanceController({
   readPid: key => obd.readPid(key),
   getSupported: () => obd.supported,
   isConnected: () => obd.connected === true && obd.adapter === true && obd.ecu === true,
-  isVisible: () => !document.hidden && !!$('#haRuntime'),
+  isVisible: () => !document.hidden && runtimeAttached,
   onMetrics: updateMetrics,
   onStatus: message => say(message, true),
 });
@@ -89,6 +91,7 @@ async function snapshot() {
 
 function bind() {
   const root = $('#haRuntime');
+  runtimeAttached = !!root;
   if (!root) {
     if (controller.isRunning()) void controller.stop();
     return;
@@ -127,13 +130,30 @@ function bind() {
   updateMetrics(controller.metrics());
 }
 
+function scheduleBind() {
+  if (bindFrame !== null) return;
+  const run = () => {
+    bindFrame = null;
+    bind();
+  };
+  bindFrame = typeof requestAnimationFrame === 'function'
+    ? requestAnimationFrame(run)
+    : setTimeout(run, 0);
+}
+
 function boot() {
   const view = $('#view');
   if (!view) return;
-  new MutationObserver(bind).observe(view, { childList: true });
+  new MutationObserver(scheduleBind).observe(view, { childList: true });
   bind();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) controller.wake(); });
-  window.addEventListener('pagehide', () => { void controller.stop(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      scheduleBind();
+      controller.wake();
+    }
+  });
+  window.addEventListener('pageshow', scheduleBind);
+  window.addEventListener('pagehide', () => { runtimeAttached = false; void controller.stop(); });
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
