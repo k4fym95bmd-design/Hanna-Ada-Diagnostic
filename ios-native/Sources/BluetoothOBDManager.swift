@@ -152,6 +152,10 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
             _ = self.disconnectWatchdog.complete(token)
             self.disconnectWatchdogTask = nil
+            self.central.stopScan()
+            if let stale = self.disconnectingPeripheral {
+                self.central.cancelPeripheralConnection(stale)
+            }
             self.pendingConnection = nil
             self.disconnectingPeripheral = nil
             self.resetSession(keepDevices: true)
