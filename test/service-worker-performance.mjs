@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const sw = readFileSync(new URL('../public/sw.js', import.meta.url), 'utf8');
+const mobile = readFileSync(new URL('../public/mobile-shell.js', import.meta.url), 'utf8');
+const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+test('mobile shell registers one local service worker after initial load', () => {
+  assert.match(mobile, /serviceWorker\.register\('\/sw\.js'\)/);
+  assert.match(mobile, /window\.addEventListener\('load'/);
+});
+
+test('service worker caches only explicit same-origin GET shell assets', () => {
+  assert.match(sw, /request\.method !== 'GET'/);
+  assert.match(sw, /url\.origin !== self\.location\.origin/);
+  assert.match(sw, /CORE\.includes\(url\.pathname\)/);
+  assert.match(sw, /Promise\.allSettled/);
+  assert.match(sw, /CACHE_PREFIX/);
+});
+
+test('dynamic APIs catalog health and cross-origin bridge traffic are excluded from cache', () => {
+  assert.match(sw, /url\.pathname\.startsWith\('\/api\/'\)/);
+  assert.match(sw, /url\.pathname === '\/health'/);
+  assert.match(sw, /url\.pathname\.startsWith\('\/config\/'\)/);
+  assert.match(sw, /url\.origin !== self\.location\.origin/);
+  assert.doesNotMatch(sw, /\/v1\/transmit|writeValue|transferOut|controlTransferOut/);
+});
+
+test('navigation is network-first while static shell assets use stale-while-revalidate', () => {
+  assert.match(sw, /request\.mode === 'navigate'/);
+  assert.match(sw, /const cached = await caches\.match\(request\)/);
+  assert.match(sw, /event\.waitUntil\(updateStatic\(request\)/);
+});
+
+test('main shell avoids rebuilding navigation on every render and drops stale async renders', () => {
+  assert.match(app, /if\(!navReady\)/);
+  assert.match(app, /root\.addEventListener\('click'/);
+  assert.match(app, /if\(lastNavModule!==state\.module\)/);
+  assert.match(app, /const owner=\+\+renderEpoch/);
+  assert.match(app, /if\(owner!==renderEpoch\)return/);
+  assert.doesNotMatch(app, /root\.querySelectorAll\('button'\)\.forEach\(b=>b\.onclick/);
+});
