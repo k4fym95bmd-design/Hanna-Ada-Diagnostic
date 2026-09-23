@@ -176,6 +176,13 @@ function render(panel) {
       ? 'Fuel adaptations 0x4004: gotowe do pojedynczego read-only odczytu.'
       : 'Fuel adaptations 0x4004: zablokowane do READ_ONLY_IDENTITY_VERIFIED.';
 
+  const adaptation = state.fuelAdaptation;
+  panel.querySelector('[data-desktop-pro-fuel-adaptation]').textContent = adaptation
+    ? `Fuel adaptation #${state.fuelAdaptationSequence} · add B1 ${adaptation.additiveBank1Percent.toFixed(4)}% · add B2 ${adaptation.additiveBank2Percent.toFixed(4)}% · mult B1 ${adaptation.multiplicativeBank1Percent.toFixed(6)}% · mult B2 ${adaptation.multiplicativeBank2Percent.toFixed(6)}%`
+    : finalized
+      ? 'Fuel adaptation 0x4004: gotowa do pojedynczego read-only snapshotu.'
+      : 'Fuel adaptation 0x4004: zablokowana do READ_ONLY_IDENTITY_VERIFIED.';
+
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
   const configured = stage === 'PORT_CONFIGURED';
@@ -459,6 +466,27 @@ async function action(panel, name) {
       state.fuelAdaptationSequence = result.readonlySampleSequence;
       state.fuelAdaptationIdentityFingerprint = result.nativeIdentityFingerprint;
       state.message = `ME7.2 fuel adaptations 0x4004 · native sample #${result.readonlySampleSequence} · read-only.`;
+    } else if (name === 'read-fuel-adaptation') {
+      if (state.identityResult?.identityVerified !== true
+          || state.snapshot?.stage !== 'PORT_CONFIGURED'
+          || !state.evidenceSession) {
+        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed fuel adaptation.');
+      }
+
+      state.evidenceSession.reset();
+      state.evidence = null;
+      const result = await executeDesktopMe72FuelAdaptation(state.snapshot.epoch, window);
+      if (result.readonlyProfileId !== 'e39-me72-fuel-adaptation-4004'
+          || !Number.isSafeInteger(result.readonlySampleSequence)
+          || result.nativeIdentityFingerprint !== state.identityResult.moduleIdentity) {
+        throw new TypeError('Native fuel adaptation provenance mismatch.');
+      }
+
+      state.evidence = state.evidenceSession.ingest(result);
+      state.fuelAdaptation = deriveMe72FuelAdaptationFromEvidence(state.evidence);
+      state.fuelAdaptationSequence = result.readonlySampleSequence;
+      state.fuelAdaptationIdentityFingerprint = result.nativeIdentityFingerprint;
+      state.message = `ME7.2 fuel adaptation 0x4004 · native sample #${result.readonlySampleSequence} · read-only.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
