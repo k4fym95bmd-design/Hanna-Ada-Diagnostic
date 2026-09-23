@@ -36,6 +36,7 @@ jobs:
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UsbSerialEvidence.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyFrameEvidence.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyEvidenceCorrelation.java \
+            android-usb-probe/app/src/main/java/app/hannaada/usbprobe/UnifiedEvidenceContract.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/KdcanTransportSession.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacySerialProfile.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyPortConfigurationPlan.java \
