@@ -8,6 +8,7 @@ import com.hoho.android.usbserial.driver.UsbSerialDriver;
 import com.hoho.android.usbserial.driver.UsbSerialPort;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Physical Android USB-serial bridge for the current K+DCAN evidence stage.
@@ -65,6 +66,7 @@ public final class AndroidKdcanUsbBridge {
 
     private final UsbManager manager;
     private final KdcanTransportSession transportSession;
+    private final AtomicLong operationGeneration = new AtomicLong(1L);
     private UsbDeviceConnection connection;
     private UsbSerialPort port;
     private String boundDeviceName;
@@ -83,7 +85,12 @@ public final class AndroidKdcanUsbBridge {
         this.transportSession = transportSession;
     }
 
-    public synchronized Result openNoTraffic(UsbDevice device) {
+    public Result openNoTraffic(UsbDevice device) {
+        return openNoTraffic(device, operationToken());
+    }
+
+    public synchronized Result openNoTraffic(UsbDevice device, long operationToken) {
+        if (!operationCurrent(operationToken)) return fail("STALE_OPERATION");
         if (device == null) return fail("NO_DEVICE");
         if (port != null || connection != null || transportSession.snapshot().active) {
             return fail("ALREADY_ACTIVE");
@@ -107,7 +114,18 @@ public final class AndroidKdcanUsbBridge {
                 transportSession.disconnect();
                 return fail("OPEN_DEVICE_FAILED");
             }
+            if (!operationCurrent(operationToken)) {
+                try { openedConnection.close(); } catch (Exception ignored) { }
+                transportSession.disconnect();
+                return fail("STALE_OPERATION");
+            }
             openedPort.open(openedConnection);
+            if (!operationCurrent(operationToken)) {
+                try { openedPort.close(); } catch (Exception ignored) { }
+                try { openedConnection.close(); } catch (Exception ignored) { }
+                transportSession.disconnect();
+                return fail("STALE_OPERATION");
+            }
 
             connection = openedConnection;
             port = openedPort;
@@ -183,6 +201,24 @@ public final class AndroidKdcanUsbBridge {
         }
     }
 
+    public long operationToken() {
+        return operationGeneration.get();
+    }
+
+    public void invalidateOperations() {
+        long next = operationGeneration.incrementAndGet();
+        if (next <= 0L) operationGeneration.compareAndSet(next, 1L);
+    }
+
+    private boolean operationCurrent(long token) {
+        return token > 0L && operationGeneration.get() == token;
+    }
+
+    public Result invalidateOperationsAndClose() {
+        invalidateOperations();
+        return closeAndInvalidate();
+    }
+
     public synchronized Result closeAndInvalidate() {
         boolean closeClean = true;
         if (port != null) {
@@ -197,8 +233,8 @@ public final class AndroidKdcanUsbBridge {
                 state.driverFamily, state.epoch);
     }
 
-    public synchronized Result onUsbDetached() {
-        return closeAndInvalidate();
+    public Result onUsbDetached() {
+        return invalidateOperationsAndClose();
     }
 
     public synchronized KdcanTransportSession.Snapshot snapshot() {
