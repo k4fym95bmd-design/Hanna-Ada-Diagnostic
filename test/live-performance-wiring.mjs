@@ -50,6 +50,8 @@ test('runtime cooperatively yields to pending user input where supported', () =>
 
 test('runtime also yields briefly after browser long tasks', () => {
   assert.match(runtime, /PerformanceObserver/);
+  assert.match(runtime, /long-animation-frame/);
+  assert.match(runtime, /supportedEntryTypes/);
   assert.match(runtime, /entry\.duration >= 50/);
   assert.match(runtime, /longTaskHoldUntil/);
   assert.match(runtime, /const shouldYield = \(\) => inputPending\(\) \|\| performance\.now\(\) < longTaskHoldUntil/);
