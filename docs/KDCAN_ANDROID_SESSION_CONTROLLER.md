@@ -9,6 +9,7 @@
 - A stale session id or stale epoch is rejected.
 - Only one request-correlation token may be outstanding.
 - A response attempt consumes the token, including a failed/mismatched response.
+- A request cannot be bound until the port is explicitly marked configured.
 - Disconnect, close and timeout purge pending evidence.
 - Watchdog expiry invalidates the whole session.
 - Unknown USB-serial families remain `UNKNOWN`.
@@ -20,6 +21,7 @@
 IDLE
   → BOUND
   → PORT_OPEN
+  → PORT_CONFIGURED
   → REQUEST_BOUND
   → correlated evidence result
   → PORT_OPEN / explicit next request
