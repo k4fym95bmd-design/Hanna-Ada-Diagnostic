@@ -17,9 +17,11 @@ export function e39OemPath({ productionYear, productionMonth, hasEngineBay20Pin 
   const year = Number(productionYear);
   const month = Number(productionMonth);
   const explicit20Pin = hasEngineBay20Pin === true;
+  const validDate = Number.isInteger(year) && Number.isInteger(month)
+    && year >= 1995 && year <= 2004 && month >= 1 && month <= 12;
   // BMW technical training documents the E39 20-pin deletion from 09/2000.
-  const beforeDeletion = Number.isInteger(year) && Number.isInteger(month)
-    && (year < 2000 || (year === 2000 && month < 9));
+  // Invalid/missing production dates must never be used to infer connector topology.
+  const beforeDeletion = validDate && (year < 2000 || (year === 2000 && month < 9));
   const legacy20PinExpected = explicit20Pin || beforeDeletion;
   return Object.freeze({
     model: 'E39',
