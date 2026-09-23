@@ -23,7 +23,7 @@ function attachUniversalPanel() {
   root.appendChild(section);
 
   const render = () => {
-    const bridgeReachable = root.querySelector('[data-cable-bridge-state]')?.textContent === 'MOST ODPOWIADA';
+    const bridgeReachable = root.dataset.bridgeOnline === 'true';
     const route = chooseTransportRoute({
       platform: detectPlatform(),
       bridgeReachable,
