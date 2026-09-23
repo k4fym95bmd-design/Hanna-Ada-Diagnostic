@@ -6,6 +6,23 @@ import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 let chosenDevice = null;
 let inProgress = false;
 const root = () => document.querySelector('#haWebUsb');
+const workbenchRoot = () => document.querySelector('#haCableWorkbench');
+const hex4 = value => Number.isInteger(value) && value >= 0 && value <= 0xFFFF ? value.toString(16).toUpperCase().padStart(4, '0') : '';
+function clearPublishedUsb() {
+  const workbench = workbenchRoot();
+  if (!workbench) return;
+  delete workbench.dataset.webUsbVendorId;
+  delete workbench.dataset.webUsbProductId;
+}
+function publishUsb(device) {
+  const workbench = workbenchRoot();
+  if (!workbench) return;
+  const vendorId = hex4(device?.vendorId);
+  const productId = hex4(device?.productId);
+  if (!vendorId || !productId) return clearPublishedUsb();
+  workbench.dataset.webUsbVendorId = vendorId;
+  workbench.dataset.webUsbProductId = productId;
+}
 function message(text, error = false) {
   const status = root()?.querySelector('[data-webusb-status]');
   if (!status) return;
@@ -28,10 +45,12 @@ async function choose() {
     // This call is reached immediately from the button's real user gesture.
     const { device, evidence } = await chooseWebUsbDevice(navigator.usb);
     chosenDevice = device;
+    publishUsb(device);
     const candidate = identifyUsbSerialCandidate(device);
     message(`Android/USB ${evidence.vidPid} · wskazówka chipsetu: ${candidate.candidate}. ${candidate.nextStep} Kabel K+DCAN, port szeregowy i ECU nadal NIEPOTWIERDZONE.`);
   } catch (error) {
     chosenDevice = null;
+    clearPublishedUsb();
     message(error?.name === 'NotFoundError' ? 'Nie wybrano urządzenia USB.' : 'Chrome nie uzyskał dostępu do USB. Sprawdź OTG, uprawnienia i zgodność kabla.', true);
   } finally { inProgress = false; updateButtons(); }
 }
@@ -45,12 +64,14 @@ async function probe() {
   } catch {
     // Rejecting close/open is not success: explicitly invalidate this discovery session.
     chosenDevice = null;
+    clearPublishedUsb();
     message('Test WebUSB nie powiódł się albo zamknięcie nie zostało potwierdzone. Nie oznaczam połączenia jako gotowego.', true);
   } finally { inProgress = false; updateButtons(); }
 }
 function reset() {
   if (inProgress) return;
   chosenDevice = null;
+  clearPublishedUsb();
   message('Sesję wykrywania WebUSB wyczyszczono. Port i ECU niepołączone.');
   updateButtons();
 }
@@ -80,6 +101,7 @@ if (typeof document !== 'undefined') {
   navigator.usb?.addEventListener?.('disconnect', event => {
     if (event.device && event.device === chosenDevice) {
       chosenDevice = null;
+      clearPublishedUsb();
       message('Kabel USB został odłączony. Dowody dostępu unieważnione.', true);
       updateButtons();
     }
