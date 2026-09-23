@@ -144,7 +144,17 @@ async function action(name) {
 }
 function useBridgeStatus(raw) {
   const state = validateBridgeStatus(raw);
-  work.bridgeFreshness = nextBridgeFreshness(work.bridgeFreshness, raw);
+  const freshness = nextBridgeFreshness(work.bridgeFreshness, raw);
+  if (freshness.resetLocalState) {
+    work.selectedPath = '';
+    work.ports = [];
+    const root = rootNow();
+    if (root) {
+      delete root.dataset.bridgeUsbVendorId;
+      delete root.dataset.bridgeUsbProductId;
+    }
+  }
+  work.bridgeFreshness = freshness;
   work.detected = state.cableDetected; work.opened = state.portOpen; work.bridgeOnline = true;
   const root = rootNow();
   if (root) {
