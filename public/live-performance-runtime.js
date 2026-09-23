@@ -28,7 +28,7 @@ function commitMetrics() {
   const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
   const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
   const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
-  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · budżet ${stats.budgetStops} · kolejka 0`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · backoff ${stats.pidBackoffs} · cooling ${stats.coolingPids} · kolejka 0`;
   if (text !== lastMetricText) {
     el.textContent = text;
     lastMetricText = text;
@@ -82,6 +82,7 @@ async function snapshot() {
   else if (result.skipped === 'ECU_OFFLINE') say('ECU offline; odczyt niewykonany.', true);
   else if (result.skipped === 'NO_VERIFIED_PIDS') say('Najpierw zweryfikuj dostępne PID.', true);
   else if (result.skipped === 'PID_EVIDENCE_UNAVAILABLE') say('Brak poprawnej listy potwierdzonych PID.', true);
+  else if (result.skipped === 'PID_COOLDOWN') say(`ULTRA odciąża magistralę: ${result.coolingPids} kanał(y) chwilowo w backoff.`);
   else if (result.budgetLimited) {
     say(`Migawka ULTRA zatrzymana przez budżet czasu: ${result.completed}/${result.attempted} odczytów. Kolejny cykl przejmie resztę.`);
   } else if (result.completed < result.attempted) {
@@ -103,6 +104,7 @@ function bind() {
   const disconnect = root.querySelector('#haDisconnect');
   if (!live || !read || !dtc || !disconnect) return;
   root.dataset.haProPerformance = '1';
+  if (typeof obd.stopLive === 'function') obd.stopLive();
   const metrics = document.createElement('div');
   metrics.id = 'haPerformanceStats';
   metrics.className = 'ha-performance-stats';
