@@ -81,3 +81,18 @@ test('native broker and attestation are required before final identity', async (
   assert.match(panel, /finalizeReadOnlyIdentity\(\{/);
   assert.doesNotMatch(panel, /identityVerified\s*=\s*true/);
 });
+
+
+test('control locking stays inside render scope', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /function applyControlLocks\(panel, \{ configured, finalized \}\)/);
+  assert.match(panel, /applyControlLocks\(panel, \{ configured, finalized \}\);/);
+  assert.doesNotMatch(panel, /requestSelectControl\.disabled/);
+});
+
+test('invalid trusted event does not desynchronize native and local request tokens', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /detail = validateTrustedIdentityCandidateEvent/);
+  assert.match(panel, /return;\n\s*}\n\n\s*try \{\n\s*state\.brokerSnapshot = await consumeDesktopReadOnlyRequest/);
+  assert.match(panel, /Native request broker odrzucił korelację/);
+});
