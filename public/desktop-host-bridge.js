@@ -295,6 +295,19 @@ export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObjec
   );
 }
 
+export async function executeDesktopMe72Identity(epoch, requestId, globalObject = globalThis) {
+  if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
+  if (typeof requestId !== 'string'
+      || !/^[A-Za-z0-9._:-]{8,64}$/.test(requestId)) {
+    throw new TypeError('Invalid request id');
+  }
+  const invoke = getTauriInvoke(globalObject);
+  if (!invoke) throw new Error('Desktop host unavailable');
+  return validateDesktopReadResult(
+    await invoke('desktop_execute_me72_identity', { epoch, requestId })
+  );
+}
+
 export function validateDesktopRequestBrokerSnapshot(value) {
   if (!value || typeof value !== 'object'
       || value.version !== 1
