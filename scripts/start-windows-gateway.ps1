@@ -32,8 +32,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $bytes = New-Object byte[] 32
-[System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$token = [Convert]::ToHexString($bytes).ToLowerInvariant()
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+$token = ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
 
 $env:PORT = "$AppPort"
 $env:HAA_BRIDGE_TOKEN = $token
