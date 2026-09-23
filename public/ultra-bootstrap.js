@@ -120,7 +120,9 @@ const afterFirstPaint = () => new Promise(resolve => {
 });
 
 const idle = () => new Promise(resolve => {
-  if ('requestIdleCallback' in window) {
+  if (window.scheduler?.postTask) {
+    window.scheduler.postTask(resolve, { priority: 'background' }).catch(() => resolve());
+  } else if ('requestIdleCallback' in window) {
     window.requestIdleCallback(resolve, { timeout: 1200 });
   } else {
     setTimeout(resolve, 0);
