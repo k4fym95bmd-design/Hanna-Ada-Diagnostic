@@ -21,6 +21,7 @@ pub struct DesktopLocalAttestation {
     pub transport_configured: bool,
     pub broker_idle: bool,
     pub broker_attempt_count: usize,
+    pub broker_evidenced_attempt_count: usize,
     pub raw_serial_write_exposed: bool,
     pub identity_verified: bool,
     pub ecu_verified: bool,
@@ -50,8 +51,8 @@ impl DesktopLocalAttestationState {
         if broker.active_request || broker.stage != "BROKER_IDLE" {
             return Err("attestation_request_still_active".into());
         }
-        if broker.attempt_count < 2 {
-            return Err("attestation_requires_two_native_attempts".into());
+        if broker.evidenced_attempt_count < 2 {
+            return Err("attestation_requires_two_evidenced_attempts".into());
         }
 
         self.sequence = if self.sequence == u64::MAX { 1 } else { self.sequence + 1 };
@@ -73,6 +74,7 @@ impl DesktopLocalAttestationState {
             transport_configured: true,
             broker_idle: true,
             broker_attempt_count: broker.attempt_count,
+            broker_evidenced_attempt_count: broker.evidenced_attempt_count,
             raw_serial_write_exposed: false,
             identity_verified: false,
             ecu_verified: false,
@@ -122,7 +124,7 @@ mod tests {
         }
     }
 
-    fn broker(epoch: u64, attempts: usize, active: bool) -> DesktopRequestBrokerSnapshot {
+    fn broker(epoch: u64, attempts: usize, evidenced: usize, active: bool) -> DesktopRequestBrokerSnapshot {
         DesktopRequestBrokerSnapshot {
             version: 1,
             evidence_contract_version: 1,
@@ -135,7 +137,10 @@ mod tests {
             timeout_ms: None,
             max_response_bytes: None,
             attempt_count: attempts,
+            evidenced_attempt_count: evidenced,
             max_attempts: 32,
+            active_receive_receipt: if active { Some(1) } else { None },
+            active_received_bytes: if active { 4 } else { 0 },
             tx_bytes_exposed: false,
             write_like: false,
             ecu_verified: false,
@@ -149,21 +154,22 @@ mod tests {
         let mut state = DesktopLocalAttestationState::default();
 
         assert_eq!(
-            state.attest(&transport(7), &native(7), &broker(7, 1, false), 7, "KWP2000_BMW").unwrap_err(),
-            "attestation_requires_two_native_attempts"
+            state.attest(&transport(7), &native(7), &broker(7, 2, 1, false), 7, "KWP2000_BMW").unwrap_err(),
+            "attestation_requires_two_evidenced_attempts"
         );
         assert_eq!(
-            state.attest(&transport(7), &native(7), &broker(7, 2, true), 7, "KWP2000_BMW").unwrap_err(),
+            state.attest(&transport(7), &native(7), &broker(7, 2, 2, true), 7, "KWP2000_BMW").unwrap_err(),
             "attestation_request_still_active"
         );
 
         let attested = state.attest(
-            &transport(7), &native(7), &broker(7, 2, false), 7, "KWP2000_BMW"
+            &transport(7), &native(7), &broker(7, 2, 2, false), 7, "KWP2000_BMW"
         ).unwrap();
         assert_eq!(attested.stage, "LOCAL_HOST_ATTESTED");
         assert_eq!(attested.sequence, 1);
         assert!(attested.transport_configured);
         assert!(attested.broker_idle);
+        assert_eq!(attested.broker_evidenced_attempt_count, 2);
         assert!(!attested.raw_serial_write_exposed);
         assert!(!attested.identity_verified);
         assert!(!attested.ecu_verified);
@@ -175,11 +181,11 @@ mod tests {
     fn attestation_rejects_epoch_and_protocol_mismatch() {
         let mut state = DesktopLocalAttestationState::default();
         assert_eq!(
-            state.attest(&transport(7), &native(7), &broker(7, 2, false), 8, "KWP2000_BMW").unwrap_err(),
+            state.attest(&transport(7), &native(7), &broker(7, 2, 2, false), 8, "KWP2000_BMW").unwrap_err(),
             "attestation_epoch_mismatch"
         );
         assert_eq!(
-            state.attest(&transport(7), &native(7), &broker(7, 2, false), 7, "DS2").unwrap_err(),
+            state.attest(&transport(7), &native(7), &broker(7, 2, 2, false), 7, "DS2").unwrap_err(),
             "attestation_protocol_mismatch"
         );
     }
