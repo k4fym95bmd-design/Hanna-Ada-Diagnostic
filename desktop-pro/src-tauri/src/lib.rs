@@ -465,7 +465,13 @@ fn desktop_execute_me72_roughness(
                         return Err(error);
                     }
                 };
-            broker.finish_readonly_sample(epoch)?;
+            if let Err(error) = broker.finish_readonly_sample(epoch) {
+                native.close_any();
+                let _ = coordinator.mark_closed(epoch);
+                broker.reset(epoch);
+                attestation.reset_authority();
+                return Err(error);
+            }
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
@@ -529,7 +535,6 @@ fn desktop_execute_me72_engine_snapshot(
         }
         return Err("transport_changed_after_io".into());
     }
-
     let broker_snapshot = broker.snapshot();
     if !broker_snapshot.readonly_sample_active || broker_snapshot.active_request {
         return Err("readonly_sample_lease_lost".into());
@@ -549,7 +554,13 @@ fn desktop_execute_me72_engine_snapshot(
                         return Err(error);
                     }
                 };
-            broker.finish_readonly_sample(epoch)?;
+            if let Err(error) = broker.finish_readonly_sample(epoch) {
+                native.close_any();
+                let _ = coordinator.mark_closed(epoch);
+                broker.reset(epoch);
+                attestation.reset_authority();
+                return Err(error);
+            }
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
@@ -613,7 +624,6 @@ fn desktop_execute_me72_fuel_adaptation(
         }
         return Err("transport_changed_after_io".into());
     }
-
     let broker_snapshot = broker.snapshot();
     if !broker_snapshot.readonly_sample_active || broker_snapshot.active_request {
         return Err("readonly_sample_lease_lost".into());
@@ -633,7 +643,13 @@ fn desktop_execute_me72_fuel_adaptation(
                         return Err(error);
                     }
                 };
-            broker.finish_readonly_sample(epoch)?;
+            if let Err(error) = broker.finish_readonly_sample(epoch) {
+                native.close_any();
+                let _ = coordinator.mark_closed(epoch);
+                broker.reset(epoch);
+                attestation.reset_authority();
+                return Err(error);
+            }
             result.native_identity_fingerprint = Some(fingerprint);
             result.readonly_sample_sequence = Some(sample_sequence);
             Ok(result)
