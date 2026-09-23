@@ -72,9 +72,10 @@ function quality(header, encoding) {
 function selectEncoding(req, extension, size) {
   if (size < 1024 || !compressibleExtensions.has(extension)) return null;
   const header = req.headers['accept-encoding'];
-  if (quality(header, 'br') > 0) return 'br';
-  if (quality(header, 'gzip') > 0) return 'gzip';
-  return null;
+  const br = quality(header, 'br');
+  const gz = quality(header, 'gzip');
+  if (br <= 0 && gz <= 0) return null;
+  return br >= gz ? 'br' : 'gzip';
 }
 
 async function cachedBody(path, etag) {
@@ -134,8 +135,10 @@ async function sendFile(req, res, path, { cacheControl = 'public, max-age=60, mu
     }
 
     const body = await cachedBody(path, etag);
-    const encoding = selectEncoding(req, extension, body.length);
-    const output = await encodedBody(path, etag, encoding, body);
+    const requestedEncoding = selectEncoding(req, extension, body.length);
+    const compressed = await encodedBody(path, etag, requestedEncoding, body);
+    const encoding = requestedEncoding && compressed.length + 32 < body.length ? requestedEncoding : null;
+    const output = encoding ? compressed : body;
     const headers = {
       ...baseHeaders,
       'Content-Length': String(output.length),
