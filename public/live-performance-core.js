@@ -32,24 +32,56 @@ export function createLivePerformanceController({
     || typeof onMetrics !== 'function' || typeof onStatus !== 'function') {
     throw new TypeError('Live performance controller requires transport evidence and callbacks.');
   }
+
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
-  let lastCycleMs = null;
+  let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0;
 
-  const metrics = () => Object.freeze({
-    running, reads, noData, errors, cycles, averageMs: averageMs == null ? null : Math.round(averageMs),
-    lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
-    inFlight: !!currentTask, queuedCommands: 0, writesEnabled: false,
-  });
+  const computeDelay = () => {
+    if (averageMs == null && lastCycleMs == null) return 900;
+    const readDriven = averageMs == null ? 0 : averageMs * 2;
+    // Never make the polling loop more aggressive than the previous 600 ms floor.
+    // For slower links, keep a quiet interval proportional to the full sequential cycle.
+    const cycleDriven = lastCycleMs == null ? 0 : lastCycleMs * 0.75;
+    return clamp(Math.round(Math.max(readDriven, cycleDriven)), 600, 3000);
+  };
+
+  const metrics = () => {
+    const quiet = lastDelayMs ?? computeDelay();
+    const total = lastCycleMs == null ? null : lastCycleMs + quiet;
+    const dutyCyclePct = total && total > 0 ? Math.round((lastCycleMs / total) * 100) : null;
+    return Object.freeze({
+      running, reads, noData, errors, cycles,
+      averageMs: averageMs == null ? null : Math.round(averageMs),
+      lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
+      lastDelayMs: lastDelayMs == null ? null : Math.round(lastDelayMs),
+      lastBatchSize,
+      dutyCyclePct,
+      wakeCoalesced,
+      timerReschedules,
+      inFlight: !!currentTask,
+      queuedCommands: 0,
+      writesEnabled: false,
+    });
+  };
+
   const publish = () => onMetrics(metrics());
-  const delay = () => averageMs == null ? 900 : clamp(Math.round(averageMs * 2), 600, 2400);
 
-  function schedule(ms, owner) {
-    if (!running || epoch !== owner || timer !== null) return;
+  function schedule(ms, owner, { replace = false } = {}) {
+    if (!running || epoch !== owner) return false;
+    if (timer !== null) {
+      if (!replace) return false;
+      clearTimer(timer);
+      timer = null;
+      timerReschedules++;
+    }
+    const bounded = clamp(Math.round(ms), 0, 5000);
+    lastDelayMs = bounded;
     timer = setTimer(() => {
       timer = null;
       void cycle(owner);
-    }, ms);
+    }, bounded);
+    return true;
   }
 
   function stop() {
@@ -77,12 +109,25 @@ export function createLivePerformanceController({
   async function perform(owner, backgroundSensitive = false) {
     if (currentTask) return Object.freeze({ skipped: 'BUS_BUSY' });
     if (!isConnected()) return Object.freeze({ skipped: 'ECU_OFFLINE' });
-    const batch = selectLiveBatch(getSupported(), cursor);
+
+    let supported;
+    try {
+      supported = getSupported();
+    } catch {
+      errors++;
+      onStatus('Nie udało się odczytać listy potwierdzonych PID. Live pozostaje zablokowany.');
+      publish();
+      return Object.freeze({ skipped: 'PID_EVIDENCE_UNAVAILABLE' });
+    }
+
+    const batch = selectLiveBatch(supported, cursor);
     cursor = batch.nextCursor;
+    lastBatchSize = batch.keys.length;
     if (!batch.keys.length) {
       onStatus('Brak potwierdzonych PID. Najpierw zweryfikuj obsługiwane PID w ECU.');
       return Object.freeze({ skipped: 'NO_VERIFIED_PIDS' });
     }
+
     const task = (async () => {
       const start = now();
       let completed = 0;
@@ -114,6 +159,7 @@ export function createLivePerformanceController({
       }
       return Object.freeze({ completed, attempted: batch.keys.length, stopped: !running });
     })();
+
     currentTask = task;
     try { return await task; }
     finally {
@@ -128,25 +174,52 @@ export function createLivePerformanceController({
     if (!isVisible()) { schedule(2000, owner); return; }
     if (currentTask) { schedule(150, owner); return; }
     await perform(owner, true);
-    if (running && epoch === owner) schedule(delay(), owner);
+    if (running && epoch === owner) schedule(computeDelay(), owner);
   }
 
   function start() {
     if (running || !isConnected()) return false;
     running = true;
     epoch++;
+    lastDelayMs = 0;
     schedule(0, epoch);
     publish();
     return true;
   }
 
+  async function snapshot() {
+    if (currentTask) return Object.freeze({ skipped: 'BUS_BUSY' });
+    if (!isConnected()) return Object.freeze({ skipped: 'ECU_OFFLINE' });
+
+    const owner = epoch;
+    const wasRunning = running;
+    if (wasRunning && timer !== null) {
+      clearTimer(timer);
+      timer = null;
+      timerReschedules++;
+    }
+
+    const result = await perform(owner, false);
+    if (wasRunning && running && epoch === owner && !currentTask) {
+      schedule(computeDelay(), owner);
+    }
+    return result;
+  }
+
   return Object.freeze({
-    start, stop, isRunning: () => running, metrics,
-    snapshot: () => perform(epoch),
+    start, stop, snapshot, isRunning: () => running, metrics,
     wake() {
-      if (!running || !isVisible()) return;
-      if (timer !== null) { clearTimer(timer); timer = null; }
-      schedule(0, epoch);
+      if (!running || !isVisible()) return false;
+      if (currentTask) {
+        wakeCoalesced++;
+        publish();
+        return false;
+      }
+      if (timer !== null) {
+        wakeCoalesced++;
+        return schedule(0, epoch, { replace: true });
+      }
+      return schedule(0, epoch);
     },
   });
 }
