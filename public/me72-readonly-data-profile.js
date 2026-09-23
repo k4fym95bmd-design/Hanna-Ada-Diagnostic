@@ -1,7 +1,7 @@
-const profiles=Object.freeze({
-  'e39-dme-me72-cylinder-roughness':Object.freeze({
+const roughnessProfile=Object.freeze({
     version:1,
     id:'e39-me72-roughness-4003',
+    operationId:'e39-dme-me72-cylinder-roughness',
     vehicleFamily:'BMW_E39',
     moduleFamily:'DME_ME72',
     protocol:'KWP2000_BMW',
@@ -23,13 +23,18 @@ const profiles=Object.freeze({
     sourceRefs:Object.freeze([
       'pBmwScanner me72.py: tested ME7.2/M62TU KWP2000 request 0x22 0x40 0x03 and eight signed roughness channels',
     ]),
-  }),
+  });
+
+const profiles=Object.freeze({
+  [roughnessProfile.id]:roughnessProfile,
 });
 
 export function getMe72ReadOnlyDataProfile(id){
-  const profile=profiles[id];
-  if(!profile) throw new TypeError('Unknown ME7.2 read-only data profile');
-  return profile;
+  const direct=profiles[id];
+  if(direct) return direct;
+  const byOperation=Object.values(profiles).find(profile => profile.operationId === id);
+  if(!byOperation) throw new TypeError('Unknown ME7.2 read-only data profile');
+  return byOperation;
 }
 
 export function listMe72ReadOnlyDataProfiles(){
