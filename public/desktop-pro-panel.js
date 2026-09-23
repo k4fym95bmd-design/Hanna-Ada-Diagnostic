@@ -1,10 +1,14 @@
 import {
+  attestDesktopIdentityContext,
   bindDesktopSerialCandidate,
+  cancelDesktopReadOnlyRequest,
   clearDesktopSerialCandidate,
   closeDesktopPort,
+  consumeDesktopReadOnlyRequest,
   getDesktopTransportSnapshot,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
+  prepareDesktopReadOnlyRequest,
   probeDesktopHost,
   readDesktopBounded,
 } from './desktop-host-bridge.js';
@@ -12,6 +16,7 @@ import { DesktopReceiveEvidenceSession } from './desktop-receive-evidence.js';
 import { listReadOnlyRequests } from './read-only-request-registry.js';
 import { TrustedCorrelationSession } from './trusted-correlation-session.js';
 import { validateTrustedIdentityCandidateEvent } from './trusted-identity-event.js';
+import { finalizeReadOnlyIdentity } from './read-only-identity-finalizer.js';
 
 const state = {
   ready: false,
@@ -26,7 +31,9 @@ const state = {
   requestOptions: listReadOnlyRequests(),
   requestOperationId: 'e39-dme-me72-module-identity',
   requestPlan: null,
+  brokerSnapshot: null,
   correlationSession: null,
+  localAttestation: null,
   identityResult: null,
   message: 'Desktop PRO host nieaktywny.',
 };
@@ -82,15 +89,23 @@ function render(panel) {
   if (state.requestOperationId) requestSelect.value = state.requestOperationId;
 
   const correlation = state.correlationSession?.snapshot?.() || null;
+  const finalized = state.identityResult?.identityVerified === true;
+  const repeatedCandidate = correlation?.repeatCandidateReady === true;
   panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
-    ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · TX MATERIAL NOT EXPOSED`
-    : correlation
-      ? `Identity chain: ${correlation.confirmations}/2 · ${correlation.moduleIdentity || 'identity pending'} · ${correlation.identityVerified ? 'READ_ONLY_IDENTITY_VERIFIED' : 'next attempt required'}`
-      : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
+    ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · native broker ${state.brokerSnapshot?.stage || 'pending'} · TX MATERIAL NOT EXPOSED`
+    : finalized
+      ? `Identity chain finalized · ${state.identityResult.moduleIdentity} · attestation #${state.identityResult.attestationSequence}`
+      : repeatedCandidate
+        ? `Identity chain: 2/2 · ${correlation.moduleIdentity || 'identity candidate'} · REPEATED_CORRELATED_IDENTITY_CANDIDATE · LOCAL ATTESTATION REQUIRED`
+        : correlation
+          ? `Identity chain: ${correlation.confirmations}/2 · ${correlation.moduleIdentity || 'identity pending'} · next independent attempt required`
+          : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
 
-  panel.querySelector('[data-desktop-pro-identity]').textContent = state.identityResult
-    ? `Identity evidence: ${state.identityResult.stage} · confirmations ${state.identityResult.confirmations}/2 · ECU NIEPOTWIERDZONE · WRITE LOCKED`
-    : 'Identity evidence: 0/2 · brak zaufanej korelacji.';
+  panel.querySelector('[data-desktop-pro-identity]').textContent = finalized
+    ? `Identity evidence: READ_ONLY_IDENTITY_VERIFIED · local attestation #${state.identityResult.attestationSequence} · ECU NIEPOTWIERDZONE · WRITE LOCKED`
+    : state.identityResult
+      ? `Identity evidence: ${state.identityResult.stage} · confirmations ${state.identityResult.confirmations}/2 · LOCAL ATTESTATION ${state.identityResult.repeatCandidateReady ? 'REQUIRED' : 'PENDING'} · ECU NIEPOTWIERDZONE`
+      : 'Identity evidence: 0/2 · brak zaufanej korelacji.';
 
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
@@ -103,8 +118,11 @@ function render(panel) {
     read: state.ready && configured && !!state.evidenceSession,
     'plan-identity': state.ready && configured
       && !state.requestPlan
-      && state.correlationSession?.snapshot?.().identityVerified !== true
+      && !finalized
+      && !repeatedCandidate
       && state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol),
+    'cancel-identity': state.ready && configured && !!state.requestPlan,
+    'attest-identity': state.ready && configured && !state.requestPlan && repeatedCandidate && !finalized,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -129,7 +147,9 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.brokerSnapshot = null;
       state.correlationSession = null;
+      state.localAttestation = null;
       state.identityResult = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
@@ -174,9 +194,43 @@ async function action(panel, name) {
         });
         state.identityResult = null;
       }
-      state.requestPlan = state.correlationSession.prepareAttempt(requestId);
+      const localPlan = state.correlationSession.prepareAttempt(requestId);
+      try {
+        state.brokerSnapshot = await prepareDesktopReadOnlyRequest(localPlan, window);
+        state.requestPlan = localPlan;
+      } catch (error) {
+        state.correlationSession.cancelActiveAttempt();
+        state.requestPlan = null;
+        state.brokerSnapshot = null;
+        throw error;
+      }
       const confirmations = state.correlationSession.snapshot().confirmations;
-      state.message = `Identity attempt prepared for ${option.moduleFamily} · ${confirmations}/2 confirmed. TX nadal niewystawiony; oczekuję trusted correlation event.`;
+      state.message = `Identity attempt prepared for ${option.moduleFamily} · ${confirmations}/2 confirmed · native broker ACTIVE. TX nadal niewystawiony.`;
+    } else if (name === 'cancel-identity') {
+      if (!state.requestPlan || !state.correlationSession) return;
+      const plan = state.requestPlan;
+      try {
+        state.brokerSnapshot = await cancelDesktopReadOnlyRequest(plan.epoch, plan.requestId, window);
+      } finally {
+        state.correlationSession.cancelActiveAttempt();
+        state.requestPlan = null;
+      }
+      state.message = 'Identity attempt anulowany. Request-id pozostaje zużyty i nie może być użyty ponownie.';
+    } else if (name === 'attest-identity') {
+      const correlation = state.correlationSession?.snapshot?.();
+      if (!correlation?.repeatCandidateReady || state.requestPlan) {
+        throw new TypeError('Najpierw potrzebne są dwa niezależne, skorelowane kandydaty identity.');
+      }
+      state.localAttestation = await attestDesktopIdentityContext(
+        correlation.epoch,
+        correlation.protocol,
+        window
+      );
+      state.identityResult = finalizeReadOnlyIdentity({
+        correlationSnapshot: correlation,
+        localAttestation: state.localAttestation,
+      });
+      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. ECU/write/flash nadal zablokowane.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -267,6 +321,8 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="bind">2. BIND</button>
       <button type="button" data-desktop-pro-action="open">3. OPEN + CONFIG</button>
       <button type="button" data-desktop-pro-action="plan-identity">4. PLAN IDENTITY</button>
+      <button type="button" data-desktop-pro-action="cancel-identity">CANCEL PLAN</button>
+      <button type="button" data-desktop-pro-action="attest-identity">5. LOCAL ATTEST</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
@@ -275,14 +331,23 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-identity></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. Poprawna rama może osiągnąć tylko FRAME_CANDIDATE.</p>
+    <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. 2/2 daje tylko repeated identity candidate; READ_ONLY_IDENTITY_VERIFIED wymaga native local attestation.</p>
   `;
+
+  const protocolSelect = panel.querySelector('[data-desktop-pro-protocol]');
+  const requestSelectControl = panel.querySelector('[data-desktop-pro-request]');
+  const baudInput = panel.querySelector('[data-desktop-pro-baud]');
+  protocolSelect.disabled = configured || !!state.requestPlan;
+  baudInput.disabled = configured || !!state.requestPlan;
+  requestSelectControl.disabled = !!state.requestPlan || finalized;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
     state.protocol = event.target.value;
     state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
     state.requestPlan = null;
+    state.brokerSnapshot = null;
     state.correlationSession = null;
+    state.localAttestation = null;
     state.identityResult = null;
     render(panel);
   });
@@ -301,24 +366,31 @@ async function attachDesktopProPanel() {
     button.addEventListener('click', () => action(panel, button.dataset.desktopProAction));
   });
 
-  const trustedHandler = event => {
+  const trustedHandler = async event => {
+    if (!state.correlationSession || !state.requestPlan) return;
+    const plan = state.requestPlan;
     try {
-      if (!state.correlationSession || !state.requestPlan) return;
       const detail = validateTrustedIdentityCandidateEvent(event?.detail, {
-        epoch: state.requestPlan.epoch,
-        requestId: state.requestPlan.requestId,
-        protocol: state.requestPlan.protocol,
+        epoch: plan.epoch,
+        requestId: plan.requestId,
+        protocol: plan.protocol,
       });
+      state.brokerSnapshot = await consumeDesktopReadOnlyRequest(plan.epoch, plan.requestId, window);
       state.identityResult = state.correlationSession.consumeAttempt({
         receiveEvidence: detail.receiveEvidence,
         responseRequestId: detail.responseRequestId,
         moduleIdentity: detail.moduleIdentity,
       });
       state.requestPlan = null;
-      state.message = state.identityResult.identityVerified
-        ? 'READ_ONLY_IDENTITY_VERIFIED 2/2. ECU/write/flash nadal zablokowane.'
+      state.localAttestation = null;
+      state.message = state.identityResult.repeatCandidateReady
+        ? '2/2 REPEATED_CORRELATED_IDENTITY_CANDIDATE. Teraz wymagany jest LOCAL ATTEST.'
         : `${state.identityResult.stage} · ${state.identityResult.confirmations}/2. Przygotuj nowy, niezależny attempt.`;
     } catch (error) {
+      if (state.requestPlan) {
+        state.correlationSession.cancelActiveAttempt();
+        state.requestPlan = null;
+      }
       state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
     }
     render(panel);
