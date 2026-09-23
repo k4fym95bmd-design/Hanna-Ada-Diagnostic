@@ -14,13 +14,37 @@ import java.util.UUID;
  *
  * Safety boundary:
  * - opens exactly one serial port;
- * - does not configure baud/parity;
+ * - may apply a previously verified static UART plan;
  * - does not read;
  * - does not write;
+ * - does not toggle DTR as part of configuration;
  * - does not send BMW/ELM/INPA commands;
  * - disconnect/close always invalidates the transport session.
  */
 public final class AndroidKdcanUsbBridge {
+    public static final class ConfigurationResult {
+        public final boolean applied;
+        public final String stage;
+        public final long epoch;
+        public final int baudRate;
+        public final String parity;
+        public final boolean dtrPendingForSend;
+        public final boolean ecuVerified;
+        public final boolean writesEnabled;
+
+        private ConfigurationResult(boolean applied, String stage, long epoch,
+                                    int baudRate, String parity, boolean dtrPendingForSend) {
+            this.applied = applied;
+            this.stage = stage;
+            this.epoch = epoch;
+            this.baudRate = baudRate;
+            this.parity = parity;
+            this.dtrPendingForSend = dtrPendingForSend;
+            this.ecuVerified = false;
+            this.writesEnabled = false;
+        }
+    }
+
     public static final class Result {
         public final boolean opened;
         public final String stage;
@@ -108,6 +132,55 @@ public final class AndroidKdcanUsbBridge {
         }
     }
 
+    public synchronized ConfigurationResult applyStaticConfiguration(
+            LegacyPortConfigurationPlan.Result plan) {
+        KdcanTransportSession.Snapshot state = transportSession.snapshot();
+        if (port == null || connection == null || !state.active || !state.portOpen) {
+            return configFail("TRANSPORT_NOT_READY");
+        }
+        if (plan == null || !plan.ready) return configFail("PLAN_NOT_READY");
+        if (state.epoch != plan.epoch || activeEpoch != plan.epoch) {
+            return configFail("STALE_EPOCH");
+        }
+        if (state.requestBound) return configFail("REQUEST_ALREADY_BOUND");
+
+        LegacyPortApplyPolicy.Result policy = LegacyPortApplyPolicy.from(plan);
+        if (!policy.valid) return configFail(policy.stage);
+
+        final int parity;
+        if (LegacySerialProfile.PARITY_EVEN.equals(policy.parity)) {
+            parity = UsbSerialPort.PARITY_EVEN;
+        } else if (LegacySerialProfile.PARITY_NONE.equals(policy.parity)) {
+            parity = UsbSerialPort.PARITY_NONE;
+        } else {
+            return configFail("PARITY_UNSUPPORTED");
+        }
+
+        try {
+            port.setParameters(
+                    policy.baudRate,
+                    UsbSerialPort.DATABITS_8,
+                    UsbSerialPort.STOPBITS_1,
+                    parity);
+            return new ConfigurationResult(
+                    true,
+                    "STATIC_UART_APPLIED",
+                    state.epoch,
+                    policy.baudRate,
+                    policy.parity,
+                    policy.dtrRequiredDuringSend);
+        } catch (Exception failure) {
+            closeAndInvalidate();
+            return new ConfigurationResult(
+                    false,
+                    "CONFIGURATION_FAILED_INVALIDATED",
+                    state.epoch,
+                    0,
+                    "UNKNOWN",
+                    false);
+        }
+    }
+
     public synchronized Result closeAndInvalidate() {
         boolean closeClean = true;
         if (port != null) {
@@ -133,6 +206,11 @@ public final class AndroidKdcanUsbBridge {
     public synchronized boolean isBoundTo(UsbDevice device) {
         return device != null && boundDeviceName != null
                 && boundDeviceName.equals(device.getDeviceName());
+    }
+
+    private ConfigurationResult configFail(String stage) {
+        KdcanTransportSession.Snapshot state = transportSession.snapshot();
+        return new ConfigurationResult(false, stage, state.epoch, 0, "UNKNOWN", false);
     }
 
     private Result fail(String stage) {
