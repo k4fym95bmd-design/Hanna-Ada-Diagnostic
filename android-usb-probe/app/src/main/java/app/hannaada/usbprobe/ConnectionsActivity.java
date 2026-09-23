@@ -78,6 +78,7 @@ public final class ConnectionsActivity extends Activity {
 
     @Override protected void onPause() {
         connectionUiEpoch++;
+        BluetoothLink.cancelActiveProbe();
         if (bleLink != null) bleLink.stopAll();
         if (bleScanning || bleBusy) {
             bleScanning = false;
@@ -95,6 +96,7 @@ public final class ConnectionsActivity extends Activity {
 
     @Override protected void onDestroy() {
         connectionUiEpoch++;
+        BluetoothLink.cancelActiveProbe();
         if (bleLink != null) bleLink.stopAll();
         if (transportExecutor != null) transportExecutor.shutdownNow();
         super.onDestroy();
@@ -319,13 +321,14 @@ public final class ConnectionsActivity extends Activity {
     private void testBluetooth(BluetoothDevice device) {
         if (bluetoothBusy || device == null || !BluetoothLink.hasPermission(this)) return;
         final long owner = ++connectionUiEpoch;
+        final long probeToken = BluetoothLink.beginProbe();
         bluetoothBusy = true;
         bluetoothResult = null;
         bluetoothConnected = false;
         render();
         try {
             transportExecutor.execute(() -> {
-                String result = BluetoothLink.testPairedSppConnection(this, device);
+                String result = BluetoothLink.testPairedSppConnection(this, device, probeToken);
                 runOnUiThread(() -> {
                     if (owner != connectionUiEpoch || isFinishing()
                             || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
