@@ -12,7 +12,7 @@ Those are the only hardware facts treated as verified by appearance. The transpa
 - `public/kdcan-cable-panel.js` adds a card for this cable inside the existing VCI workbench.
 - The Windows bridge already returns USB `vendorId` / `productId`; the workbench now preserves those IDs in the selected port option so the cable card can show a chipset-family **hint**.
 - The user can record selector position as **position 1**, **position 2**, or **unknown**. Hanna & Ada deliberately does not assign a BMW wiring meaning to either position until the exact adapter is verified.
-- `test/kdcan-cable-profile.mjs` prevents VID:PID, label, open USB port or selector position from being treated as ECU verification.
+- `test/kdcan-cable-profile.mjs` prevents VID:PID, label, open USB port or selector position from being treated as ECU verification.\n- `gateway/kdcan-readonly-session.mjs` now binds one observed USB identity to exactly one local session. A different VID:PID, changed port path, stale session ID or expired TTL cannot silently replace the active cable.\n- `test/kdcan-readonly-session.mjs` verifies that port-open state still never implies BMW protocol or ECU identity.
 
 ## Evidence ladder for this exact cable
 
@@ -34,4 +34,4 @@ At every earlier stage `ecuVerified=false`, `writesEnabled=false`, and `flashEna
 
 ## Next engineering gate
 
-Capture the actual USB VID:PID and OS driver from this physical adapter through the existing workbench, then bind that verified USB identity to the current single-session read-only evidence path. Only after a real read-only ECU transcript is available should the protocol-specific identity layer advance the BMW module state.
+Capture the actual USB VID:PID and OS driver from this physical adapter through the existing workbench. The single-session USB binding is now implemented; the remaining gap is the verified OS driver plus a real read-only BMW response tied to that same session. Only after a real read-only ECU transcript is available should the protocol-specific identity layer advance the BMW module state.
