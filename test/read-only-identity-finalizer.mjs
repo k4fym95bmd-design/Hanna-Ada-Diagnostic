@@ -88,3 +88,12 @@ test('attestation rejects planned-but-not-evidenced attempts', () => {
     brokerEvidencedAttemptCount: 1,
   }), /invalid/i);
 });
+
+
+test('evidenced count cannot exceed broker attempts', () => {
+  assert.throws(() => validateDesktopLocalAttestation({
+    ...attestation(),
+    brokerAttemptCount: 2,
+    brokerEvidencedAttemptCount: 3,
+  }), /invalid/i);
+});
