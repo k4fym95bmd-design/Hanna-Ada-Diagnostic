@@ -14,6 +14,7 @@ import {
   prepareDesktopReadOnlyRequest,
   probeDesktopHost,
   readDesktopBounded,
+  executeDesktopMe72Identity,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
@@ -566,5 +567,48 @@ test('consume rejects missing native receipt before IPC', async () => {
   await assert.rejects(
     () => consumeDesktopReadOnlyRequest(7, 'broker-js-request-03', null, fake),
     /receipt required/i
+  );
+});
+
+
+test('ME7.2 executor sends only epoch and request id over IPC', async () => {
+  const calls = [];
+  const fake = {
+    window: {
+      __TAURI__: {
+        core: {
+          invoke: async (name, args) => {
+            calls.push([name, args]);
+            assert.equal(name, 'desktop_execute_me72_identity');
+            assert.deepEqual(Object.keys(args).sort(), ['epoch','requestId']);
+            return {
+              version: 1,
+              evidenceContractVersion: 1,
+              stage: 'READ_BYTES',
+              evidenceStage: 'RX_ACTIVITY',
+              epoch: 7,
+              protocol: 'KWP2000_BMW',
+              receivedBytes: 6,
+              bytes: [0xB8,0x12,0xF1,0x01,0xA2,0xF8],
+              nativeRequestReceipt: 61,
+              ecuVerified: false,
+              writesEnabled: false,
+            };
+          },
+        },
+      },
+    },
+  };
+
+  const result = await executeDesktopMe72Identity(7, 'identity-native-0001', fake);
+  assert.equal(result.nativeRequestReceipt, 61);
+  assert.equal(calls.length, 1);
+  assert.equal('bytes' in calls[0][1], false);
+  assert.equal('payload' in calls[0][1], false);
+  assert.equal('command' in calls[0][1], false);
+
+  await assert.rejects(
+    () => executeDesktopMe72Identity(7, 'bad id', fake),
+    /request id/i
   );
 });
