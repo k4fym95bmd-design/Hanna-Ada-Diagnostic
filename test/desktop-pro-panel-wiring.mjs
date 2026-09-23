@@ -27,6 +27,7 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /executeDesktopMe72Readiness/);
   assert.match(panel, /executeDesktopMe72DtcCount/);
   assert.match(panel, /deriveMe72DtcCountFromEvidence/);
+  assert.match(panel, /summarizeMe72Capabilities/);
   assert.match(panel, /deriveMe72ReadinessFromEvidence/);
   assert.match(panel, /deriveMe72FuelAdaptationFromEvidence/);
   assert.match(panel, /deriveMe72EngineSnapshotFromEvidence/);
@@ -270,4 +271,13 @@ test('engine snapshot UI includes VANOS bank angles', async () => {
   assert.match(panel,/camshaftIntakeBank2Deg/);
   assert.match(panel,/VANOS B1/);
   assert.match(panel,/B2/);
+});
+
+
+test('capability matrix keeps full DTC list and clear-DTC visibly blocked', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-capabilities/);
+  assert.match(panel,/full DTC LIST BLOCKED/);
+  assert.match(panel,/CLEAR DTC NOT EXPOSED/);
+  assert.match(panel,/HARDWARE UNVERIFIED/);
 });
