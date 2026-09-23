@@ -59,17 +59,6 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     } catch { /* Unknown reading stays blank, never a fabricated voltage. */ }
   }
 
-  async function cycle() {
-    const h = H();
-    if (!h?.ecu) return stopLive();
-    if (h._v2Busy) return;
-    h._v2Busy = true;
-    try {
-      if (typeof h.readAll === 'function') await h.readAll();
-      const el = document.querySelector('#haCycle');
-      if (el) el.textContent = new Date().toLocaleTimeString();
-    } finally { h._v2Busy = false; }
-  }
 
   function startLive() {
     const h = H();
