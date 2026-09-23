@@ -113,3 +113,24 @@ test('eligible identity is labeled as externally correlated and still not ECU ve
   assert.equal(result.identitySource, 'EXTERNAL_CORRELATED_READ_ONLY');
   assert.equal(result.ecuVerified, false);
 });
+
+
+test('invalid frame hex or impossible observed byte counts are rejected', () => {
+  const plan = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
+    epoch:3,
+    requestId:'identity-request-0006',
+  });
+  assert.equal(assessModuleIdentityCandidate({
+    requestPlan:plan,
+    receiveEvidence:baseEvidence({ frames:[{ directionHint:'possible-reply', frameHex:'NOT HEX' }] }),
+    responseRequestId:'identity-request-0006',
+    moduleIdentity:'ME7.2',
+  }).stage, 'FRAME_METADATA_REQUIRED');
+
+  assert.equal(assessModuleIdentityCandidate({
+    requestPlan:plan,
+    receiveEvidence:baseEvidence({ observedBytes:2 }),
+    responseRequestId:'identity-request-0006',
+    moduleIdentity:'ME7.2',
+  }).stage, 'FRAME_OBSERVATION_MISMATCH');
+});
