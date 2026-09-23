@@ -41,16 +41,22 @@ function display() {
   root.querySelectorAll('[data-cable-panel]').forEach(el => { el.hidden = el.dataset.cablePanel !== work.mode; });
   const portSelect = $(root, '[data-cable-port]');
   const selectedBefore = portSelect.value;
-  portSelect.replaceChildren(...work.ports.map(p => {
-    const option = document.createElement('option');
-    option.value = p.path;
-    option.dataset.vendorId = p.vendorId || '';
-    option.dataset.productId = p.productId || '';
-    option.dataset.hardwareFingerprint = p.hardwareFingerprint || '';
-    const id = p.vendorId && p.productId ? ` · ${p.vendorId}:${p.productId}` : '';
-    option.textContent = `${p.path} · ${p.manufacturer || 'port szeregowy'}${id}`;
-    return option;
-  }));
+  const optionsKey = work.ports.map(p =>
+    [p.path,p.manufacturer || '',p.vendorId || '',p.productId || '',p.hardwareFingerprint || ''].join('|')
+  ).join('||');
+  if (portSelect.dataset.optionsKey !== optionsKey) {
+    portSelect.replaceChildren(...work.ports.map(p => {
+      const option = document.createElement('option');
+      option.value = p.path;
+      option.dataset.vendorId = p.vendorId || '';
+      option.dataset.productId = p.productId || '';
+      option.dataset.hardwareFingerprint = p.hardwareFingerprint || '';
+      const id = p.vendorId && p.productId ? ` · ${p.vendorId}:${p.productId}` : '';
+      option.textContent = `${p.path} · ${p.manufacturer || 'port szeregowy'}${id}`;
+      return option;
+    }));
+    portSelect.dataset.optionsKey = optionsKey;
+  }
   const selection = work.selectedPath || selectedBefore;
   if (work.ports.some(p => p.path === selection)) portSelect.value = selection;
   $(root, '[data-cable-port-empty]').hidden = work.ports.length > 0;
@@ -61,9 +67,18 @@ function display() {
   $(root, '[data-cable-android]').textContent = platform() === 'android'
     ? 'Android wykryty. Oddzielny natywny USB Probe może potwierdzić USB Host, sterownik i otwarcie portu. Web UI nie otrzyma tych danych automatycznie.'
     : 'Ten ekran nie jest natywnym Androidem. Moduł Android USB Probe pozostaje częścią tego samego repozytorium.';
-  root.dispatchEvent(new CustomEvent('hannaada:cable-workbench-state', {
-    detail: { mode: work.mode, detected: work.detected, opened: work.opened, bridgeOnline: work.bridgeOnline }
-  }));
+  const stateKey = [
+    work.mode, work.detected, work.opened, work.bridgeOnline,
+    root.dataset.directUsbVendorId || '', root.dataset.directUsbProductId || '',
+    root.dataset.bridgeUsbVendorId || '', root.dataset.bridgeUsbProductId || '',
+    root.dataset.webUsbVendorId || '', root.dataset.webUsbProductId || '',
+  ].join('|');
+  if (root.dataset.broadcastStateKey !== stateKey) {
+    root.dataset.broadcastStateKey = stateKey;
+    root.dispatchEvent(new CustomEvent('hannaada:cable-workbench-state', {
+      detail: { mode: work.mode, detected: work.detected, opened: work.opened, bridgeOnline: work.bridgeOnline }
+    }));
+  }
 }
 async function action(name) {
   const root = rootNow(); if (!root || work.busy) return;
