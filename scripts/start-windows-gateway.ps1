@@ -57,6 +57,37 @@ if ($env:HAA_BRIDGE_TLS_CERT) {
 $bridgeCommand += " node gateway/windows-cable-bridge.mjs"
 $bridge = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command",$bridgeCommand
 
+Write-Host "Sprawdzam health aplikacji..."
+$ready = $false
+for ($i = 0; $i -lt 30; $i++) {
+  try {
+    $health = Invoke-RestMethod -Uri "http://127.0.0.1:$AppPort/health" -Method Get -TimeoutSec 2
+    if ($health.ok -eq $true) { $ready = $true; break }
+  } catch {}
+  Start-Sleep -Milliseconds 250
+}
+if (-not $ready) {
+  Stop-Process -Id $server.Id,$bridge.Id -Force -ErrorAction SilentlyContinue
+  throw "Aplikacja nie przeszła lokalnego health-checku."
+}
+
+if ($BridgeHost -in @("127.0.0.1","localhost","::1") -and -not $env:HAA_BRIDGE_TLS_CERT) {
+  Write-Host "Sprawdzam capabilities mostu..."
+  $headers = @{ Authorization = "Bearer $token"; Origin = $AllowedOrigin }
+  $bridgeReady = $false
+  for ($i = 0; $i -lt 30; $i++) {
+    try {
+      $cap = Invoke-RestMethod -Uri "http://127.0.0.1:$BridgePort/v1/capabilities" -Headers $headers -Method Get -TimeoutSec 2
+      if ($cap.readOnly -eq $true -and $cap.arbitraryTx -eq $false -and $cap.atomicSnapshot -eq $true) { $bridgeReady = $true; break }
+    } catch {}
+    Start-Sleep -Milliseconds 250
+  }
+  if (-not $bridgeReady) {
+    Stop-Process -Id $server.Id,$bridge.Id -Force -ErrorAction SilentlyContinue
+    throw "Most nie przeszedł lokalnego capability-checku."
+  }
+}
+
 Write-Host ""
 Write-Host "Hanna & Ada uruchomione."
 Write-Host "App: http://localhost:$AppPort"
