@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { attachPassiveRx } from './passive-ds2-rx.mjs';
 import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
 import { buildCableTelemetry } from './cable-session-health.mjs';
+import { EVIDENCE_CONTRACT_VERSION, deriveTransportEvidence } from '../public/evidence-contract.js';
 
 const MAX_BODY = 2048;
 // Process-local salt keeps hardware correlation useful during one run without creating a stable cross-run identifier.
@@ -48,15 +49,30 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (typeof token !== 'string' || token.length < 32) throw new TypeError('A random token of at least 32 characters is required');
   if (typeof allowedOrigin !== 'string' || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError('Set an exact allowed browser origin');
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
+  if (!isLoopback(host) && !allowedOrigin.startsWith('https://')) throw new TypeError('LAN access requires an HTTPS browser origin');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
+  let sessionEpoch = 0;
+  let stateRevision = 0;
+  const bumpRevision = () => {
+    stateRevision = stateRevision >= Number.MAX_SAFE_INTEGER ? 1 : stateRevision + 1;
+    return stateRevision;
+  };
+  const bumpEpoch = () => {
+    sessionEpoch = sessionEpoch >= Number.MAX_SAFE_INTEGER ? 1 : sessionEpoch + 1;
+    return sessionEpoch;
+  };
+  const evidenceFor = ({ detected = false, bound = false, opened = false } = {}) =>
+    deriveTransportEvidence({ cableDetected: detected, hardwareBound: bound, portOpen: opened, observedBytes: 0, candidateFrames: 0 });
   const clearRx = () => { rxMonitor?.dispose(); rxMonitor = null; };
   const invalidateActiveSession = () => {
     const stalePort = active;
+    const hadState = !!(selected || active || sessionId || kdcanSession || rxMonitor);
     clearRx();
     kdcanSession = null;
     active = null;
     sessionId = null;
     selected = null;
+    if (hadState) bumpRevision();
     try {
       if (stalePort?.isOpen) stalePort.close(() => {});
     } catch {}
@@ -74,7 +90,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       invalidateActiveSession();
       return {
         version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
-        selectedPath: null, sessionId: null, cableBinding: null,
+        selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
+        evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
         ecuVerified: false, writesEnabled: false, flashEnabled: false,
         message: 'Kabel zniknął z enumeracji. Sesja została unieważniona.'
       };
@@ -88,7 +105,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         invalidateActiveSession();
         return {
           version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
-          selectedPath: null, sessionId: null, cableBinding: null,
+          selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
+          evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
           ecuVerified: false, writesEnabled: false, flashEnabled: false,
           message: 'Zniknęły dane VID:PID aktywnego kabla. Sesję unieważniono.'
         };
@@ -100,15 +118,19 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         invalidateActiveSession();
         return {
           version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
-          selectedPath: null, sessionId: null, cableBinding: null,
+          selectedPath: null, sessionId: null, sessionEpoch: null, stateRevision, cableBinding: null,
+          evidence: evidenceFor(), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
           ecuVerified: false, writesEnabled: false, flashEnabled: false,
           message: 'Tożsamość kabla lub świeżość sesji zmieniła się. Port zamknięto i sesję unieważniono.'
         };
       }
     }
+    const bound = !!cableBinding?.active;
     return { version: 1, transport: 'physical-vci', cableDetected: detected, portOpen: opened,
       selectedPath: detected ? selected : null, sessionId: opened ? sessionId : null,
-      cableBinding: cableBinding?.active ? cableBinding : null,
+      sessionEpoch: opened ? sessionEpoch : null, stateRevision,
+      cableBinding: bound ? cableBinding : null,
+      evidence: evidenceFor({ detected, bound, opened }), evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
       ecuVerified: false, writesEnabled: false, flashEnabled: false,
       serialOpenProbe: SERIAL_OPEN_PROBE,
       message: opened ? 'Port USB-serial otwarty w niezweryfikowanym profilu transportowym. ECU niezweryfikowane.' : detected ? 'Kabel wybrany; port zamknięty.' : 'Nie wybrano wykrytego kabla.' };
@@ -137,6 +159,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       if (req.method === 'GET' && route === '/v1/capabilities') return json(res, 200, {
         version: 1,
         bridge: 'hanna-ada-kdcan',
+        evidenceContractVersion: EVIDENCE_CONTRACT_VERSION,
         readOnly: true,
         usbEnumeration: true,
         portOpenClose: true,
@@ -210,6 +233,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           await new Promise((resolve, reject) => port.open(err => err ? reject(err) : resolve()));
           clearRx();
           active = port; selected = matches[0].path; sessionId = randomBytes(20).toString('hex');
+          bumpEpoch();
+          bumpRevision();
           kdcanSession = null;
           const vendorId = usbNumber(matches[0].vendorId);
           const productId = usbNumber(matches[0].productId);
@@ -221,9 +246,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           rxMonitor = attachPassiveRx(port);
           const localSession = sessionId;
           port.on?.('close', () => {
-            if (sessionId === localSession) {
-              clearRx(); kdcanSession = null; active = null; sessionId = null; selected = null;
-            }
+            if (sessionId === localSession) invalidateActiveSession();
           });
           port.on?.('error', () => {
             if (sessionId === localSession) invalidateActiveSession();
