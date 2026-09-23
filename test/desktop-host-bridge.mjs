@@ -336,6 +336,7 @@ test('bounded desktop receive never promotes ECU or write state', async () => {
               protocol: 'KWP2000_BMW',
               receivedBytes: 4,
               bytes: [0xB8, 0xF1, 0x12, 0x00],
+              nativeRequestReceipt: null,
               ecuVerified: false,
               writesEnabled: false,
             };
@@ -430,6 +431,7 @@ test('desktop evidence contract rejects mismatched canonical stage', () => {
 test('native request broker accepts canonical metadata and never exposes TX', async () => {
   let active = null;
   let attempts = 0;
+  let evidenced = 0;
   const fake = {
     window: {
       __TAURI__: {
@@ -440,7 +442,9 @@ test('native request broker accepts canonical metadata and never exposes TX', as
               attempts += 1;
             } else if (name === 'desktop_consume_readonly_request') {
               assert.equal(args.requestId, active.requestId);
+              assert.equal(args.nativeRequestReceipt, active.receipt);
               active = null;
+              evidenced += 1;
             } else if (name === 'desktop_cancel_readonly_request') {
               assert.equal(args.requestId, active.requestId);
               active = null;
@@ -459,7 +463,10 @@ test('native request broker accepts canonical metadata and never exposes TX', as
               timeoutMs: active?.timeoutMs ?? null,
               maxResponseBytes: active?.maxResponseBytes ?? null,
               attemptCount: attempts,
+              evidencedAttemptCount: evidenced,
               maxAttempts: 32,
+              activeReceiveReceipt: active?.receipt ?? null,
+              activeReceivedBytes: active?.receivedBytes ?? 0,
               txBytesExposed: false,
               writeLike: false,
               ecuVerified: false,
@@ -479,8 +486,10 @@ test('native request broker accepts canonical metadata and never exposes TX', as
   const opened = await prepareDesktopReadOnlyRequest(plan, fake);
   assert.equal(opened.stage, 'REQUEST_ACTIVE');
   assert.equal(opened.txBytesExposed, false);
+  active.receipt = 51;
+  active.receivedBytes = 4;
 
-  const consumed = await consumeDesktopReadOnlyRequest(7, plan.requestId, fake);
+  const consumed = await consumeDesktopReadOnlyRequest(7, plan.requestId, 51, fake);
   assert.equal(consumed.stage, 'BROKER_IDLE');
 
   const plan2 = instantiateReadOnlyRequest('e39-dme-me72-module-identity', {
@@ -508,7 +517,10 @@ test('broker snapshot rejects stale active data and unsafe promotion', () => {
     timeoutMs: null,
     maxResponseBytes: null,
     attemptCount: 1,
+    evidencedAttemptCount: 0,
     maxAttempts: 32,
+    activeReceiveReceipt: null,
+    activeReceivedBytes: 0,
     txBytesExposed: false,
     writeLike: false,
     ecuVerified: false,
@@ -528,11 +540,23 @@ test('broker snapshot rejects stale active data and unsafe promotion', () => {
     timeoutMs: null,
     maxResponseBytes: null,
     attemptCount: 1,
+    evidencedAttemptCount: 0,
     maxAttempts: 32,
+    activeReceiveReceipt: null,
+    activeReceivedBytes: 0,
     txBytesExposed: true,
     writeLike: false,
     ecuVerified: false,
     writesEnabled: false,
     flashEnabled: false,
   }), /invalid/i);
+});
+
+
+test('consume rejects missing native receipt before IPC', async () => {
+  const fake = { window: { __TAURI__: { core: { invoke: async () => { throw new Error('must not invoke'); } } } } };
+  await assert.rejects(
+    () => consumeDesktopReadOnlyRequest(7, 'broker-js-request-03', null, fake),
+    /receipt required/i
+  );
 });
