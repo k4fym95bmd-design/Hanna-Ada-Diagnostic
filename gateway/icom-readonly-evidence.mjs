@@ -13,6 +13,7 @@ export function validateIcomReadOnlyEnvelope(value, expectedSessionId) {
   if (!value || typeof value !== 'object') throw new TypeError('Invalid ICOM evidence');
   if (value.version !== 1 || value.source !== 'bmw-icom' || value.transport !== 'ethernet'
       || value.mode !== 'read-only' || value.icomFamily !== 'ICOM Next'
+      || value.simulated === true
       || value.writesEnabled !== false || value.flashEnabled !== false) {
     throw new TypeError('Unsafe or unsupported ICOM evidence');
   }
@@ -27,12 +28,16 @@ export function validateIcomReadOnlyEnvelope(value, expectedSessionId) {
   }
   if (!Array.isArray(value.modules) || value.modules.length > 64) throw new TypeError('Invalid ICOM module evidence');
 
+  const seenModuleIds = new Set();
   const modules = value.modules.map(item => {
     if (!item || typeof item !== 'object' || item.verified !== true || item.sessionId !== sessionId) {
       throw new TypeError('Unverified ICOM module evidence');
     }
+    const moduleId = textField(item.moduleId, 'moduleId', 48);
+    if (seenModuleIds.has(moduleId)) throw new TypeError('Duplicate ICOM module evidence');
+    seenModuleIds.add(moduleId);
     return Object.freeze({
-      moduleId: textField(item.moduleId, 'moduleId', 48),
+      moduleId,
       identity: textField(item.identity, 'identity', 160),
       sessionId,
       verified: true,
