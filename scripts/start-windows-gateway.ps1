@@ -1,5 +1,6 @@
 param(
   [string]$AllowedOrigin = "http://localhost:3000",
+  [string[]]$AdditionalAllowedOrigins = @(),
   [string]$BridgeHost = "127.0.0.1",
   [int]$AppPort = 3000,
   [int]$BridgePort = 8765,
@@ -10,6 +11,28 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
+
+$TrustedOrigins = @($AllowedOrigin) + @($AdditionalAllowedOrigins) |
+  ForEach-Object { if ($_ -ne $null) { $_.Trim() } } |
+  Where-Object { $_ } |
+  Select-Object -Unique
+
+if ($TrustedOrigins.Count -lt 1 -or $TrustedOrigins.Count -gt 4) {
+  throw "Dozwolone jest od 1 do 4 dokładnych originów przeglądarki."
+}
+foreach ($originValue in $TrustedOrigins) {
+  try { $uri = [System.Uri]$originValue } catch { throw "Nieprawidłowy origin: $originValue" }
+  if (-not $uri.IsAbsoluteUri -or $uri.AbsolutePath -ne "/" -or $uri.Query -or $uri.Fragment -or $uri.UserInfo) {
+    throw "Origin musi być dokładnym adresem bez ścieżki, parametrów i danych logowania: $originValue"
+  }
+  $isLoopbackOrigin = $uri.Host -in @("localhost","127.0.0.1","::1")
+  if ($uri.Scheme -eq "http" -and -not $isLoopbackOrigin) {
+    throw "Zdalny origin musi używać HTTPS: $originValue"
+  }
+  if ($uri.Scheme -notin @("http","https")) {
+    throw "Origin musi używać HTTP lub HTTPS: $originValue"
+  }
+}
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
   throw "Node.js nie jest zainstalowany albo nie ma go w PATH."
@@ -46,7 +69,8 @@ $env:PORT = "$AppPort"
 $server = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command","Set-Location '$RepoRoot'; `$env:PORT='$AppPort'; node server.mjs"
 
 $env:HAA_BRIDGE_TOKEN = $token
-$env:HAA_BRIDGE_ORIGIN = $AllowedOrigin
+$env:HAA_BRIDGE_ORIGIN = $TrustedOrigins[0]
+$env:HAA_BRIDGE_ORIGINS = ($TrustedOrigins -join ",")
 $env:HAA_BRIDGE_HOST = $BridgeHost
 $env:HAA_BRIDGE_PORT = "$BridgePort"
 $BridgeUsesTls = [bool]($TlsCert -and $TlsKey)
@@ -66,6 +90,7 @@ $bridge = Start-Process powershell -PassThru -ArgumentList "-NoExit","-Command",
 # Drop sensitive bridge environment from the launcher after the child inherited it.
 Remove-Item Env:HAA_BRIDGE_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:HAA_BRIDGE_ORIGIN -ErrorAction SilentlyContinue
+Remove-Item Env:HAA_BRIDGE_ORIGINS -ErrorAction SilentlyContinue
 Remove-Item Env:HAA_BRIDGE_HOST -ErrorAction SilentlyContinue
 Remove-Item Env:HAA_BRIDGE_PORT -ErrorAction SilentlyContinue
 Remove-Item Env:HAA_BRIDGE_TLS_CERT -ErrorAction SilentlyContinue
@@ -109,7 +134,7 @@ Write-Host ""
 Write-Host "Hanna & Ada uruchomione."
 Write-Host "App: http://localhost:$AppPort"
 Write-Host ("Bridge: {0}:{1}" -f $BridgeHost,$BridgePort)
-Write-Host "Allowed Origin: $AllowedOrigin"
+Write-Host ("Allowed Origins: {0}" -f ($TrustedOrigins -join ", "))
 Write-Host "Token mostu:"
 Write-Host $token
 Write-Host ""
