@@ -536,9 +536,8 @@ async function attachDesktopProPanel() {
 
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(() => attachDesktopProPanel()).observe(view, { childList: true, subtree: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attachDesktopProPanel);
+    window.addEventListener('hannaada:module-rendered', attachDesktopProPanel);
     attachDesktopProPanel();
   };
   if (document.readyState === 'loading') {
