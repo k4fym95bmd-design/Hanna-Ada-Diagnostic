@@ -10,7 +10,7 @@ test('one existing application loads performance enhancement after legacy runtim
   assert.equal((bootstrap.match(/importOnce\('\/live-performance-runtime\.js'\)/g) || []).length, 1);
   assert.equal((bootstrap.match(/importOnce\('\/obd-runtime\.js'\)/g) || []).length, 1);
   assert.ok(bootstrap.indexOf("await importOnce('/obd-runtime.js')") < bootstrap.indexOf("importOnce('/live-performance-runtime.js')"));
-  assert.equal((html.match(/href="\/live-performance\.css"/g) || []).length, 1);
+  assert.equal((bootstrap.match(/loadStyle\('\/live-performance\.css'\)/g) || []).length, 1);
 });
 
 test('performance code reuses one BLE session and does not offer extra transmit or write controls', () => {
