@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Hanna & Ada" />
+  <meta name="hanna-ada-lazy-modules" content="obd-runtime.js cable-workbench.js cable-rx-panel.js kdcan-cable-panel.js universal-platform-panel.js live-performance-runtime.js tuning-stage-extension.js tuning-analysis-panel.js oem-icom-panel.js webusb-workbench-extension.js desktop-host-bridge.js desktop-pro-panel.js" />
   <title>Hanna & Ada DIAG PRO</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -16,7 +17,6 @@
   <link rel="stylesheet" href="/diagnostic-core-v2.css" />
   <link rel="stylesheet" href="/cable-workbench.css" />
   <link rel="stylesheet" href="/live-performance.css" />
-  <script type="module" src="/desktop-host-bridge.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -35,19 +35,7 @@
     </main>
   </div>
   <script type="module" src="/app.js"></script>
-  <script type="module" src="/tuning-stage-extension.js"></script>
-  <script type="module" src="/tuning-analysis-panel.js"></script>
   <script type="module" src="/mobile-shell.js"></script>
-  <script type="module" src="/obd-runtime.js"></script>
-  <script type="module" src="/terminal-readonly-guard.js"></script>
-  <script type="module" src="/diagnostic-core-v2.js"></script>
-  <script type="module" src="/cable-workbench.js"></script>
-  <script type="module" src="/cable-rx-panel.js"></script>
-  <script type="module" src="/kdcan-cable-panel.js"></script>
-  <script type="module" src="/universal-platform-panel.js"></script>
-  <script type="module" src="/desktop-pro-panel.js"></script>
-  <script type="module" src="/oem-icom-panel.js"></script>
-  <script type="module" src="/webusb-workbench-extension.js"></script>
-  <script type="module" src="/live-performance-runtime.js"></script>
+  <script type="module" src="/ultra-bootstrap.js"></script>
 </body>
 </html>
