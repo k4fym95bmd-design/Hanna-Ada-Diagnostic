@@ -4,6 +4,14 @@ import { identifyUsbSerialCandidate } from '../public/usb-chipset-candidates.js'
 // Single-session binding for the user's photographed K+DCAN USB cable.
 // This layer binds USB identity to one local session only. It never transmits,
 // selects a BMW protocol, verifies an ECU, clears DTCs, codes, actuates or flashes.
+const normalizeFingerprint = value => {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || !/^[a-f0-9]{16,64}$/i.test(value)) {
+    throw new TypeError('Invalid K+DCAN hardware fingerprint');
+  }
+  return value.toLowerCase();
+};
+
 const normalizeSelector = value => {
   if (value === 'A' || value === 'position-1') return 'A';
   if (value === 'B' || value === 'position-2') return 'B';
@@ -47,7 +55,7 @@ export class KdcanReadonlySession {
     this.#ttlMs = ttlMs;
   }
 
-  begin({ sessionId, vendorId, productId, selectorPosition = 'UNKNOWN', portPath = null } = {}) {
+  begin({ sessionId, vendorId, productId, selectorPosition = 'UNKNOWN', portPath = null, hardwareFingerprint = null } = {}) {
     if (typeof sessionId !== 'string' || sessionId.length < 16 || sessionId.length > 128) {
       throw new TypeError('Invalid K+DCAN session');
     }
@@ -56,6 +64,7 @@ export class KdcanReadonlySession {
     }
 
     const selector = normalizeSelector(selectorPosition);
+    const fingerprint = normalizeFingerprint(hardwareFingerprint);
     const cable = cableEvidence({ vendorId, productId, selectorPosition: selector, portOpen: false });
     const now = this.#now();
 
@@ -64,6 +73,7 @@ export class KdcanReadonlySession {
       portPath,
       vendorId,
       productId,
+      hardwareFingerprint: fingerprint,
       selectorPosition: selector,
       cable,
       portOpen: false,
@@ -73,13 +83,17 @@ export class KdcanReadonlySession {
     return this.snapshot();
   }
 
-  markPresent({ sessionId, vendorId, productId, portPath = null } = {}) {
+  markPresent({ sessionId, vendorId, productId, portPath = null, hardwareFingerprint = null } = {}) {
     const state = this.#requireActive(sessionId);
     if (vendorId !== state.vendorId || productId !== state.productId) {
       throw new TypeError('Different USB device cannot replace active K+DCAN session');
     }
     if (portPath != null && state.portPath != null && portPath !== state.portPath) {
       throw new TypeError('Serial port path changed inside active K+DCAN session');
+    }
+    const fingerprint = normalizeFingerprint(hardwareFingerprint);
+    if (state.hardwareFingerprint && fingerprint !== state.hardwareFingerprint) {
+      throw new TypeError('Hardware fingerprint changed inside active K+DCAN session');
     }
     state.lastSeenAt = this.#now();
     return this.snapshot();
