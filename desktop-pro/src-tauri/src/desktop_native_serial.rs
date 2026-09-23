@@ -2,9 +2,39 @@ use crate::desktop_transport_coordinator::DesktopTransportSnapshot;
 use serde::Serialize;
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
 use std::io::{ErrorKind, Read, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
+
+fn has_complete_me72_identity_reply(bytes: &[u8]) -> bool {
+    if bytes.len() < 5 {
+        return false;
+    }
+    for start in 0..=bytes.len() - 5 {
+        if bytes[start] != 0xB8 || bytes[start + 1] != 0xF1 || bytes[start + 2] != 0x12 {
+            continue;
+        }
+        let payload_len = bytes[start + 3] as usize;
+        if payload_len > 192 {
+            continue;
+        }
+        let frame_len = payload_len + 5;
+        if start + frame_len > bytes.len() {
+            continue;
+        }
+        let frame = &bytes[start..start + frame_len];
+        if frame.get(4) != Some(&0xE2) {
+            continue;
+        }
+        let checksum = frame[..frame.len() - 1]
+            .iter()
+            .fold(0u8, |acc, byte| acc ^ *byte);
+        if checksum == frame[frame.len() - 1] {
+            return true;
+        }
+    }
+    false
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,49 +210,54 @@ impl DesktopNativeSerialState {
         }
 
         let port = self.port.as_mut().ok_or_else(|| "native_port_not_open".to_string())?;
-        port.set_timeout(Duration::from_millis(timeout_ms))
-            .map_err(|_| "serial_timeout_config_failed".to_string())?;
 
         port.write_all(&ME72_IDENTITY_REQUEST)
             .map_err(|_| "allowlisted_request_write_failed".to_string())?;
         port.flush()
             .map_err(|_| "allowlisted_request_flush_failed".to_string())?;
 
-        let mut buffer = vec![0u8; max_bytes];
-        match port.read(&mut buffer) {
-            Ok(count) => {
-                buffer.truncate(count);
-                Ok(DesktopReadResult {
-                    version: 1,
-                    evidence_contract_version: 1,
-                    evidence_stage: if count == 0 { "PORT_OPEN" } else { "RX_ACTIVITY" },
-                    stage: if count == 0 { "READ_EMPTY" } else { "READ_BYTES" },
-                    epoch: expected_epoch,
-                    protocol: "KWP2000_BMW",
-                    received_bytes: count,
-                    bytes: buffer,
-                    native_request_receipt: None,
-                    ecu_verified: false,
-                    writes_enabled: false,
-                })
+        let deadline = Duration::from_millis(timeout_ms);
+        let started = Instant::now();
+        let mut buffer = Vec::with_capacity(max_bytes);
+
+        while buffer.len() < max_bytes && started.elapsed() < deadline {
+            let remaining = deadline.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
             }
-            Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
-                Ok(DesktopReadResult {
-                    version: 1,
-                    evidence_contract_version: 1,
-                    evidence_stage: "PORT_OPEN",
-                    stage: "READ_TIMEOUT",
-                    epoch: expected_epoch,
-                    protocol: "KWP2000_BMW",
-                    received_bytes: 0,
-                    bytes: Vec::new(),
-                    native_request_receipt: None,
-                    ecu_verified: false,
-                    writes_enabled: false,
-                })
+            let per_read = remaining.min(Duration::from_millis(120));
+            port.set_timeout(per_read)
+                .map_err(|_| "serial_timeout_config_failed".to_string())?;
+
+            let chunk_len = (max_bytes - buffer.len()).min(64);
+            let mut chunk = vec![0u8; chunk_len];
+            match port.read(&mut chunk) {
+                Ok(0) => {}
+                Ok(count) => {
+                    buffer.extend_from_slice(&chunk[..count]);
+                    if has_complete_me72_identity_reply(&buffer) {
+                        break;
+                    }
+                }
+                Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {}
+                Err(_) => return Err("serial_read_failed".into()),
             }
-            Err(_) => Err("serial_read_failed".into()),
         }
+
+        let count = buffer.len();
+        Ok(DesktopReadResult {
+            version: 1,
+            evidence_contract_version: 1,
+            evidence_stage: if count == 0 { "PORT_OPEN" } else { "RX_ACTIVITY" },
+            stage: if count == 0 { "READ_TIMEOUT" } else { "READ_BYTES" },
+            epoch: expected_epoch,
+            protocol: "KWP2000_BMW",
+            received_bytes: count,
+            bytes: buffer,
+            native_request_receipt: None,
+            ecu_verified: false,
+            writes_enabled: false,
+        })
     }
 
     pub fn read_bounded(
@@ -300,6 +335,22 @@ impl DesktopNativeSerialState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn me72_reply_detector_ignores_echo_and_accepts_valid_e2_reply() {
+        let echo = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
+        assert!(!has_complete_me72_identity_reply(&echo));
+
+        let reply = [
+            0xB8,0xF1,0x12,0x2B,0xE2,0x37,0x35,0x30,0x36,0x33,0x36,0x36,
+            0x30,0x46,0x30,0x31,0x41,0x38,0x36,0x30,0x30,0x38,0x30,0x30,
+            0x30,0x30,0x31,0x30,0x32,0x31,0x33,0x35,0x31,0x30,0xFF,0xFF,
+            0xFF,0xFF,0x30,0x30,0x30,0x30,0x38,0x33,0x38,0x32,0x38,0x99
+        ];
+        let mut combined = echo.to_vec();
+        combined.extend_from_slice(&reply);
+        assert!(has_complete_me72_identity_reply(&combined));
+    }
 
     #[test]
     fn me72_identity_request_material_is_private_and_fixed() {
