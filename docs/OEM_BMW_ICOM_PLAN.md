@@ -15,14 +15,14 @@ Official references:
 
 - `public/oem-icom-profile.js`: OEM ICOM Next evidence model.
 - `public/oem-icom-panel.js`: informational card inside the existing cable workbench.
-- `test/oem-icom-profile.mjs`: regression tests that prevent ICOM reachability from being treated as ECU verification.
+- `test/oem-icom-profile.mjs`: regression tests that prevent ICOM reachability from being treated as ECU verification.\n- `gateway/icom-readonly-evidence.mjs`: strict read-only evidence validator for a future local ICOM adapter.\n- `gateway/icom-evidence-store.mjs`: bounded in-memory single-session evidence cache with TTL expiry; no disk persistence.\n- `test/icom-readonly-evidence.mjs` and `test/icom-evidence-store.mjs`: stale-session, simulation, duplicate-module, expiry and write-lock regressions.
 - Existing cable/VCI application remains the only app; no new database or vehicle session is created.
 
 ## Integration architecture
 
 1. **OEM topology profile** — complete in this branch: ICOM Next A, LAN transport, ICOM Next C for legacy 20-pin path.
 2. **Discovery/transport adapter** — not implemented. Do not scan a LAN or assume proprietary BMW service ports without a documented interface.
-3. **Session evidence adapter** — future read-only layer must prove that a response belongs to the current ICOM session and identified BMW module before `ecuVerified` can become true.
+3. **Session evidence adapter** — defensive core is now implemented. Evidence must match the active session, declare `ICOM Next A`, remain read-only, contain no simulation marker and provide unique verified module identities. The in-memory store expires evidence automatically so stale ECU identity falls back to unverified.
 4. **Protocol abstraction** — normalize ICOM-backed read-only results into the same Hanna & Ada evidence model already used by cable/bridge transports.
 5. **Release validation** — verify on supported hardware with a real transcript, then run the complete repository suite and the existing Floot project checks.
 
