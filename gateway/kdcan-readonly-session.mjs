@@ -1,8 +1,38 @@
-import { assessUserKdcanCable } from '../public/kdcan-cable-profile.js';
+import { usbIdentity } from '../public/kdcan-cable-profile.js';
+import { identifyUsbSerialCandidate } from '../public/usb-chipset-candidates.js';
 
 // Single-session binding for the user's photographed K+DCAN USB cable.
-// It binds USB identity to one local diagnostic session, but NEVER transmits,
+// This layer binds USB identity to one local session only. It never transmits,
 // selects a BMW protocol, verifies an ECU, clears DTCs, codes, actuates or flashes.
+const normalizeSelector = value => {
+  if (value === 'A' || value === 'position-1') return 'A';
+  if (value === 'B' || value === 'position-2') return 'B';
+  if (value === 'UNKNOWN' || value === 'unknown' || value == null) return 'UNKNOWN';
+  throw new TypeError('Invalid K+DCAN selector position');
+};
+
+const cableEvidence = ({ vendorId, productId, selectorPosition, portOpen }) => {
+  const usb = usbIdentity({ vendorId, productId });
+  if (!usb.verified) throw new TypeError('Valid USB VID/PID required for K+DCAN binding');
+
+  let chipsetCandidate = 'Nieznany układ lub własny identyfikator';
+  try {
+    chipsetCandidate = identifyUsbSerialCandidate({ vendorId, productId }).candidate;
+  } catch {}
+
+  return Object.freeze({
+    vidPid: usb.vidPid,
+    chipsetCandidate,
+    selectorPosition: normalizeSelector(selectorPosition),
+    portOpen: portOpen === true,
+    serialDriverVerified: false,
+    bmwProtocolVerified: false,
+    ecuVerified: false,
+    writesEnabled: false,
+    flashEnabled: false,
+  });
+};
+
 export class KdcanReadonlySession {
   #state = null;
   #clock;
@@ -10,28 +40,31 @@ export class KdcanReadonlySession {
 
   constructor({ clock = Date.now, ttlMs = 300000 } = {}) {
     if (typeof clock !== 'function') throw new TypeError('Clock function required');
-    if (!Number.isInteger(ttlMs) || ttlMs < 1000 || ttlMs > 3600000) throw new TypeError('Invalid K+DCAN session TTL');
+    if (!Number.isInteger(ttlMs) || ttlMs < 1000 || ttlMs > 3600000) {
+      throw new TypeError('Invalid K+DCAN session TTL');
+    }
     this.#clock = clock;
     this.#ttlMs = ttlMs;
   }
 
-  begin({ sessionId, vendorId, productId, selectorPosition = 'unknown', portPath = null } = {}) {
+  begin({ sessionId, vendorId, productId, selectorPosition = 'UNKNOWN', portPath = null } = {}) {
     if (typeof sessionId !== 'string' || sessionId.length < 16 || sessionId.length > 128) {
       throw new TypeError('Invalid K+DCAN session');
     }
     if (portPath != null && (typeof portPath !== 'string' || portPath.length < 1 || portPath.length > 240)) {
       throw new TypeError('Invalid serial port path');
     }
-    const cable = assessUserKdcanCable({ vendorId, productId, selectorPosition, portOpen: false });
-    const now = Number(this.#clock());
-    if (!Number.isFinite(now)) throw new TypeError('Invalid session clock');
+
+    const selector = normalizeSelector(selectorPosition);
+    const cable = cableEvidence({ vendorId, productId, selectorPosition: selector, portOpen: false });
+    const now = this.#now();
 
     this.#state = {
       sessionId,
       portPath,
       vendorId,
       productId,
-      selectorPosition,
+      selectorPosition: selector,
       cable,
       portOpen: false,
       startedAt: now,
@@ -48,15 +81,15 @@ export class KdcanReadonlySession {
     if (portPath != null && state.portPath != null && portPath !== state.portPath) {
       throw new TypeError('Serial port path changed inside active K+DCAN session');
     }
-    state.lastSeenAt = Number(this.#clock());
+    state.lastSeenAt = this.#now();
     return this.snapshot();
   }
 
   markPortOpen({ sessionId } = {}) {
     const state = this.#requireActive(sessionId);
     state.portOpen = true;
-    state.lastSeenAt = Number(this.#clock());
-    state.cable = assessUserKdcanCable({
+    state.lastSeenAt = this.#now();
+    state.cable = cableEvidence({
       vendorId: state.vendorId,
       productId: state.productId,
       selectorPosition: state.selectorPosition,
@@ -68,8 +101,8 @@ export class KdcanReadonlySession {
   markPortClosed({ sessionId } = {}) {
     const state = this.#requireActive(sessionId);
     state.portOpen = false;
-    state.lastSeenAt = Number(this.#clock());
-    state.cable = assessUserKdcanCable({
+    state.lastSeenAt = this.#now();
+    state.cable = cableEvidence({
       vendorId: state.vendorId,
       productId: state.productId,
       selectorPosition: state.selectorPosition,
@@ -100,7 +133,7 @@ export class KdcanReadonlySession {
       flashEnabled: false,
     });
 
-    const knownUsbFamily = this.#state.cable.vidPid != null && !/Nieznany/.test(this.#state.cable.chipsetCandidate);
+    const knownUsbFamily = !/Nieznany/i.test(this.#state.cable.chipsetCandidate);
     return Object.freeze({
       active: true,
       expired: false,
@@ -123,6 +156,12 @@ export class KdcanReadonlySession {
     this.#requireActive(sessionId);
     this.#state = null;
     return this.snapshot();
+  }
+
+  #now() {
+    const now = Number(this.#clock());
+    if (!Number.isFinite(now)) throw new TypeError('Invalid session clock');
+    return now;
   }
 
   #requireActive(sessionId) {
