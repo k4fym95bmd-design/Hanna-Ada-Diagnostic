@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DesktopReceiveEvidenceSession } from '../public/desktop-receive-evidence.js';
 
-const read = (protocol, epoch, bytes, stage = 'READ_BYTES') => ({
+const read = (protocol, epoch, bytes, stage = bytes.length ? 'READ_BYTES' : 'READ_TIMEOUT') => ({
   version: 1,
+  evidenceContractVersion: 1,
   stage,
+  evidenceStage: stage === 'READ_BYTES' ? 'RX_ACTIVITY' : 'PORT_OPEN',
   epoch,
   protocol,
   receivedBytes: bytes.length,
