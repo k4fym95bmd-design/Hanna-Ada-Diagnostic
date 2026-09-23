@@ -55,7 +55,7 @@ test('fuel adaptation profile is native-attestation-gated', () => {
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,3);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,4);
 });
 
 
