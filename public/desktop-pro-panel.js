@@ -6,6 +6,7 @@ import {
   closeDesktopPort,
   consumeDesktopReadOnlyRequest,
   getDesktopTransportSnapshot,
+  executeDesktopMe72Identity,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
   prepareDesktopReadOnlyRequest,
@@ -196,7 +197,7 @@ async function action(panel, name) {
       state.correlationSession = null;
       state.localAttestation = null;
       state.identityResult = null;
-      state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Brak TX.`;
+      state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Raw TX niewystawiony; tylko allowlisted read-only executor może nadawać.`;
     } else if (name === 'plan-identity') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -223,7 +224,58 @@ async function action(panel, name) {
       try {
         state.brokerSnapshot = await prepareDesktopReadOnlyRequest(localPlan, window);
         state.requestPlan = localPlan;
+
+        if (operationId === 'e39-dme-me72-module-identity') {
+          if (!state.evidenceSession) {
+            throw new TypeError('Brak parsera evidence dla skonfigurowanego portu.');
+          }
+          state.evidenceSession.reset();
+          state.evidence = null;
+
+          const result = await executeDesktopMe72Identity(
+            localPlan.epoch,
+            localPlan.requestId,
+            window
+          );
+          state.evidence = state.evidenceSession.ingest(result);
+          state.nativeReadReceipt = result.nativeRequestReceipt ?? null;
+
+          if (result.stage !== 'READ_BYTES'
+              || !Number.isSafeInteger(state.nativeReadReceipt)
+              || state.nativeReadReceipt < 1) {
+            throw new TypeError('ME7.2 identity request nie otrzymał receipt-backed READ_BYTES.');
+          }
+
+          const parsedIdentity = deriveMe72IdentityFromEvidence(state.evidence);
+          state.brokerSnapshot = await consumeDesktopReadOnlyRequest(
+            localPlan.epoch,
+            localPlan.requestId,
+            state.nativeReadReceipt,
+            window
+          );
+          state.identityResult = state.correlationSession.consumeAttempt({
+            receiveEvidence: state.evidence,
+            responseRequestId: localPlan.requestId,
+            moduleIdentity: parsedIdentity.fingerprint,
+          });
+          state.requestPlan = null;
+          state.nativeReadReceipt = null;
+          state.localAttestation = null;
+
+          const confirmations = state.correlationSession.snapshot().confirmations;
+          state.message = state.identityResult.repeatCandidateReady
+            ? `2/2 ME7.2 identity confirmed · ${state.identityResult.moduleIdentity} · LOCAL ATTEST ready.`
+            : `ME7.2 identity ${confirmations}/2 · ${state.identityResult.moduleIdentity}. Uruchom drugi niezależny RUN IDENTITY.`;
+          return;
+        }
       } catch (error) {
+        if (state.requestPlan && state.brokerSnapshot?.activeRequest) {
+          await cancelDesktopReadOnlyRequest(
+            state.requestPlan.epoch,
+            state.requestPlan.requestId,
+            window
+          ).catch(() => null);
+        }
         state.correlationSession.cancelActiveAttempt();
         state.requestPlan = null;
         state.nativeReadReceipt = null;
@@ -231,7 +283,7 @@ async function action(panel, name) {
         throw error;
       }
       const confirmations = state.correlationSession.snapshot().confirmations;
-      state.message = `Identity attempt prepared for ${option.moduleFamily} · ${confirmations}/2 confirmed · native broker ACTIVE. TX nadal niewystawiony.`;
+      state.message = `Identity attempt prepared for ${option.moduleFamily} · ${confirmations}/2 confirmed · native broker ACTIVE. Allowlisted executor dla tego profilu nie jest jeszcze dostępny.`;
     } else if (name === 'cancel-identity') {
       if (!state.requestPlan || !state.correlationSession) return;
       const plan = state.requestPlan;
@@ -362,7 +414,7 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="refresh">1. PORTY</button>
       <button type="button" data-desktop-pro-action="bind">2. BIND</button>
       <button type="button" data-desktop-pro-action="open">3. OPEN + CONFIG</button>
-      <button type="button" data-desktop-pro-action="plan-identity">4. PLAN IDENTITY</button>
+      <button type="button" data-desktop-pro-action="plan-identity">4. RUN IDENTITY</button>
       <button type="button" data-desktop-pro-action="cancel-identity">CANCEL PLAN</button>
       <button type="button" data-desktop-pro-action="attest-identity">5. LOCAL ATTEST</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
@@ -373,7 +425,7 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-identity></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. 2/2 daje tylko repeated identity candidate; finalizacja wymaga VERIFIED profile parser + native local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie allowlisted read-only identity profile; finalizacja wymaga 2/2 + parser + local attestation.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
