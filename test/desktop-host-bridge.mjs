@@ -17,6 +17,7 @@ import {
   executeDesktopMe72Identity,
   executeDesktopMe72Roughness,
   executeDesktopMe72EngineSnapshot,
+  executeDesktopMe72FuelAdaptation,
   validateDesktopHostStatus,
   validateDesktopSafetyPolicy,
   validateDesktopSerialCandidates,
@@ -746,6 +747,42 @@ test('engine snapshot executor sends epoch only and validates native provenance'
   const result=await executeDesktopMe72EngineSnapshot(7,fake);
   assert.equal(result.readonlyProfileId,'e39-me72-engine-snapshot-4000');
   assert.equal(result.readonlySampleSequence,2);
+  assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
+  assert.equal('bytes' in calls[0][1],false);
+  assert.equal('payload' in calls[0][1],false);
+  assert.equal('command' in calls[0][1],false);
+});
+
+
+test('fuel adaptation executor sends epoch only and validates native provenance', async () => {
+  const calls=[];
+  const sample='B8 F1 12 13 62 40 04 00 2C 00 20 82 83 80 0C 6C 6C 6C 6C 00 F5 01 15 0E'
+    .split(' ').map(v=>Number.parseInt(v,16));
+  const fingerprint='PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021';
+  const fake={window:{__TAURI__:{core:{invoke:async(name,args)=>{
+    calls.push([name,args]);
+    assert.equal(name,'desktop_execute_me72_fuel_adaptation');
+    assert.deepEqual(args,{epoch:7});
+    return {
+      version:1,
+      evidenceContractVersion:1,
+      stage:'READ_BYTES',
+      evidenceStage:'RX_ACTIVITY',
+      epoch:7,
+      protocol:'KWP2000_BMW',
+      receivedBytes:sample.length,
+      bytes:sample,
+      nativeRequestReceipt:null,
+      nativeIdentityFingerprint:fingerprint,
+      readonlyProfileId:'e39-me72-fuel-adaptation-4004',
+      readonlySampleSequence:3,
+      ecuVerified:false,
+      writesEnabled:false,
+    };
+  }}}}};
+  const result=await executeDesktopMe72FuelAdaptation(7,fake);
+  assert.equal(result.readonlyProfileId,'e39-me72-fuel-adaptation-4004');
+  assert.equal(result.readonlySampleSequence,3);
   assert.deepEqual(Object.keys(calls[0][1]),['epoch']);
   assert.equal('bytes' in calls[0][1],false);
   assert.equal('payload' in calls[0][1],false);
