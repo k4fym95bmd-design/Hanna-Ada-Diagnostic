@@ -43,12 +43,13 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
     const action = rnd % 9;
 
     try {
-      if (action === 0 && !activePlan && !session.snapshot().repeatCandidateReady) {
+      if (action === 0 && !activePlan && !session.snapshot().repeatCandidateReady
+          && session.snapshot().attemptCount < session.snapshot().maxAttempts) {
         const id = `fault-request-${epoch}-${String(requestSeq++).padStart(5,'0')}`;
         activePlan = session.prepareAttempt(id);
         lastRequestId = id;
       } else if (action === 1 && lastRequestId) {
-        assert.throws(() => session.prepareAttempt(lastRequestId), /replay|already active|already verified/i);
+        assert.throws(() => session.prepareAttempt(lastRequestId), /replay|already active|local attestation|attempt limit/i);
       } else if (action === 2 && activePlan) {
         const result = session.consumeAttempt({
           receiveEvidence: makeEvidence(epoch, 'possible-echo'),
@@ -122,6 +123,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
     assert.equal(snap.flashEnabled, false);
     assert.equal(snap.txBytesExposed, false);
     assert.equal(snap.writeLike, false);
+    assert.ok(snap.attemptCount <= snap.maxAttempts);
     assert.equal(snap.identityVerified, false);
     if (snap.repeatCandidateReady) assert.ok(snap.confirmations >= 2);
   }
