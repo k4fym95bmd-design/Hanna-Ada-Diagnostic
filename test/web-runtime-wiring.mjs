@@ -20,3 +20,16 @@ test('browser terminal only exposes the read-only allowlist', async () => {
   assert.match(guard, /isReadOnlyELMCommand\(command\)/);
   assert.match(guard, /stopImmediatePropagation/);
 });
+
+
+test('OBD console and counters batch DOM work instead of repainting per BLE fragment', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /scheduleUi=fn=>typeof requestAnimationFrame/);
+  assert.match(runtime, /createDocumentFragment\(\)/);
+  assert.match(runtime, /logQueue\.length>96/);
+  assert.match(runtime, /while\(box\.children\.length>160\)/);
+  assert.match(runtime, /if\(statsFrame!==null\)return/);
+  assert.match(runtime, /HA_DEBUG_OBD===true/);
+  assert.doesNotMatch(runtime, /console\.log\('\[H&A OBD\]',kind,msg\)\}/);
+  assert.match(runtime, /stopLive,parseDtc/);
+});
