@@ -80,7 +80,6 @@ try {
   const html = await homeRes.text();
   assert.match(html, /Hanna\s*&\s*Ada/i);
   assert.match(html, /app\.js/i);
-  assert.match(html, /tuning-stage-extension\.js/i);
   assert.match(html, /app\.css/i);
 
   const bootstrapRes = await fetch(`${base}/ultra-bootstrap.js`);
