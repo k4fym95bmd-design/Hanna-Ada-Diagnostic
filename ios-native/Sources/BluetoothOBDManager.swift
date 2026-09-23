@@ -319,20 +319,33 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
             let pidRaw = try await command("0100", timeout: 15)
             guard operationEpoch == epoch else { return }
             supportedPIDs = try OBDParser.supportedPIDs01to20(from: pidRaw)
-            let protocolRaw = try await command("ATDP", timeout: 5)
-            guard operationEpoch == epoch else { return }
-            protocolName = OBDParser.clean(protocolRaw).replacingOccurrences(of: "ATDP", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-            // Some clone firmware may not implement ATDPN. A valid 0100 still
-            // verifies the generic ECU, but unframed DTC decoding stays locked.
+
+            // Evidence first: ask for the protocol number before any descriptive
+            // protocol text. Only ATDPN can authorize protocol-aware unframed
+            // DTC decoding; ATDP is display-only fallback.
             let protocolNumberRaw = try? await command("ATDPN", timeout: 5)
             guard operationEpoch == epoch else { return }
             if let protocolNumberRaw,
                OBDParser.vehicleBusKind(fromATDPN: protocolNumberRaw) != nil {
                 selectedOBDProtocolNumber = protocolNumberRaw
+                let cleanedNumber = OBDParser.clean(protocolNumberRaw)
+                    .replacingOccurrences(of: "ATDPN", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                protocolName = cleanedNumber.isEmpty ? "Verified by ATDPN" : "ELM protocol \(cleanedNumber)"
                 appendLog("SYS  Vehicle protocol verified by ATDPN")
             } else {
                 selectedOBDProtocolNumber = nil
                 appendLog("SYS  ATDPN unavailable/unknown; unframed DTC decoding locked")
+
+                if let protocolRaw = try? await command("ATDP", timeout: 5) {
+                    guard operationEpoch == epoch else { return }
+                    protocolName = OBDParser.clean(protocolRaw)
+                        .replacingOccurrences(of: "ATDP", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    guard operationEpoch == epoch else { return }
+                    protocolName = "—"
+                }
             }
             if let voltageRaw = try? await command("ATRV", timeout: 5) {
                 guard operationEpoch == epoch else { return }
