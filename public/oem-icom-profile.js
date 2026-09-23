@@ -7,6 +7,12 @@ export const BMW_OEM_VCI = Object.freeze({
   primaryInterface: 'ICOM Next A',
   legacyVehicleAdapter: 'ICOM Next C',
   pcLink: 'Ethernet/LAN',
+  diagnosisSoftware: 'ISTA',
+  eSeriesProgrammingSoftware: 'ISTA/P',
+  portal: 'BMW AOS',
+  minLanMbps: 100,
+  stableIpRequired: true,
+  externalPowerSupplyRequiredForProgramming: true,
   bmwRecommended: true,
   sourceScope: 'BMW Aftersales/ICOM documentation',
   writesEnabled: false,
@@ -36,6 +42,40 @@ export function e39OemPath({ productionYear, productionMonth, hasEngineBay20Pin 
     note: legacy20PinExpected
       ? 'Starsza ścieżka E39: ICOM Next A + ICOM Next C. Sam sprzęt nie potwierdza ECU.'
       : 'Ścieżka 16-pin wymaga potwierdzenia dla konkretnego egzemplarza; ECU nadal niezweryfikowane.',
+  });
+}
+
+
+export function buildE39OemStation(vehicle = {}) {
+  const path = e39OemPath(vehicle);
+  return Object.freeze({
+    vehicle: 'BMW E39',
+    requiredHardware: path.recommendedHardware,
+    diagnosis: Object.freeze({
+      software: 'ISTA',
+      scope: 'diagnosis/test-plans/repair-information',
+    }),
+    programming: Object.freeze({
+      software: 'ISTA/P',
+      scope: 'E-series',
+      externalPowerSupplyRequired: true,
+      writesEnabledInHannaAda: false,
+    }),
+    network: Object.freeze({
+      transport: 'Ethernet/LAN',
+      minLanMbps: 100,
+      stableIpRequired: true,
+    }),
+    maintenance: Object.freeze({
+      icomFirmwareManagedBy: 'ISTA connection manager',
+      officialPortal: 'BMW AOS',
+    }),
+    hannaAda: Object.freeze({
+      mode: 'read-only evidence/companion',
+      writesEnabled: false,
+      flashEnabled: false,
+      takesOverIstaSession: false,
+    }),
   });
 }
 
