@@ -308,6 +308,7 @@ impl DesktopNativeSerialState {
         }
 
         let count = buffer.len();
+        let native_identity_fingerprint = me72_identity_fingerprint(&buffer);
         Ok(DesktopReadResult {
             version: 1,
             evidence_contract_version: 1,
@@ -318,7 +319,7 @@ impl DesktopNativeSerialState {
             received_bytes: count,
             bytes: buffer,
             native_request_receipt: None,
-            native_identity_fingerprint: me72_identity_fingerprint(&buffer),
+            native_identity_fingerprint,
             readonly_profile_id: None,
             readonly_sample_sequence: None,
             ecu_verified: false,
