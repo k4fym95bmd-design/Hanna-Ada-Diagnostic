@@ -19,10 +19,23 @@ export function validateDesktopLocalAttestation(value) {
       || value.brokerEvidencedAttempts.length !== value.brokerEvidencedAttemptCount
       || value.brokerEvidencedAttempts.some(item =>
         !item || typeof item !== 'object'
+        || typeof item.operationId !== 'string'
+        || !['e39-dme-me72-module-identity','e39-legacy-module-identity'].includes(item.operationId)
         || typeof item.requestId !== 'string'
         || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
+        || (item.nativeIdentityFingerprint !== null
+            && (typeof item.nativeIdentityFingerprint !== 'string'
+              || !/^[A-Za-z0-9._:-]{8,128}$/.test(item.nativeIdentityFingerprint)))
+        || (item.operationId === 'e39-dme-me72-module-identity'
+            && item.nativeIdentityFingerprint === null)
         || !Number.isSafeInteger(item.nativeReceiveReceipt)
         || item.nativeReceiveReceipt < 1)
+      || (value.nativeIdentityFingerprint !== null
+          && (typeof value.nativeIdentityFingerprint !== 'string'
+            || !/^[A-Za-z0-9._:-]{8,128}$/.test(value.nativeIdentityFingerprint)))
+      || typeof value.nativeIdentityConsistent !== 'boolean'
+      || (value.protocol === 'KWP2000_BMW'
+          && (value.nativeIdentityConsistent !== true || value.nativeIdentityFingerprint === null))
       || value.rawSerialWriteExposed !== false
       || value.identityVerified !== false
       || value.ecuVerified !== false
@@ -32,8 +45,10 @@ export function validateDesktopLocalAttestation(value) {
   }
   const brokerEvidencedAttempts = Object.freeze(
     value.brokerEvidencedAttempts.map(item => Object.freeze({
+      operationId: item.operationId,
       requestId: item.requestId,
       nativeReceiveReceipt: item.nativeReceiveReceipt,
+      nativeIdentityFingerprint: item.nativeIdentityFingerprint,
     }))
   );
   const requestIds = brokerEvidencedAttempts.map(item => item.requestId);
@@ -82,6 +97,10 @@ export function finalizeReadOnlyIdentity({
   if (attestation.epoch !== correlationSnapshot.epoch
       || attestation.protocol !== correlationSnapshot.protocol) {
     throw new TypeError('Local attestation does not match correlation session');
+  }
+  if (correlationSnapshot.protocol === 'KWP2000_BMW'
+      && attestation.nativeIdentityFingerprint !== correlationSnapshot.moduleIdentity) {
+    throw new TypeError('Native identity fingerprint does not match parser-derived identity');
   }
 
   const nativeLedger = new Map(
