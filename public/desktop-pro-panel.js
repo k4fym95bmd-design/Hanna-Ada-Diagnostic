@@ -605,7 +605,6 @@ async function attachDesktopProPanel() {
 if (typeof document !== 'undefined') {
   const start = () => {
     window.addEventListener('hannaada:cable-workbench-mounted', attachDesktopProPanel);
-    window.addEventListener('hannaada:module-rendered', attachDesktopProPanel);
     attachDesktopProPanel();
   };
   if (document.readyState === 'loading') {
