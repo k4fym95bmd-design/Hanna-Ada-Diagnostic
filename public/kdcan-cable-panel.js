@@ -4,20 +4,31 @@ const hexToInt = value => /^[0-9A-F]{4}$/i.test(value || '') ? Number.parseInt(v
 
 function currentUsbIdentity(root) {
   const mode = root.dataset.cableModeCurrent || 'desktop';
-  if (mode === 'bridge') {
-    const vendorId = hexToInt(root.dataset.bridgeUsbVendorId);
-    const productId = hexToInt(root.dataset.bridgeUsbProductId);
-    if (vendorId != null && productId != null) return { vendorId, productId };
+
+  if (mode === 'desktop') {
+    const vendorId = hexToInt(root.dataset.directUsbVendorId);
+    const productId = hexToInt(root.dataset.directUsbProductId);
+    return vendorId != null && productId != null ? { vendorId, productId } : {};
   }
 
-  const directVendor = hexToInt(root.dataset.directUsbVendorId);
-  const directProduct = hexToInt(root.dataset.directUsbProductId);
-  if (directVendor != null && directProduct != null) return { vendorId: directVendor, productId: directProduct };
+  if (mode === 'bridge') {
+    let vendorId = hexToInt(root.dataset.bridgeUsbVendorId);
+    let productId = hexToInt(root.dataset.bridgeUsbProductId);
+    if (vendorId != null && productId != null) return { vendorId, productId };
 
-  const option = root.querySelector('[data-cable-port]')?.selectedOptions?.[0];
-  const vendorId = hexToInt(option?.dataset?.vendorId);
-  const productId = hexToInt(option?.dataset?.productId);
-  return vendorId != null && productId != null ? { vendorId, productId } : {};
+    const option = root.querySelector('[data-cable-port]')?.selectedOptions?.[0];
+    vendorId = hexToInt(option?.dataset?.vendorId);
+    productId = hexToInt(option?.dataset?.productId);
+    return vendorId != null && productId != null ? { vendorId, productId } : {};
+  }
+
+  if (mode === 'android') {
+    const vendorId = hexToInt(root.dataset.webUsbVendorId);
+    const productId = hexToInt(root.dataset.webUsbProductId);
+    return vendorId != null && productId != null ? { vendorId, productId } : {};
+  }
+
+  return {};
 }
 
 function attachKdcanCard() {
@@ -82,6 +93,8 @@ function attachKdcanCard() {
     'data-direct-usb-product-id',
     'data-bridge-usb-vendor-id',
     'data-bridge-usb-product-id',
+    'data-web-usb-vendor-id',
+    'data-web-usb-product-id',
   ]});
 
   root.appendChild(card);
