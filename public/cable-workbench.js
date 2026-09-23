@@ -1,4 +1,6 @@
-import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';\nimport { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';\nimport { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
+import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
+import { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';
+import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
 
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
@@ -6,7 +8,8 @@ const work = { mode: 'desktop', serialPort: null, bridgeUrl: null, bridgeToken: 
 const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
 const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : 'desktop';
-const errText = e => e instanceof TypeError ? e.message : 'Operacja nie powiodła się. Sprawdź uprawnienia, sterownik i połączenie.';\nconst usbId = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';
+const errText = e => e instanceof TypeError ? e.message : 'Operacja nie powiodła się. Sprawdź uprawnienia, sterownik i połączenie.';
+const usbId = value => typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value) ? value.toUpperCase() : '';
 const rootNow = () => document.querySelector('#haCableWorkbench');
 const report = (message, failed = false) => { work.message = message; const r = rootNow(); if (r) { $(r, '[data-cable-message]').textContent = message; $(r, '[data-cable-message]').classList.toggle('ha-cable-error', failed); } };
 function display() {
@@ -27,7 +30,13 @@ function display() {
   const portSelect = $(root, '[data-cable-port]');
   const selectedBefore = portSelect.value;
   portSelect.replaceChildren(...work.ports.map(p => {
-    const option = document.createElement('option');\n    option.value = p.path;\n    option.dataset.vendorId = p.vendorId || '';\n    option.dataset.productId = p.productId || '';\n    const id = p.vendorId && p.productId ? ` · ${p.vendorId}:${p.productId}` : '';\n    option.textContent = `${p.path} · ${p.manufacturer || 'port szeregowy'}${id}`;\n    return option;
+    const option = document.createElement('option');
+    option.value = p.path;
+    option.dataset.vendorId = p.vendorId || '';
+    option.dataset.productId = p.productId || '';
+    const id = p.vendorId && p.productId ? ` · ${p.vendorId}:${p.productId}` : '';
+    option.textContent = `${p.path} · ${p.manufacturer || 'port szeregowy'}${id}`;
+    return option;
   }));
   const selection = work.selectedPath || selectedBefore;
   if (work.ports.some(p => p.path === selection)) portSelect.value = selection;
@@ -122,7 +131,12 @@ async function bridgeRequest(path, payload) {
 async function listPorts() {
   const result = await bridgeRequest('/v1/ports');
   if (!result || !Array.isArray(result.ports) || result.ports.length > 100) throw new TypeError('Nieprawidłowa lista portów mostu.');
-  work.ports = result.ports.filter(p => p && typeof p.path === 'string' && p.path.length <= 240).map(p => ({\n    path: p.path,\n    manufacturer: String(p.manufacturer || '').slice(0, 100),\n    vendorId: usbId(p.vendorId),\n    productId: usbId(p.productId),\n  }));
+  work.ports = result.ports.filter(p => p && typeof p.path === 'string' && p.path.length <= 240).map(p => ({
+    path: p.path,
+    manufacturer: String(p.manufacturer || '').slice(0, 100),
+    vendorId: usbId(p.vendorId),
+    productId: usbId(p.productId),
+  }));
   work.selectedPath = work.ports.some(p => p.path === result.selectedPath) ? result.selectedPath : '';
 }
 function attach() {
