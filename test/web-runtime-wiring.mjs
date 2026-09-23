@@ -77,3 +77,13 @@ test('BLE runtime caps incomplete RX growth and rejects the pending command on o
   assert.match(runtime, /p\.reject\(new Error\('RX buffer exceeded safe limit'\)\)/);
   assert.match(runtime, /HA\.buffer=''/);
 });
+
+
+test('BLE disconnect clears stale pending command state before reconnect', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /function abortPending\(reason='Session closed'\)/);
+  assert.match(runtime, /clearTimeout\(p\.timer\)/);
+  assert.match(runtime, /p\.reject\(new Error\(reason\)\)/);
+  assert.match(runtime, /disconnect\(\)\{stopLive\(\);abortPending\('BLE disconnected'\)/);
+  assert.match(runtime, /HA\.buffer=''/);
+});
