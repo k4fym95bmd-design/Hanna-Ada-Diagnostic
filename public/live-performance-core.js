@@ -44,7 +44,7 @@ export function createLivePerformanceController({
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0, budgetStops = 0;
-  let cycleSerial = 0, pidBackoffs = 0, uiYields = 0;
+  let cycleSerial = 0, pidBackoffs = 0, uiYields = 0, midCycleYields = 0;
   const pidFailureStreak = new Map();
   const pidCooldownUntil = new Map();
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
@@ -124,6 +124,7 @@ export function createLivePerformanceController({
       pidBackoffs,
       coolingPids: coolingKeys().size,
       uiYields,
+      midCycleYields,
       inFlight: !!currentTask,
       queuedCommands: 0,
       writesEnabled: false,
@@ -203,6 +204,7 @@ export function createLivePerformanceController({
       const start = now();
       let completed = 0;
       let budgetLimited = false;
+      let interactionLimited = false;
       for (const key of batch.keys) {
         if (!isConnected() || epoch !== owner || (backgroundSensitive && !isVisible())) break;
         if (now() - start >= CYCLE_BUDGET_MS && completed > 0) {
@@ -226,6 +228,12 @@ export function createLivePerformanceController({
           clearPidFailure(key);
           const elapsed = recordLatency(now() - before);
           averageMs = averageMs == null ? elapsed : averageMs * 0.75 + elapsed * 0.25;
+          if (backgroundSensitive && shouldYield()) {
+            uiYields++;
+            midCycleYields++;
+            interactionLimited = true;
+            break;
+          }
         } catch {
           if (!isConnected() || epoch !== owner) break;
           if (fail(owner, false, key)) break;
@@ -235,7 +243,7 @@ export function createLivePerformanceController({
         cycles++;
         lastCycleMs = clamp(now() - start, 0, 300_000);
       }
-      return Object.freeze({ completed, attempted: batch.keys.length, budgetLimited, stopped: !running });
+      return Object.freeze({ completed, attempted: batch.keys.length, budgetLimited, interactionLimited, stopped: !running });
     })();
 
     currentTask = task;
