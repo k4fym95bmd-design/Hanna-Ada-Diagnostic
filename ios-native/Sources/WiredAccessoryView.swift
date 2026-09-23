@@ -7,15 +7,23 @@ import ExternalAccessory
 final class WiredAccessoryState: ObservableObject {
     @Published private(set) var accessoryNames: [String] = []
     @Published private(set) var status = "Nie sprawdzono akcesoriów."
+    @Published private(set) var accessoryObserved = false
     @Published private(set) var evidenceStage: EvidenceStage = .noCable
 
     func refresh() {
         let accessories = EAAccessoryManager.shared().connectedAccessories
         accessoryNames = accessories.map { $0.name }
-        evidenceStage = accessories.isEmpty ? .noCable : .usbSeen
+        accessoryObserved = !accessories.isEmpty
+
+        // EAAccessory does not prove that the observed accessory is this USB K+DCAN
+        // adapter or that iOS exposes a generic USB-serial transport. Keep the
+        // canonical USB evidence stage at NO_CABLE until a transport-specific
+        // local proof exists.
+        evidenceStage = .noCable
+
         status = accessories.isEmpty
-            ? "iOS nie udostępnia aplikacji żadnego akcesorium przewodowego."
-            : "Wykryto akcesorium w iOS. To nie potwierdza protokołu, dostępu szeregowego ani ECU."
+            ? "iOS nie udostępnia aplikacji żadnego akcesorium przez ExternalAccessory."
+            : "iOS udostępnia akcesorium. To nie jest dowód USB K+DCAN, portu szeregowego, protokołu BMW ani ECU."
     }
 
     func startWatching() {
@@ -53,6 +61,9 @@ struct WiredAccessoryView: View {
                         Label("AKCESORIA UDOSTĘPNIONE PRZEZ iOS", systemImage: "cable.connector")
                             .font(.headline)
                         Text(hardware.status).foregroundStyle(.secondary)
+                        Text("ExternalAccessory: \(hardware.accessoryObserved ? "WYKRYTO" : "BRAK")")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
                         Text("Evidence Contract v\(EvidenceContract.version) · \(hardware.evidenceStage.rawValue)")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
