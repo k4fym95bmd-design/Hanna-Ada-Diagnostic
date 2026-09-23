@@ -98,3 +98,4 @@ Write-Host $token
 Write-Host ""
 Write-Host "Token nie jest zapisywany do pliku. Wklej go do pola Token w aplikacji."
 Write-Host "PID app: $($server.Id) | PID bridge: $($bridge.Id)"
+Start-Process "http://localhost:$AppPort"
