@@ -173,3 +173,15 @@ test('route ownership is carried as data instead of rescanning rendered headings
   assert.doesNotMatch(obd, /querySelectorAll\('\.hero h1'\)/);
   assert.doesNotMatch(cable, /querySelectorAll\('\.hero h1'\)/);
 });
+
+
+test('modern background scheduling and intent modulepreload stay capability-gated', () => {
+  assert.match(bootstrap, /scheduler\?\.postTask/);
+  assert.match(bootstrap, /priority: 'background'/);
+  assert.match(bootstrap, /relList\?\.supports\?\.\('modulepreload'\)/);
+  assert.match(bootstrap, /probe\.rel = 'modulepreload'/);
+  assert.match(bootstrap, /fetchPriority = 'high'/);
+  assert.match(bootstrap, /navigator\.deviceMemory/);
+  assert.match(bootstrap, /navigator\.hardwareConcurrency/);
+  assert.match(bootstrap, /warmForModule\(button\.dataset\.module, true\)/);
+});
