@@ -19,6 +19,8 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /validateTrustedIdentityCandidateEvent/);
   assert.match(panel, /prepareDesktopReadOnlyRequest/);
   assert.match(panel, /executeDesktopMe72Identity/);
+  assert.match(panel, /executeDesktopMe72Roughness/);
+  assert.match(panel, /deriveMe72CylinderRoughnessFromEvidence/);
   assert.match(panel, /deriveMe72IdentityFromEvidence/);
   assert.match(panel, /consumeDesktopReadOnlyRequest/);
   assert.match(panel, /cancelDesktopReadOnlyRequest/);
@@ -133,4 +135,17 @@ test('Desktop PRO attach path is event-driven instead of subtree-observed', asyn
   assert.match(panel, /hannaada:cable-workbench-mounted/);
   assert.match(panel, /hannaada:module-rendered/);
   assert.doesNotMatch(panel, /new MutationObserver/);
+});
+
+
+test('roughness UI is gated by finalized identity and named native executor', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel,/data-desktop-pro-action="read-roughness"/);
+  assert.match(panel,/'read-roughness': state\.ready && configured && finalized/);
+  assert.match(panel,/executeDesktopMe72Roughness\(state\.snapshot\.epoch, window\)/);
+  assert.match(panel,/deriveMe72CylinderRoughnessFromEvidence\(state\.evidence\)/);
+  assert.match(panel,/readonlyProfileId !== 'e39-me72-roughness-4003'/);
+  assert.match(panel,/nativeIdentityFingerprint !== state\.identityResult\.moduleIdentity/);
+  assert.match(panel,/Roughness sample #/);
+  assert.doesNotMatch(panel,/executeDesktopMe72Roughness\([\s\S]{0,120}(payload|command|bytes)\s*:/);
 });
