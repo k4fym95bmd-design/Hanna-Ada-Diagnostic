@@ -21,6 +21,38 @@ export const SERIAL_OPEN_PROBE = Object.freeze({
   bmwProtocolVerified: false,
 });
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
+const isLoopbackOriginHost = host => ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(host);
+const normalizeAllowedOrigins = ({ allowedOrigin = null, allowedOrigins = null } = {}) => {
+  const values = Array.isArray(allowedOrigins)
+    ? allowedOrigins
+    : (typeof allowedOrigin === 'string' ? [allowedOrigin] : []);
+  if (values.length < 1 || values.length > 4) {
+    throw new TypeError('Set between 1 and 4 exact allowed browser origins');
+  }
+  const normalized = [];
+  for (const raw of values) {
+    if (typeof raw !== 'string' || raw.length < 8 || raw.length > 200) {
+      throw new TypeError('Invalid allowed browser origin');
+    }
+    let url;
+    try { url = new URL(raw); } catch { throw new TypeError('Invalid allowed browser origin'); }
+    if (url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+      throw new TypeError('Allowed browser origin must be an exact origin');
+    }
+    if (!['http:','https:'].includes(url.protocol)) {
+      throw new TypeError('Allowed browser origin must use HTTP or HTTPS');
+    }
+    if (url.protocol === 'http:' && !isLoopbackOriginHost(url.hostname)) {
+      throw new TypeError('Remote browser origins require HTTPS');
+    }
+    const origin = url.origin;
+    if (!normalized.includes(origin)) normalized.push(origin);
+  }
+  if (normalized.length < 1 || normalized.length > 4) {
+    throw new TypeError('Invalid allowed browser origin set');
+  }
+  return Object.freeze(normalized);
+};
 const validPort = p => p && typeof p.path === 'string' && p.path.length > 0 && p.path.length <= 240;
 const portFingerprint = p => {
   const privateParts = [p?.serialNumber, p?.pnpId, p?.locationId]
@@ -44,12 +76,11 @@ const usbNumber = value => {
 };
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); res.end(JSON.stringify(body)); };
 
-export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.0.1', tls = null } = {}) {
+export function createCableBridge({ serial, token, allowedOrigin = null, allowedOrigins = null, host = '127.0.0.1', tls = null } = {}) {
   if (!serial || typeof serial.list !== 'function' || typeof serial.createPort !== 'function') throw new TypeError('A serial driver is required');
   if (typeof token !== 'string' || token.length < 32) throw new TypeError('A random token of at least 32 characters is required');
-  if (typeof allowedOrigin !== 'string' || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError('Set an exact allowed browser origin');
+  const trustedOrigins = normalizeAllowedOrigins({ allowedOrigin, allowedOrigins });
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
-  if (!isLoopback(host) && !allowedOrigin.startsWith('https://')) throw new TypeError('LAN access requires an HTTPS browser origin');
   const bridgeInstanceId = randomBytes(16).toString('hex');
   let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   let sessionEpoch = 0;
@@ -149,14 +180,15 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       res.setHeader('cache-control', 'no-store');
       res.setHeader('x-content-type-options', 'nosniff');
       const origin = req.headers.origin;
-      if (origin && origin !== allowedOrigin) return json(res, 403, { error: 'ORIGIN_DENIED' });
-      if (origin === allowedOrigin) {
-        res.setHeader('access-control-allow-origin', allowedOrigin);
+      const originAllowed = typeof origin === 'string' && trustedOrigins.includes(origin);
+      if (origin && !originAllowed) return json(res, 403, { error: 'ORIGIN_DENIED' });
+      if (originAllowed) {
+        res.setHeader('access-control-allow-origin', origin);
         res.setHeader('vary', 'Origin');
         res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
         res.setHeader('access-control-allow-headers', 'Authorization, Content-Type');
       }
-      if (req.method === 'OPTIONS') return origin === allowedOrigin ? (res.writeHead(204), res.end()) : json(res, 403, { error: 'ORIGIN_DENIED' });
+      if (req.method === 'OPTIONS') return originAllowed ? (res.writeHead(204), res.end()) : json(res, 403, { error: 'ORIGIN_DENIED' });
       if (!equalToken((req.headers.authorization || '').replace(/^Bearer /, ''))) return json(res, 401, { error: 'UNAUTHORIZED' });
       const route = new URL(req.url || '/', 'http://local.invalid').pathname;
       if (req.method === 'GET' && route === '/v1/capabilities') return json(res, 200, {
@@ -176,6 +208,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         actuation: false,
         flashing: false,
         serialOpenProbe: SERIAL_OPEN_PROBE,
+        trustedOriginCount: trustedOrigins.length,
       });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
       if (req.method === 'GET' && route === '/v1/readiness') {
@@ -306,9 +339,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ? { cert: readFileSync(process.env.HAA_BRIDGE_TLS_CERT), key: readFileSync(process.env.HAA_BRIDGE_TLS_KEY) } : null;
   try {
     const { SerialPort } = await import('serialport');
+    const configuredOrigins = (process.env.HAA_BRIDGE_ORIGINS || process.env.HAA_BRIDGE_ORIGIN || '')
+      .split(',')
+      .map(value => value.trim())
+      .filter(Boolean);
     const bridge = createCableBridge({
       token: process.env.HAA_BRIDGE_TOKEN,
-      allowedOrigin: process.env.HAA_BRIDGE_ORIGIN,
+      allowedOrigins: configuredOrigins,
       host, tls,
       serial: { list: () => SerialPort.list(), createPort: path => new SerialPort({ path, ...SERIAL_OPEN_OPTIONS, autoOpen: false }) },
     });
