@@ -15,8 +15,11 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /readDesktopBounded/);
   assert.match(panel, /DesktopReceiveEvidenceSession/);
   assert.match(panel, /read-only-request-registry/);
-  assert.match(panel, /instantiateReadOnlyRequest/);
+  assert.match(panel, /TrustedCorrelationSession/);
+  assert.match(panel, /validateTrustedIdentityCandidateEvent/);
   assert.match(panel, /PLAN IDENTITY/);
+  assert.match(panel, /hannaada:trusted-identity-candidate/);
+  assert.match(panel, /confirmations.*\/2/);
 
   assert.doesNotMatch(panel, /desktop_write_serial|rawSerialWrite|\.write\(/);
   assert.doesNotMatch(panel, /requestBytes|txBytes\s*:/);
@@ -41,4 +44,14 @@ test('identity planning controls actually exist and are stage-gated', async () =
   assert.match(panel, /data-desktop-pro-action="plan-identity"/);
   assert.match(panel, /'plan-identity': state\.ready && configured/);
   assert.match(panel, /requestOperationId = state\.requestOptions\.find\(item => item\.protocol === state\.protocol\)/);
+});
+
+
+test('trusted identity UI has no manual identity override or TX material field', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(panel, /data-desktop-pro-module-identity/);
+  assert.doesNotMatch(panel, /<input[^>]+moduleIdentity/i);
+  assert.doesNotMatch(panel, /requestBytes|txBytes|rawTx/);
+  assert.match(panel, /READ_ONLY_IDENTITY_VERIFIED 2\/2/);
+  assert.match(panel, /ECU\/write\/flash nadal zablokowane/);
 });
