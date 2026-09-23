@@ -7,11 +7,17 @@ import { readFileSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { attachPassiveRx } from './passive-ds2-rx.mjs';
+import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
 
 const MAX_BODY = 2048;
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
 const validPort = p => p && typeof p.path === 'string' && p.path.length > 0 && p.path.length <= 240;
 const safePort = p => ({ path: p.path, manufacturer: String(p.manufacturer || '').slice(0, 100), vendorId: p.vendorId || null, productId: p.productId || null });
+const usbNumber = value => {
+  if (Number.isInteger(value) && value >= 0 && value <= 0xffff) return value;
+  if (typeof value === 'string' && /^[0-9a-f]{4}$/i.test(value)) return Number.parseInt(value, 16);
+  return null;
+};
 const json = (res, code, body) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }); res.end(JSON.stringify(body)); };
 
 export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.0.1', tls = null } = {}) {
@@ -19,7 +25,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   if (typeof token !== 'string' || token.length < 32) throw new TypeError('A random token of at least 32 characters is required');
   if (typeof allowedOrigin !== 'string' || !/^https?:\/\/[^/]+$/.test(allowedOrigin)) throw new TypeError('Set an exact allowed browser origin');
   if (!isLoopback(host) && !tls) throw new TypeError('LAN access requires a trusted HTTPS certificate');
-  let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null;
+  let selected = null, active = null, sessionId = null, busy = false, rxMonitor = null, kdcanSession = null;
   const clearRx = () => { rxMonitor?.dispose(); rxMonitor = null; };
   const equalToken = candidate => {
     const provided = Buffer.from(candidate || '');
@@ -28,10 +34,32 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
   };
   const currentStatus = async () => {
     const ports = (await serial.list()).filter(validPort);
-    const detected = selected !== null && ports.some(p => p.path === selected);
+    const selectedPort = selected !== null ? ports.find(p => p.path === selected) || null : null;
+    const detected = selectedPort !== null;
     const opened = !!(detected && active?.isOpen);
+    let cableBinding = null;
+    if (opened && kdcanSession && sessionId) {
+      const vendorId = usbNumber(selectedPort?.vendorId);
+      const productId = usbNumber(selectedPort?.productId);
+      if (vendorId != null && productId != null) {
+        try {
+          kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected });
+          cableBinding = kdcanSession.snapshot();
+        } catch (error) {
+          if (/expired|No active/i.test(String(error?.message || ''))) {
+            kdcanSession = new KdcanReadonlySession();
+            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'unknown' });
+            kdcanSession.markPortOpen({ sessionId });
+            cableBinding = kdcanSession.snapshot();
+          } else {
+            kdcanSession = null;
+          }
+        }
+      }
+    }
     return { version: 1, transport: 'physical-vci', cableDetected: detected, portOpen: opened,
       selectedPath: detected ? selected : null, sessionId: opened ? sessionId : null,
+      cableBinding: cableBinding?.active ? cableBinding : null,
       ecuVerified: false, writesEnabled: false, flashEnabled: false,
       message: opened ? 'Port USB-serial otwarty. ECU niezweryfikowane.' : detected ? 'Kabel wybrany; port zamknięty.' : 'Nie wybrano wykrytego kabla.' };
   };
@@ -80,10 +108,18 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           await new Promise((resolve, reject) => port.open(err => err ? reject(err) : resolve()));
           clearRx();
           active = port; selected = matches[0].path; sessionId = randomBytes(20).toString('hex');
+          kdcanSession = null;
+          const vendorId = usbNumber(matches[0].vendorId);
+          const productId = usbNumber(matches[0].productId);
+          if (vendorId != null && productId != null) {
+            kdcanSession = new KdcanReadonlySession();
+            kdcanSession.begin({ sessionId, vendorId, productId, portPath: selected, selectorPosition: 'unknown' });
+            kdcanSession.markPortOpen({ sessionId });
+          }
           rxMonitor = attachPassiveRx(port);
           const localSession = sessionId;
           port.on?.('close', () => {
-            if (sessionId === localSession) { clearRx(); active = null; sessionId = null; }
+            if (sessionId === localSession) { clearRx(); kdcanSession = null; active = null; sessionId = null; }
           });
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
@@ -93,7 +129,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         busy = true;
         try {
           if (active?.isOpen) await new Promise((resolve, reject) => active.close(err => err ? reject(err) : resolve()));
-          clearRx(); active = null; selected = null; sessionId = null;
+          clearRx(); kdcanSession = null; active = null; selected = null; sessionId = null;
           return json(res, 200, await currentStatus());
         } finally { busy = false; }
       }
@@ -104,7 +140,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     }
   };
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
-  server.on('close', () => { clearRx(); try { if (active?.isOpen) active.close(); } catch {} });
+  server.on('close', () => { clearRx(); kdcanSession = null; try { if (active?.isOpen) active.close(); } catch {} });
   return { server, host, getStatus: currentStatus };
 }
 
