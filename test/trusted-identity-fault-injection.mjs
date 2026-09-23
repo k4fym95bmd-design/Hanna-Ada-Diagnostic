@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { TrustedCorrelationSession } from '../public/trusted-correlation-session.js';
 import { validateTrustedIdentityCandidateEvent } from '../public/trusted-identity-event.js';
 
-const makeEvidence = (epoch, directionHint = 'possible-reply') => ({
+const makeEvidence = (epoch, directionHint = 'possible-reply', nativeReadReceipt = 91) => ({
   epoch,
   protocol: 'KWP2000_BMW',
   stage: 'FRAME_CANDIDATE',
   candidateFrames: 1,
   frames: [{ directionHint, frameHex: 'B8 F1 12 00 5B' }],
+  nativeReadReceipt,
   ecuVerified: false,
   writesEnabled: false,
   flashEnabled: false,
@@ -83,14 +84,17 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           requestId: activePlan.requestId,
           responseRequestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
+          nativeReadReceipt: 91,
           moduleIdentity: 'ME7.2',
-          receiveEvidence: makeEvidence(epoch),
+          receiveEvidence: makeEvidence(epoch, 'possible-reply', 91),
           rawTx: [0x00],
         };
         assert.throws(() => validateTrustedIdentityCandidateEvent(event, {
           epoch,
           requestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
+          nativeReadReceipt: 91,
+          expectedFrameHexes: ['B8 F1 12 00 5B'],
         }), /raw tx/i);
       } else if (action === 7 && activePlan) {
         const staleEvent = {
@@ -98,13 +102,16 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           requestId: activePlan.requestId,
           responseRequestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
+          nativeReadReceipt: 92,
           moduleIdentity: 'ME7.2',
-          receiveEvidence: makeEvidence(epoch + 1),
+          receiveEvidence: makeEvidence(epoch + 1, 'possible-reply', 92),
         };
         assert.throws(() => validateTrustedIdentityCandidateEvent(staleEvent, {
           epoch,
           requestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
+          nativeReadReceipt: 91,
+          expectedFrameHexes: ['B8 F1 12 00 5B'],
         }), /mismatch/i);
       } else if (action === 8 && session.snapshot().repeatCandidateReady) {
         assert.throws(
