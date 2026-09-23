@@ -6,16 +6,28 @@ use std::time::{Duration, Instant};
 
 const ME72_IDENTITY_REQUEST: [u8; 6] = [0xB8, 0x12, 0xF1, 0x01, 0xA2, 0xF8];
 
-fn has_complete_me72_identity_reply(bytes: &[u8]) -> bool {
+fn ascii_field(bytes: &[u8]) -> Option<String> {
+    if bytes.is_empty() || bytes.iter().any(|byte| !(0x20..=0x7E).contains(byte)) {
+        return None;
+    }
+    let value = std::str::from_utf8(bytes).ok()?.trim();
+    if value.is_empty()
+        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-')) {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn me72_identity_fingerprint(bytes: &[u8]) -> Option<String> {
     if bytes.len() < 5 {
-        return false;
+        return None;
     }
     for start in 0..=bytes.len() - 5 {
         if bytes[start] != 0xB8 || bytes[start + 1] != 0xF1 || bytes[start + 2] != 0x12 {
             continue;
         }
         let payload_len = bytes[start + 3] as usize;
-        if payload_len > 192 {
+        if payload_len < 26 || payload_len > 192 {
             continue;
         }
         let frame_len = payload_len + 5;
@@ -26,14 +38,31 @@ fn has_complete_me72_identity_reply(bytes: &[u8]) -> bool {
         if frame.get(4) != Some(&0xE2) {
             continue;
         }
-        let checksum = frame[..frame.len() - 1]
-            .iter()
-            .fold(0u8, |acc, byte| acc ^ *byte);
-        if checksum == frame[frame.len() - 1] {
-            return true;
+        let checksum = frame[..frame.len() - 1].iter().fold(0u8, |acc, byte| acc ^ *byte);
+        if checksum != frame[frame.len() - 1] {
+            continue;
         }
+
+        let payload = &frame[4..4 + payload_len];
+        let part = ascii_field(&payload[1..8])?;
+        let hardware = ascii_field(&payload[8..10])?;
+        let coding = ascii_field(&payload[10..12])?;
+        let diagnostic = ascii_field(&payload[12..14])?;
+        let bus = ascii_field(&payload[14..16])?;
+        let week = ascii_field(&payload[16..18])?;
+        let year = ascii_field(&payload[18..20])?;
+        let supplier = ascii_field(&payload[20..26])?;
+
+        return Some(format!(
+            "PN{}-HW{}-CI{}-DI{}-BI{}-BW{}-BY{}-SP{}",
+            part, hardware, coding, diagnostic, bus, week, year, supplier
+        ));
     }
-    false
+    None
+}
+
+fn has_complete_me72_identity_reply(bytes: &[u8]) -> bool {
+    me72_identity_fingerprint(bytes).is_some()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +106,7 @@ pub struct DesktopReadResult {
     pub received_bytes: usize,
     pub bytes: Vec<u8>,
     pub native_request_receipt: Option<u64>,
+    pub native_identity_fingerprint: Option<String>,
     pub ecu_verified: bool,
     pub writes_enabled: bool,
 }
@@ -255,6 +285,7 @@ impl DesktopNativeSerialState {
             received_bytes: count,
             bytes: buffer,
             native_request_receipt: None,
+            native_identity_fingerprint: me72_identity_fingerprint(&buffer),
             ecu_verified: false,
             writes_enabled: false,
         })
@@ -300,6 +331,7 @@ impl DesktopNativeSerialState {
                     received_bytes: count,
                     bytes: buffer,
                     native_request_receipt: None,
+                    native_identity_fingerprint: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
@@ -315,6 +347,7 @@ impl DesktopNativeSerialState {
                     received_bytes: 0,
                     bytes: Vec::new(),
                     native_request_receipt: None,
+                    native_identity_fingerprint: None,
                     ecu_verified: false,
                     writes_enabled: false,
                 })
@@ -350,6 +383,23 @@ mod tests {
         let mut combined = echo.to_vec();
         combined.extend_from_slice(&reply);
         assert!(has_complete_me72_identity_reply(&combined));
+    }
+
+    #[test]
+    fn native_fingerprint_matches_reference_vector() {
+        let reply = [
+            0xB8,0xF1,0x12,0x2B,0xE2,0x37,0x35,0x30,0x36,0x33,0x36,0x36,
+            0x30,0x46,0x30,0x31,0x41,0x38,0x36,0x30,0x30,0x38,0x30,0x30,
+            0x30,0x30,0x31,0x30,0x32,0x31,0x33,0x35,0x31,0x30,0xFF,0xFF,
+            0xFF,0xFF,0x30,0x30,0x30,0x30,0x38,0x33,0x38,0x32,0x38,0x99
+        ];
+        assert_eq!(
+            me72_identity_fingerprint(&reply).as_deref(),
+            Some("PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021")
+        );
+        let mut corrupt = reply;
+        corrupt[47] ^= 0x01;
+        assert!(me72_identity_fingerprint(&corrupt).is_none());
     }
 
     #[test]
