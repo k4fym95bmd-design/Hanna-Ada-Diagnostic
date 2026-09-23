@@ -92,14 +92,16 @@ export class TrustedIdentityVerifier {
     }
 
     this.#confirmations += 1;
-    const verified = this.#confirmations >= 2;
+    const repeatCandidateReady = this.#confirmations >= 2;
     return Object.freeze({
       correlated: true,
       moduleIdentityEligible: true,
-      stage: verified ? 'READ_ONLY_IDENTITY_VERIFIED' : 'IDENTITY_CONFIRMATION_REQUIRED',
+      stage: repeatCandidateReady ? 'REPEATED_CORRELATED_IDENTITY_CANDIDATE' : 'IDENTITY_CONFIRMATION_REQUIRED',
       moduleIdentity: this.#acceptedIdentity,
       confirmations: this.#confirmations,
-      identityVerified: verified,
+      repeatCandidateReady,
+      localAttestationRequired: true,
+      identityVerified: false,
       ecuVerified: false,
       writesEnabled: false,
       flashEnabled: false,
@@ -114,7 +116,9 @@ export class TrustedIdentityVerifier {
       moduleFamily: this.#moduleFamily,
       confirmations: this.#confirmations,
       moduleIdentity: this.#acceptedIdentity,
-      identityVerified: this.#confirmations >= 2,
+      repeatCandidateReady: this.#confirmations >= 2,
+      localAttestationRequired: true,
+      identityVerified: false,
       ecuVerified: false,
       writesEnabled: false,
       flashEnabled: false,
