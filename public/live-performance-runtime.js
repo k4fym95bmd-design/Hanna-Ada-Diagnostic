@@ -22,10 +22,11 @@ function commitMetrics() {
   const el = $('#haPerformanceStats');
   if (!el) return;
   const latency = stats.averageMs === null ? '—' : `${stats.averageMs} ms`;
+  const p95 = stats.p95Ms === null ? '—' : `${stats.p95Ms} ms`;
   const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
   const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
   const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
-  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize} · kolejka 0`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize} · kolejka 0`;
   if (text !== lastMetricText) {
     el.textContent = text;
     lastMetricText = text;
