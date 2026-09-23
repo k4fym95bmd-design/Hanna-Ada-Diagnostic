@@ -89,3 +89,18 @@ test('iOS desync tears down the physical GATT session before any reconnect', asy
   assert.match(helper, /resetSession\(keepDevices: true\)/);
   assert.match(helper, /commandChannelDesynced = true/);
 });
+
+
+test('iOS disconnect watchdog fail-closes reconnect if CoreBluetooth never confirms close', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  assert.match(manager, /private var disconnectWatchdog = BLEDisconnectWatchdog\(\)/);
+  assert.match(manager, /private var disconnectWatchdogTask: Task<Void, Never>\?/);
+  assert.match(manager, /private func beginDisconnect\(_ current: CBPeripheral\)/);
+  assert.match(manager, /let token = disconnectWatchdog\.begin\(\)/);
+  assert.match(manager, /Task\.sleep\(for: \.seconds\(3\)\)/);
+  assert.match(manager, /disconnectWatchdog\.owns\(token\)/);
+  assert.match(manager, /Previous BLE session did not confirm disconnect; retry connection/);
+  assert.match(manager, /private func cancelDisconnectWatchdog\(\)/);
+  assert.match(manager, /finishDisconnect[\s\S]*cancelDisconnectWatchdog\(\)/);
+  assert.match(manager, /pendingConnection = \(candidate, device\.name\)[\s\S]*beginDisconnect\(old\)/);
+});
