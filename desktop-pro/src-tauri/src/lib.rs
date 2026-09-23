@@ -572,6 +572,19 @@ fn desktop_execute_me72_fuel_adaptation(
 }
 
 #[tauri::command]
+fn desktop_execute_me72_output_status(
+    epoch: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    execute_attested_me72_readonly(
+        epoch, Me72ReadonlyOperation::Readiness, state, native, broker, attestation,
+    )
+}
+
+#[tauri::command]
 fn desktop_execute_me72_readiness(
     epoch: u64,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
@@ -682,6 +695,7 @@ pub fn run() {
             desktop_execute_me72_roughness,
             desktop_execute_me72_engine_snapshot,
             desktop_execute_me72_fuel_adaptation,
+            desktop_execute_me72_output_status,
             desktop_execute_me72_readiness,
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
