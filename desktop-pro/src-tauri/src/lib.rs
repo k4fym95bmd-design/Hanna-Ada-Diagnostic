@@ -1,4 +1,5 @@
 mod desktop_serial_inventory;
+mod desktop_native_serial;
 mod desktop_transport_coordinator;
 
 use serde::Serialize;
@@ -62,8 +63,13 @@ fn desktop_list_serial_ports() -> Result<Vec<desktop_serial_inventory::DesktopSe
 fn desktop_bind_serial_candidate(
     port_name: String,
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let inventory = desktop_serial_inventory::list_sanitized_ports()?;
+    let native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    if native.is_open() {
+        return Err("close_native_port_before_rebind".into());
+    }
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
     coordinator.bind_from_inventory(&inventory, &port_name)
 }
@@ -71,9 +77,39 @@ fn desktop_bind_serial_candidate(
 #[tauri::command]
 fn desktop_clear_serial_candidate(
     state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    native.close_any();
     Ok(coordinator.clear())
+}
+
+#[tauri::command]
+fn desktop_open_configured_port(
+    epoch: u64,
+    protocol: String,
+    baud_rate: u32,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let bound = coordinator.snapshot();
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    native.open_configured(&bound, epoch, &protocol, baud_rate)?;
+    coordinator.mark_open_configured(epoch)
+}
+
+#[tauri::command]
+fn desktop_close_port(
+    epoch: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    native.close_any();
+    coordinator.mark_closed(epoch)
 }
 
 #[tauri::command]
@@ -104,11 +140,14 @@ fn desktop_safety_policy() -> SafetyPolicy {
 pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(desktop_transport_coordinator::DesktopTransportCoordinator::default()))
+        .manage(Mutex::new(desktop_native_serial::DesktopNativeSerialState::default()))
         .invoke_handler(tauri::generate_handler![
             desktop_host_status,
             desktop_list_serial_ports,
             desktop_bind_serial_candidate,
             desktop_clear_serial_candidate,
+            desktop_open_configured_port,
+            desktop_close_port,
             desktop_transport_snapshot,
             desktop_safety_policy
         ])
