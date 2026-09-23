@@ -9,10 +9,9 @@ import {
   readDesktopBounded,
 } from './desktop-host-bridge.js';
 import { DesktopReceiveEvidenceSession } from './desktop-receive-evidence.js';
-import {
-  instantiateReadOnlyRequest,
-  listReadOnlyRequests,
-} from './read-only-request-registry.js';
+import { listReadOnlyRequests } from './read-only-request-registry.js';
+import { TrustedCorrelationSession } from './trusted-correlation-session.js';
+import { validateTrustedIdentityCandidateEvent } from './trusted-identity-event.js';
 
 const state = {
   ready: false,
@@ -27,6 +26,8 @@ const state = {
   requestOptions: listReadOnlyRequests(),
   requestOperationId: 'e39-dme-me72-module-identity',
   requestPlan: null,
+  correlationSession: null,
+  identityResult: null,
   message: 'Desktop PRO host nieaktywny.',
 };
 
@@ -80,9 +81,16 @@ function render(panel) {
   }
   if (state.requestOperationId) requestSelect.value = state.requestOperationId;
 
+  const correlation = state.correlationSession?.snapshot?.() || null;
   panel.querySelector('[data-desktop-pro-request-plan]').textContent = state.requestPlan
-    ? `Identity plan: ${state.requestPlan.operationId} · epoch ${state.requestPlan.epoch} · request ${state.requestPlan.requestId} · ${state.requestPlan.protocol} · TX MATERIAL NOT EXPOSED · correlation required`
-    : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
+    ? `Identity attempt active: ${state.requestPlan.requestId} · ${correlation?.confirmations || 0}/2 · TX MATERIAL NOT EXPOSED`
+    : correlation
+      ? `Identity chain: ${correlation.confirmations}/2 · ${correlation.moduleIdentity || 'identity pending'} · ${correlation.identityVerified ? 'READ_ONLY_IDENTITY_VERIFIED' : 'next attempt required'}`
+      : 'Identity plan: brak. Rejestr jest metadata-only i nie zawiera ramek TX.';
+
+  panel.querySelector('[data-desktop-pro-identity]').textContent = state.identityResult
+    ? `Identity evidence: ${state.identityResult.stage} · confirmations ${state.identityResult.confirmations}/2 · ECU NIEPOTWIERDZONE · WRITE LOCKED`
+    : 'Identity evidence: 0/2 · brak zaufanej korelacji.';
 
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = ['USB_CANDIDATE_BOUND','SERIAL_CANDIDATE_BOUND'].includes(stage);
@@ -94,6 +102,8 @@ function render(panel) {
       && Number(state.baudRate) >= 300 && Number(state.baudRate) <= 1000000,
     read: state.ready && configured && !!state.evidenceSession,
     'plan-identity': state.ready && configured
+      && !state.requestPlan
+      && state.correlationSession?.snapshot?.().identityVerified !== true
       && state.requestOptions.some(item => item.id === state.requestOperationId && item.protocol === state.protocol),
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
@@ -119,6 +129,8 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.correlationSession = null;
+      state.identityResult = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
       if (!state.snapshot?.epoch) throw new TypeError('Najpierw przypnij port.');
@@ -138,6 +150,8 @@ async function action(panel, name) {
       });
       state.evidence = null;
       state.requestPlan = null;
+      state.correlationSession = null;
+      state.identityResult = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Brak TX.`;
     } else if (name === 'plan-identity') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
@@ -152,11 +166,17 @@ async function action(panel, name) {
       const requestId = globalThis.crypto?.randomUUID?.()
         || `identity-${Date.now().toString(36)}`;
       state.requestOperationId = operationId;
-      state.requestPlan = instantiateReadOnlyRequest(operationId, {
-        epoch: state.snapshot.epoch,
-        requestId,
-      });
-      state.message = `Plan identity utworzony dla ${option.moduleFamily}. TX nadal niewystawiony; następna bramka: zaufana korelacja request/response.`;
+      const existing = state.correlationSession?.snapshot?.();
+      if (!existing || existing.epoch !== state.snapshot.epoch || existing.operationId !== operationId) {
+        state.correlationSession = new TrustedCorrelationSession({
+          epoch: state.snapshot.epoch,
+          operationId,
+        });
+        state.identityResult = null;
+      }
+      state.requestPlan = state.correlationSession.prepareAttempt(requestId);
+      const confirmations = state.correlationSession.snapshot().confirmations;
+      state.message = `Identity attempt prepared for ${option.moduleFamily} · ${confirmations}/2 confirmed. TX nadal niewystawiony; oczekuję trusted correlation event.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -175,6 +195,8 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.correlationSession = null;
+      state.identityResult = null;
       state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
       state.snapshot = await clearDesktopSerialCandidate(window);
@@ -182,6 +204,8 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.correlationSession = null;
+      state.identityResult = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
   } catch (error) {
@@ -191,6 +215,8 @@ async function action(panel, name) {
     render(panel);
   }
 }
+
+let panelAbort = new AbortController();
 
 async function attachDesktopProPanel() {
   const root = rootNow();
@@ -208,6 +234,9 @@ async function attachDesktopProPanel() {
   if (state.snapshot?.stage === 'PORT_CONFIGURED') {
     state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
   }
+
+  panelAbort.abort();
+  panelAbort = new AbortController();
 
   const panel = document.createElement('section');
   panel.dataset.desktopProPanel = '';
@@ -243,6 +272,7 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
     </div>
     <p data-desktop-pro-request-plan></p>
+    <p data-desktop-pro-identity></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
     <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. Poprawna rama może osiągnąć tylko FRAME_CANDIDATE.</p>
@@ -252,6 +282,8 @@ async function attachDesktopProPanel() {
     state.protocol = event.target.value;
     state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
     state.requestPlan = null;
+    state.correlationSession = null;
+    state.identityResult = null;
     render(panel);
   });
   panel.querySelector('[data-desktop-pro-baud]').addEventListener('input', event => {
@@ -268,6 +300,30 @@ async function attachDesktopProPanel() {
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
     button.addEventListener('click', () => action(panel, button.dataset.desktopProAction));
   });
+
+  const trustedHandler = event => {
+    try {
+      if (!state.correlationSession || !state.requestPlan) return;
+      const detail = validateTrustedIdentityCandidateEvent(event?.detail, {
+        epoch: state.requestPlan.epoch,
+        requestId: state.requestPlan.requestId,
+        protocol: state.requestPlan.protocol,
+      });
+      state.identityResult = state.correlationSession.consumeAttempt({
+        receiveEvidence: detail.receiveEvidence,
+        responseRequestId: detail.responseRequestId,
+        moduleIdentity: detail.moduleIdentity,
+      });
+      state.requestPlan = null;
+      state.message = state.identityResult.identityVerified
+        ? 'READ_ONLY_IDENTITY_VERIFIED 2/2. ECU/write/flash nadal zablokowane.'
+        : `${state.identityResult.stage} · ${state.identityResult.confirmations}/2. Przygotuj nowy, niezależny attempt.`;
+    } catch (error) {
+      state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
+    }
+    render(panel);
+  };
+  window.addEventListener('hannaada:trusted-identity-candidate', trustedHandler, { signal: panelAbort.signal });
 
   root.appendChild(panel);
   render(panel);
