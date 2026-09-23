@@ -16,6 +16,7 @@ const steps = [
       'test/trusted-correlation-session.mjs',
       'test/trusted-identity-event.mjs',
       'test/trusted-identity-fault-injection.mjs',
+      'test/desktop-tauri-locking.mjs',
     ],
     required: true,
   },
