@@ -96,3 +96,23 @@ test('service worker runtime-caches imported JS and CSS dependencies without cac
   assert.match(sw, /url\.pathname\.startsWith\('\/api\/'\)/);
   assert.match(sw, /url\.pathname\.startsWith\('\/config\/'\)/);
 });
+
+
+test('hot diagnostic panels use explicit app events instead of subtree observers', () => {
+  const files = [
+    '../public/obd-runtime.js',
+    '../public/live-performance-runtime.js',
+    '../public/diagnostic-core-v2.js',
+    '../public/cable-workbench.js',
+    '../public/cable-rx-panel.js',
+    '../public/kdcan-cable-panel.js',
+    '../public/universal-platform-panel.js',
+    '../public/oem-icom-panel.js',
+    '../public/webusb-workbench-extension.js',
+    '../public/tuning-analysis-panel.js',
+  ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
+  for (const source of files) assert.doesNotMatch(source, /new MutationObserver/);
+  assert.match(files.join('\n'), /hannaada:module-rendered/);
+  assert.match(files.join('\n'), /hannaada:cable-workbench-mounted/);
+  assert.match(files.join('\n'), /hannaada:cable-workbench-state/);
+});
