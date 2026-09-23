@@ -89,10 +89,11 @@ const outputStatusProfile=Object.freeze({
   operation:'STATUS_SNAPSHOT',
   dataIdentifier:'0x4005',
   parserId:'e39-me72-output-status-4005-v1',
-  verificationState:'REFERENCE_VERIFIED',
+  verificationState:'REFERENCE_CONFLICT_AWARE',
   implementationState:'NATIVE_EXECUTOR_IMPLEMENTED',
   executionState:'NATIVE_ATTESTATION_GATED',
   executorId:'desktop_execute_me72_output_status',
+  mappingConflict:'POST_CAT_HEATER_BANK_0x40_0x80',
   executionEnabled:true,
   requiresVerifiedIdentity:true,
   requiresNativeAttestation:true,
@@ -103,7 +104,9 @@ const outputStatusProfile=Object.freeze({
   writesEnabled:false,
   flashEnabled:false,
   sourceRefs:Object.freeze([
-    'pBmwScanner me72.py: tested ME7.2/M62TU KWP2000 request 0x22 0x40 0x05 with documented output-status bit mapping',
+    'pBmwScanner me72.py: tested ME7.2/M62TU KWP2000 request 0x22 0x40 0x05',
+    'DS2PlusPlus dme_me7_2.json: bit 0x02 secondary-air valve, bit 0x04 secondary-air pump',
+    'pBmwScanner vs DS2PlusPlus disagree on post-cat O2 heater bank labels for bits 0x40/0x80; raw bits retained without bank assignment',
   ]),
 });
 
