@@ -23,6 +23,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
   protocol,
   nativeReadReceipt,
   expectedFrameHexes,
+  expectedModuleIdentity,
 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('Invalid trusted identity event');
@@ -36,7 +37,9 @@ export function validateTrustedIdentityCandidateEvent(value, {
       || !Array.isArray(expectedFrameHexes)
       || expectedFrameHexes.length < 1
       || expectedFrameHexes.length > MAX_FRAMES
-      || expectedFrameHexes.some(frame => typeof frame !== 'string' || !FRAME_HEX_RE.test(frame))) {
+      || expectedFrameHexes.some(frame => typeof frame !== 'string' || !FRAME_HEX_RE.test(frame))
+      || typeof expectedModuleIdentity !== 'string'
+      || !/^[A-Za-z0-9._:-]{8,128}$/.test(expectedModuleIdentity)) {
     throw new TypeError('Invalid trusted identity expectation');
   }
   if (value.epoch !== epoch
@@ -46,9 +49,8 @@ export function validateTrustedIdentityCandidateEvent(value, {
       || value.nativeReadReceipt !== nativeReadReceipt) {
     throw new TypeError('Trusted identity event correlation mismatch');
   }
-  if (typeof value.moduleIdentity !== 'string'
-      || !/^[A-Za-z0-9._-]{2,64}$/.test(value.moduleIdentity.trim())) {
-    throw new TypeError('Invalid trusted module identity');
+  if (value.moduleIdentity !== expectedModuleIdentity) {
+    throw new TypeError('Trusted module identity does not match parser-derived identity');
   }
 
   const evidence = value.receiveEvidence;
@@ -117,7 +119,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
     responseRequestId: requestId,
     protocol,
     nativeReadReceipt,
-    moduleIdentity: value.moduleIdentity.trim(),
+    moduleIdentity: expectedModuleIdentity,
     receiveEvidence: safeEvidence,
     identityVerified: false,
     ecuVerified: false,
