@@ -19,11 +19,17 @@ test('ME7.2 0x4005 parser decodes only documented output-status bits',()=>{
   assert.equal(r.dataIdentifier,'0x4005');
   assert.deepEqual(r.raw,{statusA:0xF8,statusB:0x20});
   assert.equal(r.leakDiagnosticPump,false);
+  assert.equal(r.secondaryAirValve,false);
   assert.equal(r.secondaryAirPump,false);
   assert.equal(r.oxygenHeaterBeforeBank1,true);
   assert.equal(r.oxygenHeaterBeforeBank2,true);
-  assert.equal(r.oxygenHeaterAfterBank1,true);
-  assert.equal(r.oxygenHeaterAfterBank2,true);
+  assert.equal(r.postCatHeaterBit40,true);
+  assert.equal(r.postCatHeaterBit80,true);
+  assert.equal(r.oxygenHeaterAfterBank1,null);
+  assert.equal(r.oxygenHeaterAfterBank2,null);
+  assert.equal(r.postCatHeaterBankMapping,'REFERENCE_CONFLICT');
+  assert.equal(r.referenceVerified,false);
+  assert.equal(r.referenceConflictAware,true);
   assert.equal(r.exhaustGasRecirculation,false);
   assert.equal(r.electricFan,false);
   assert.equal(r.fuelPump,true);
@@ -57,4 +63,16 @@ test('output status evidence requires exactly one valid 0x4005 reply',()=>{
     stage:'FRAME_CANDIDATE',
     frames:[{directionHint:'possible-reply',frameHex:'B8 F1 12 05 62 40 07 FD 10 96'}],
   }),/Exactly one/i);
+});
+
+
+test('secondary-air valve and pump are independent bits',()=>{
+  const both=mutateAndRepair(sample,bytes=>{bytes[13]=0x06;});
+  const r=parseMe72OutputStatusFrame(both);
+  assert.equal(r.secondaryAirValve,true);
+  assert.equal(r.secondaryAirPump,true);
+  assert.equal(r.oxygenHeaterBeforeBank1,false);
+  assert.equal(r.oxygenHeaterBeforeBank2,false);
+  assert.equal(r.postCatHeaterBit40,false);
+  assert.equal(r.postCatHeaterBit80,false);
 });
