@@ -8,6 +8,10 @@ function fromHex(frameHex){
 }
 function xorChecksum(bytes){ return bytes.reduce((v,b)=>v^b,0); }
 function be16(bytes,offset){ return (bytes[offset]<<8)|bytes[offset+1]; }
+function signedBe16(bytes,offset){
+  const raw=be16(bytes,offset);
+  return raw&0x8000 ? raw-0x10000 : raw;
+}
 function signed8(value){ return value&0x80 ? value-0x100 : value; }
 
 export function parseMe72EngineSnapshotFrame(frameHex){
@@ -43,6 +47,8 @@ export function parseMe72EngineSnapshotFrame(frameHex){
     speedKmh:p[9]*1.25,
     rpm:be16(p,10)*0.25,
     targetRpm:p[12]*10,
+    camshaftIntakeBank1Deg:signedBe16(p,13)*0.0039,
+    camshaftIntakeBank2Deg:signedBe16(p,15)*0.0039,
     intakeAirTempC:p[17]*0.75-48,
     coolantTempC:p[18]*0.75-48,
     ignitionAngleDeg:signed8(p[19])*0.75,
