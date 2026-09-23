@@ -23,3 +23,11 @@ test('browser UI does not provide unverified ECU command endpoint', () => {
   assert.doesNotMatch(bridge, /route === ['"]\/v1\/(?:transmit|write|erase|flash)/);
   assert.match(bridge, /ecuVerified: false, writesEnabled: false, flashEnabled: false/);
 });
+
+
+test('workbench avoids rebuilding identical port options and deduplicates state broadcasts', () => {
+  assert.match(ui, /portSelect\.dataset\.optionsKey !== optionsKey/);
+  assert.match(ui, /portSelect\.dataset\.optionsKey = optionsKey/);
+  assert.match(ui, /root\.dataset\.broadcastStateKey !== stateKey/);
+  assert.match(ui, /hannaada:cable-workbench-state/);
+});
