@@ -13,6 +13,7 @@ function clearPublishedUsb() {
   if (!workbench) return;
   delete workbench.dataset.webUsbVendorId;
   delete workbench.dataset.webUsbProductId;
+  workbench.dispatchEvent(new CustomEvent('hannaada:cable-workbench-state'));
 }
 function publishUsb(device) {
   const workbench = workbenchRoot();
@@ -22,6 +23,7 @@ function publishUsb(device) {
   if (!vendorId || !productId) return clearPublishedUsb();
   workbench.dataset.webUsbVendorId = vendorId;
   workbench.dataset.webUsbProductId = productId;
+  workbench.dispatchEvent(new CustomEvent('hannaada:cable-workbench-state'));
 }
 function message(text, error = false) {
   const status = root()?.querySelector('[data-webusb-status]');
@@ -91,9 +93,7 @@ function attach() {
 }
 if (typeof document !== 'undefined') {
   const start = () => {
-    const view = document.querySelector('#view');
-    if (!view) return;
-    new MutationObserver(attach).observe(view, { childList: true, subtree: true });
+    window.addEventListener('hannaada:cable-workbench-mounted', attach);
     attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
