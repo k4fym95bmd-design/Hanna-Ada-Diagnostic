@@ -7,6 +7,7 @@ import {
   consumeDesktopReadOnlyRequest,
   getDesktopTransportSnapshot,
   executeDesktopMe72Identity,
+  executeDesktopMe72Roughness,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
   prepareDesktopReadOnlyRequest,
@@ -20,6 +21,7 @@ import { validateTrustedIdentityCandidateEvent } from './trusted-identity-event.
 import { finalizeReadOnlyIdentity } from './read-only-identity-finalizer.js';
 import { getIdentityParserProfile, isIdentityParserVerified } from './identity-parser-profile.js';
 import { deriveMe72IdentityFromEvidence } from './me72-identity-parser.js';
+import { deriveMe72CylinderRoughnessFromEvidence } from './me72-roughness-parser.js';
 
 const state = {
   ready: false,
@@ -39,6 +41,9 @@ const state = {
   correlationSession: null,
   localAttestation: null,
   identityResult: null,
+  roughnessSample: null,
+  roughnessSampleSequence: null,
+  roughnessIdentityFingerprint: null,
   message: 'Desktop PRO host nieaktywny.',
 };
 
@@ -126,6 +131,15 @@ function render(panel) {
       ? `Identity evidence: ${state.identityResult.stage} · confirmations ${state.identityResult.confirmations}/2 · LOCAL ATTESTATION ${state.identityResult.repeatCandidateReady ? 'REQUIRED' : 'PENDING'} · ECU NIEPOTWIERDZONE`
       : 'Identity evidence: 0/2 · brak zaufanej korelacji.';
 
+  const roughness = state.roughnessSample;
+  panel.querySelector('[data-desktop-pro-roughness]').textContent = roughness
+    ? `Roughness sample #${state.roughnessSampleSequence} · ${roughness.cylinders
+        .map(item => `C${item.cylinder} ${item.valuePerSecond.toFixed(4)} s⁻¹`)
+        .join(' · ')}`
+    : finalized
+      ? 'Roughness C1–C8: gotowe do pojedynczego read-only snapshotu.'
+      : 'Roughness C1–C8: zablokowane do READ_ONLY_IDENTITY_VERIFIED.';
+
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
   const configured = stage === 'PORT_CONFIGURED';
@@ -143,6 +157,7 @@ function render(panel) {
     'cancel-identity': state.ready && configured && !!state.requestPlan,
     'attest-identity': state.ready && configured && !state.requestPlan
       && repeatedCandidate && parserVerified && !finalized,
+    'read-roughness': state.ready && configured && finalized && !state.requestPlan,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -173,6 +188,9 @@ async function action(panel, name) {
       state.correlationSession = null;
       state.localAttestation = null;
       state.identityResult = null;
+      state.roughnessSample = null;
+      state.roughnessSampleSequence = null;
+      state.roughnessIdentityFingerprint = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
       if (!state.snapshot?.epoch) throw new TypeError('Najpierw przypnij port.');
@@ -197,6 +215,9 @@ async function action(panel, name) {
       state.correlationSession = null;
       state.localAttestation = null;
       state.identityResult = null;
+      state.roughnessSample = null;
+      state.roughnessSampleSequence = null;
+      state.roughnessIdentityFingerprint = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Raw TX niewystawiony; tylko allowlisted read-only executor może nadawać.`;
     } else if (name === 'plan-identity') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
@@ -312,7 +333,31 @@ async function action(panel, name) {
         correlationSnapshot: correlation,
         localAttestation: state.localAttestation,
       });
-      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. ECU/write/flash nadal zablokowane.`;
+      state.roughnessSample = null;
+      state.roughnessSampleSequence = null;
+      state.roughnessIdentityFingerprint = null;
+      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Roughness C1–C8 odblokowane read-only; ECU/write/flash nadal zablokowane.`;
+    } else if (name === 'read-roughness') {
+      if (state.identityResult?.identityVerified !== true
+          || state.snapshot?.stage !== 'PORT_CONFIGURED'
+          || !state.evidenceSession) {
+        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed roughness.');
+      }
+
+      state.evidenceSession.reset();
+      state.evidence = null;
+      const result = await executeDesktopMe72Roughness(state.snapshot.epoch, window);
+      if (result.readonlyProfileId !== 'e39-me72-roughness-4003'
+          || !Number.isSafeInteger(result.readonlySampleSequence)
+          || result.nativeIdentityFingerprint !== state.identityResult.moduleIdentity) {
+        throw new TypeError('Native roughness provenance mismatch.');
+      }
+
+      state.evidence = state.evidenceSession.ingest(result);
+      state.roughnessSample = deriveMe72CylinderRoughnessFromEvidence(state.evidence);
+      state.roughnessSampleSequence = result.readonlySampleSequence;
+      state.roughnessIdentityFingerprint = result.nativeIdentityFingerprint;
+      state.message = `ME7.2 roughness C1–C8 · native sample #${result.readonlySampleSequence} · read-only.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -337,6 +382,9 @@ async function action(panel, name) {
       state.correlationSession = null;
       state.localAttestation = null;
       state.identityResult = null;
+      state.roughnessSample = null;
+      state.roughnessSampleSequence = null;
+      state.roughnessIdentityFingerprint = null;
       state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
       state.snapshot = await clearDesktopSerialCandidate(window);
@@ -349,6 +397,9 @@ async function action(panel, name) {
       state.correlationSession = null;
       state.localAttestation = null;
       state.identityResult = null;
+      state.roughnessSample = null;
+      state.roughnessSampleSequence = null;
+      state.roughnessIdentityFingerprint = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
   } catch (error) {
@@ -378,6 +429,9 @@ async function attachDesktopProPanel() {
   state.correlationSession = null;
   state.localAttestation = null;
   state.identityResult = null;
+  state.roughnessSample = null;
+  state.roughnessSampleSequence = null;
+  state.roughnessIdentityFingerprint = null;
   state.snapshot = await getDesktopTransportSnapshot(window).catch(() => null);
   if (state.snapshot?.stage === 'PORT_CONFIGURED') {
     state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
@@ -417,15 +471,17 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="plan-identity">4. RUN IDENTITY</button>
       <button type="button" data-desktop-pro-action="cancel-identity">CANCEL PLAN</button>
       <button type="button" data-desktop-pro-action="attest-identity">5. LOCAL ATTEST</button>
+      <button type="button" data-desktop-pro-action="read-roughness">6. ROUGHNESS C1–C8</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
     </div>
     <p data-desktop-pro-request-plan></p>
     <p data-desktop-pro-identity></p>
+    <p data-desktop-pro-roughness></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie allowlisted read-only identity profile; finalizacja wymaga 2/2 + parser + local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness wymaga 2/2 identity + parser + native local attestation.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
