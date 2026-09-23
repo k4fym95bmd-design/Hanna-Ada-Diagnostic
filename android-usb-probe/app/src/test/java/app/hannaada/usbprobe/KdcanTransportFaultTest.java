@@ -34,7 +34,7 @@ public final class KdcanTransportFaultTest {
 
         for (int i = 0; i < 1500; i++) {
             rnd = next(rnd);
-            int action = (int)((rnd >>> 16) & 7L);
+            int action = (int)((rnd >>> 16) & 15L);
 
             KdcanTransportSession.Snapshot before = session.snapshot();
 
@@ -53,37 +53,48 @@ public final class KdcanTransportFaultTest {
                         if (activeSession != null) session.markPortOpen(activeSession, lastEpoch);
                         break;
                     case 2:
+                        if (activeSession != null) session.markConfigured(activeSession, lastEpoch);
+                        break;
+                    case 3:
                         if (activeSession != null) {
                             session.bindRequest(activeSession, lastEpoch,
                                     "req-" + String.format("%08d", i));
                         }
                         break;
-                    case 3:
+                    case 4:
                         if (activeSession != null) {
                             session.correlate(activeSession, lastEpoch,
                                     "req-" + String.format("%08d", i),
                                     reply(), "ME7.2");
                         }
                         break;
-                    case 4:
+                    case 5:
                         session.disconnect();
                         activeSession = null;
                         break;
-                    case 5:
+                    case 6:
                         now[0] += 6000L;
                         break;
-                    case 6:
+                    case 7:
                         if (activeSession != null) {
                             // Deliberately stale epoch.
                             session.markPortOpen(activeSession, Math.max(0L, lastEpoch - 1L));
                         }
                         break;
-                    default:
+                    case 8:
                         if (activeSession != null) {
                             // Deliberately wrong session id.
                             session.bindRequest("wrong-session-00000000000000", lastEpoch,
                                     "req-bad-" + String.format("%08d", i));
                         }
+                        break;
+                    case 9:
+                        if (activeSession != null) {
+                            session.markPortClosed(activeSession, lastEpoch);
+                        }
+                        break;
+                    default:
+                        // Snapshot-only iterations exercise watchdog/state invariants.
                         break;
                 }
             } catch (RuntimeException expectedForIllegalTransition) {
@@ -95,6 +106,7 @@ public final class KdcanTransportFaultTest {
             check(!after.writesEnabled, "fault injection must never enable writes");
             if (!after.active) {
                 check(!after.portOpen, "inactive session cannot keep port-open state");
+                check(!after.configured, "inactive session cannot keep configured state");
                 check(!after.requestBound, "inactive session cannot keep request token");
             }
             if (before.active && !after.active) activeSession = null;
