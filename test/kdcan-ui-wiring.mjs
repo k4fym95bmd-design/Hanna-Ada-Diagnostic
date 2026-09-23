@@ -9,7 +9,7 @@ const panel = readFileSync(new URL('../public/kdcan-cable-panel.js', import.meta
 const webusb = readFileSync(new URL('../public/webusb-workbench-extension.js', import.meta.url), 'utf8');
 
 test('K+DCAN UI modules are wired once and contain no literal escaped newlines in script markup', () => {
-  assert.equal((html.match(/src="\/kdcan-cable-panel\.js"/g) || []).length, 1);
+  assert.equal((bootstrap.match(/importOnce\('\/kdcan-cable-panel\.js'\)/g) || []).length, 1);
   assert.doesNotMatch(html, /<\/script>\\n\s*<script/);
   assert.doesNotMatch(workbench, /;\\nconst /);
 });
