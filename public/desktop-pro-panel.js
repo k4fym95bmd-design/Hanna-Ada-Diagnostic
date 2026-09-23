@@ -45,6 +45,15 @@ function fmtUsb(port) {
   return `${port.vid.toString(16).toUpperCase().padStart(4,'0')}:${port.pid.toString(16).toUpperCase().padStart(4,'0')}`;
 }
 
+function applyControlLocks(panel, { configured, finalized }) {
+  const protocolSelect = panel.querySelector('[data-desktop-pro-protocol]');
+  const requestSelect = panel.querySelector('[data-desktop-pro-request]');
+  const baudInput = panel.querySelector('[data-desktop-pro-baud]');
+  protocolSelect.disabled = configured || !!state.requestPlan;
+  baudInput.disabled = configured || !!state.requestPlan;
+  requestSelect.disabled = !!state.requestPlan || finalized;
+}
+
 function render(panel) {
   const snap = state.snapshot;
   panel.querySelector('[data-desktop-pro-host]').textContent =
@@ -126,6 +135,7 @@ function render(panel) {
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
+  applyControlLocks(panel, { configured, finalized });
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
     button.disabled = state.busy || actions[button.dataset.desktopProAction] !== true;
   });
@@ -170,7 +180,9 @@ async function action(panel, name) {
       });
       state.evidence = null;
       state.requestPlan = null;
+      state.brokerSnapshot = null;
       state.correlationSession = null;
+      state.localAttestation = null;
       state.identityResult = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Brak TX.`;
     } else if (name === 'plan-identity') {
@@ -249,7 +261,9 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.brokerSnapshot = null;
       state.correlationSession = null;
+      state.localAttestation = null;
       state.identityResult = null;
       state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
@@ -258,7 +272,9 @@ async function action(panel, name) {
       state.evidenceSession = null;
       state.evidence = null;
       state.requestPlan = null;
+      state.brokerSnapshot = null;
       state.correlationSession = null;
+      state.localAttestation = null;
       state.identityResult = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
@@ -284,6 +300,10 @@ async function attachDesktopProPanel() {
   state.evidenceSession = null;
   state.evidence = null;
   state.requestPlan = null;
+  state.brokerSnapshot = null;
+  state.correlationSession = null;
+  state.localAttestation = null;
+  state.identityResult = null;
   state.snapshot = await getDesktopTransportSnapshot(window).catch(() => null);
   if (state.snapshot?.stage === 'PORT_CONFIGURED') {
     state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
@@ -334,13 +354,6 @@ async function attachDesktopProPanel() {
     <p><strong>Boundary:</strong> brak raw TX, brak coding/actuation/flash. 2/2 daje tylko repeated identity candidate; READ_ONLY_IDENTITY_VERIFIED wymaga native local attestation.</p>
   `;
 
-  const protocolSelect = panel.querySelector('[data-desktop-pro-protocol]');
-  const requestSelectControl = panel.querySelector('[data-desktop-pro-request]');
-  const baudInput = panel.querySelector('[data-desktop-pro-baud]');
-  protocolSelect.disabled = configured || !!state.requestPlan;
-  baudInput.disabled = configured || !!state.requestPlan;
-  requestSelectControl.disabled = !!state.requestPlan || finalized;
-
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
     state.protocol = event.target.value;
     state.requestOperationId = state.requestOptions.find(item => item.protocol === state.protocol)?.id || '';
@@ -360,6 +373,10 @@ async function attachDesktopProPanel() {
   panel.querySelector('[data-desktop-pro-request]').addEventListener('change', event => {
     state.requestOperationId = event.target.value;
     state.requestPlan = null;
+    state.brokerSnapshot = null;
+    state.correlationSession = null;
+    state.localAttestation = null;
+    state.identityResult = null;
     render(panel);
   });
   panel.querySelectorAll('button[data-desktop-pro-action]').forEach(button => {
@@ -369,13 +386,32 @@ async function attachDesktopProPanel() {
   const trustedHandler = async event => {
     if (!state.correlationSession || !state.requestPlan) return;
     const plan = state.requestPlan;
+
+    let detail;
     try {
-      const detail = validateTrustedIdentityCandidateEvent(event?.detail, {
+      detail = validateTrustedIdentityCandidateEvent(event?.detail, {
         epoch: plan.epoch,
         requestId: plan.requestId,
         protocol: plan.protocol,
       });
+    } catch (error) {
+      state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
+      render(panel);
+      return;
+    }
+
+    try {
       state.brokerSnapshot = await consumeDesktopReadOnlyRequest(plan.epoch, plan.requestId, window);
+    } catch (error) {
+      state.correlationSession.cancelActiveAttempt();
+      state.requestPlan = null;
+      state.brokerSnapshot = null;
+      state.message = error instanceof Error ? error.message : 'Native request broker odrzucił korelację.';
+      render(panel);
+      return;
+    }
+
+    try {
       state.identityResult = state.correlationSession.consumeAttempt({
         receiveEvidence: detail.receiveEvidence,
         responseRequestId: detail.responseRequestId,
@@ -387,11 +423,9 @@ async function attachDesktopProPanel() {
         ? '2/2 REPEATED_CORRELATED_IDENTITY_CANDIDATE. Teraz wymagany jest LOCAL ATTEST.'
         : `${state.identityResult.stage} · ${state.identityResult.confirmations}/2. Przygotuj nowy, niezależny attempt.`;
     } catch (error) {
-      if (state.requestPlan) {
-        state.correlationSession.cancelActiveAttempt();
-        state.requestPlan = null;
-      }
-      state.message = error instanceof Error ? error.message : 'Trusted identity event odrzucony.';
+      state.correlationSession.cancelActiveAttempt();
+      state.requestPlan = null;
+      state.message = error instanceof Error ? error.message : 'Lokalna korelacja identity nie powiodła się.';
     }
     render(panel);
   };
