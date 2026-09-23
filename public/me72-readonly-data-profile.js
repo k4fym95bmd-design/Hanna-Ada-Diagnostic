@@ -134,12 +134,43 @@ const readinessProfile=Object.freeze({
   ]),
 });
 
+const dtcCountProfile=Object.freeze({
+  version:1,
+  id:'e39-me72-dtc-count-a200',
+  operationId:'e39-dme-me72-dtc-count',
+  vehicleFamily:'BMW_E39',
+  moduleFamily:'DME_ME72',
+  protocol:'KWP2000_BMW',
+  operation:'DTC_COUNT',
+  dataIdentifier:null,
+  parserId:'e39-me72-dtc-count-a200-v1',
+  verificationState:'REFERENCE_CONTRACT_VERIFIED',
+  implementationState:'NATIVE_EXECUTOR_IMPLEMENTED',
+  executionState:'NATIVE_ATTESTATION_GATED',
+  executorId:'desktop_execute_me72_dtc_count',
+  executionEnabled:true,
+  requiresVerifiedIdentity:true,
+  requiresNativeAttestation:true,
+  txBytesExposed:false,
+  writeLike:false,
+  clearDtcEnabled:false,
+  ecuVerified:false,
+  writesEnabled:false,
+  flashEnabled:false,
+  sourceRefs:Object.freeze([
+    'DS2PlusPlus ME7.2 KWP0 profile: dtc_count command A2 00, error_code.count at payload start_pos 1',
+    'DS2PlusPlus DPP JSON format: payload index 0 is response status',
+    'No captured ME7.2 A2 00 response vector is claimed',
+  ]),
+});
+
 const profiles=Object.freeze({
   [roughnessProfile.id]:roughnessProfile,
   [engineSnapshotProfile.id]:engineSnapshotProfile,
   [fuelAdaptationProfile.id]:fuelAdaptationProfile,
   [outputStatusProfile.id]:outputStatusProfile,
   [readinessProfile.id]:readinessProfile,
+  [dtcCountProfile.id]:dtcCountProfile,
 });
 
 export function getMe72ReadOnlyDataProfile(id){
@@ -160,6 +191,7 @@ const allowedExecutors=Object.freeze({
   'e39-me72-fuel-adaptation-4004':'desktop_execute_me72_fuel_adaptation',
   'e39-me72-output-status-4005':'desktop_execute_me72_output_status',
   'e39-me72-readiness-4007':'desktop_execute_me72_readiness',
+  'e39-me72-dtc-count-a200':'desktop_execute_me72_dtc_count',
 });
 
 export function assertMe72DataExecutionGated(id){
