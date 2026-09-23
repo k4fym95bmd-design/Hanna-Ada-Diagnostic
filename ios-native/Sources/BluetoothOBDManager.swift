@@ -57,6 +57,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var pendingCommandEpoch: Int?
     private var pendingCommandToken: UInt64 = 0
     private var commandSequence: UInt64 = 0
+    private var commandChannelDesynced = false
     private var handshakeStarted = false
     private var selectedOBDProtocolNumber: String?
 
@@ -209,6 +210,9 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         guard pendingContinuation == nil else {
             throw OBDParserError.adapterError("Previous ELM command still pending")
         }
+        guard !commandChannelDesynced else {
+            throw OBDParserError.adapterError("BLE response correlation lost; reconnect required")
+        }
         guard notifyCharacteristic.isNotifying else {
             throw OBDParserError.adapterError("Notifications are not active")
         }
@@ -231,6 +235,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
                           self.pendingCommandEpoch == commandEpoch,
                           self.pendingCommandToken == commandToken,
                           let pending = self.clearPendingCommand() else { return }
+                    self.markCommandChannelDesynced("Timeout waiting for \(command)")
                     self.appendLog("ERR Timeout: \(command)")
                     pending.resume(throwing: OBDParserError.adapterError("Timeout waiting for \(command)"))
                 }
@@ -327,10 +332,17 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         return pending
     }
 
+    private func markCommandChannelDesynced(_ reason: String) {
+        commandChannelDesynced = true
+        state = .error
+        status = "\(reason) · reconnect required"
+    }
+
     private func resetSession(keepDevices: Bool) {
         epoch &+= 1
         let pending = clearPendingCommand()
         pending?.resume(throwing: OBDParserError.adapterError("Session reset"))
+        commandChannelDesynced = false
         peripheral = nil
         writeCharacteristic = nil
         notifyCharacteristic = nil
@@ -483,6 +495,7 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
                   self.pendingCommandEpoch == self.epoch,
                   self.pendingCommandToken != 0,
                   let pending = self.clearPendingCommand() else { return }
+            self.markCommandChannelDesynced("GATT write failed")
             self.appendLog("ERR GATT write: \(error.localizedDescription)")
             pending.resume(throwing: error)
         }
@@ -497,6 +510,7 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
                   self.pendingCommandToken != 0 else { return }
             if let error {
                 let pending = self.clearPendingCommand()
+                self.markCommandChannelDesynced("GATT notification failed")
                 pending?.resume(throwing: error)
                 return
             }
@@ -507,6 +521,7 @@ extension BluetoothOBDManager: CBPeripheralDelegate {
             self.appendLog("RX  \(OBDParser.clean(chunk))")
             if self.receiveBuffer.utf8.count > 16384 {
                 let pending = self.clearPendingCommand()
+                self.markCommandChannelDesynced("Oversized BLE response")
                 pending?.resume(throwing: OBDParserError.adapterError("Oversized BLE response"))
                 return
             }
