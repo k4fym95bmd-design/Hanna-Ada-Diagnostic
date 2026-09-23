@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createLivePerformanceController } from '../public/live-performance-core.js';
-const supported = new Set([0x0c]); // RPM plus adapter voltage.
+const supported = new Set([0x0c]); // verified RPM evidence also permits adapter-voltage telemetry.
 
 test('null RPM response is no data, not a successful measurement', async () => {
   const c = createLivePerformanceController({
