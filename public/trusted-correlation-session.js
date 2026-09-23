@@ -29,18 +29,16 @@ export class TrustedCorrelationSession {
       throw new TypeError('Repeated identity candidate already collected; local attestation is required');
     }
     if (this.#activePlan) throw new TypeError('Request token already active');
-    if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 128) {
-      throw new TypeError('Invalid request id');
-    }
-    if (this.#issuedRequestIds.has(requestId)) {
-      throw new TypeError('Request id replay');
-    }
 
     const plan = instantiateReadOnlyRequest(this.#operation.id, {
       epoch: this.#epoch,
       requestId,
     });
-    this.#issuedRequestIds.add(requestId);
+    if (this.#issuedRequestIds.has(plan.requestId)) {
+      throw new TypeError('Request id replay');
+    }
+
+    this.#issuedRequestIds.add(plan.requestId);
     this.#activePlan = plan;
     return Object.freeze({ ...plan });
   }
@@ -118,7 +116,9 @@ function blocked(stage, snapshot) {
     stage,
     moduleIdentity: null,
     confirmations: snapshot.confirmations,
-    identityVerified: snapshot.identityVerified,
+    repeatCandidateReady: snapshot.repeatCandidateReady === true,
+    localAttestationRequired: true,
+    identityVerified: false,
     activeRequest: snapshot.activeRequest,
     txBytesExposed: false,
     writeLike: false,
