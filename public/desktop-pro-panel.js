@@ -10,6 +10,7 @@ import {
   executeDesktopMe72Roughness,
   executeDesktopMe72EngineSnapshot,
   executeDesktopMe72FuelAdaptation,
+  executeDesktopMe72Readiness,
   listDesktopSerialCandidates,
   openDesktopConfiguredPort,
   prepareDesktopReadOnlyRequest,
@@ -26,6 +27,7 @@ import { deriveMe72IdentityFromEvidence } from './me72-identity-parser.js';
 import { deriveMe72CylinderRoughnessFromEvidence } from './me72-roughness-parser.js';
 import { deriveMe72EngineSnapshotFromEvidence } from './me72-engine-snapshot-parser.js';
 import { deriveMe72FuelAdaptationFromEvidence } from './me72-fuel-adaptation-parser.js';
+import { deriveMe72ReadinessFromEvidence } from './me72-readiness-parser.js';
 
 const state = {
   ready: false,
@@ -54,6 +56,9 @@ const state = {
   fuelAdaptation: null,
   fuelAdaptationSequence: null,
   fuelAdaptationIdentityFingerprint: null,
+  readinessStatus: null,
+  readinessSequence: null,
+  readinessIdentityFingerprint: null,
   message: 'Desktop PRO host nieaktywny.',
 };
 
@@ -183,6 +188,13 @@ function render(panel) {
       ? 'Fuel adaptation 0x4004: gotowa do pojedynczego read-only snapshotu.'
       : 'Fuel adaptation 0x4004: zablokowana do READ_ONLY_IDENTITY_VERIFIED.';
 
+  const readiness = state.readinessStatus;
+  panel.querySelector('[data-desktop-pro-readiness]').textContent = readiness
+    ? `Readiness sample #${state.readinessSequence} · neutral ${readiness.neutralSwitch ? 'YES' : 'NO'} · enrich ${readiness.accelerationEnrichment ? 'YES' : 'NO'} · O2 pre B1 ${readiness.oxygenBeforeBank1Ready ? 'READY' : 'NOT READY'} · pre B2 ${readiness.oxygenBeforeBank2Ready ? 'READY' : 'NOT READY'} · post B1 ${readiness.oxygenAfterBank1Ready ? 'READY' : 'NOT READY'} · post B2 ${readiness.oxygenAfterBank2Ready ? 'READY' : 'NOT READY'}`
+    : finalized
+      ? 'Readiness 0x4007: gotowe do pojedynczego read-only odczytu.'
+      : 'Readiness 0x4007: zablokowane do READ_ONLY_IDENTITY_VERIFIED.';
+
   const stage = snap?.stage || 'NO_CANDIDATE';
   const boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap?.kind === 'usb';
   const configured = stage === 'PORT_CONFIGURED';
@@ -203,6 +215,7 @@ function render(panel) {
     'read-roughness': state.ready && configured && finalized && !state.requestPlan,
     'read-engine': state.ready && configured && finalized && !state.requestPlan,
     'read-fuel': state.ready && configured && finalized && !state.requestPlan,
+    'read-readiness': state.ready && configured && finalized && !state.requestPlan,
     close: state.ready && ['PORT_OPEN','PORT_CONFIGURED'].includes(stage),
     clear: state.ready && stage !== 'NO_CANDIDATE',
   };
@@ -242,6 +255,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
       state.message = `Kandydat ${portName} przypięty do epoch ${state.snapshot.epoch}. Port nadal zamknięty.`;
     } else if (name === 'open') {
       if (!state.snapshot?.epoch) throw new TypeError('Najpierw przypnij port.');
@@ -275,6 +291,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
       state.message = `PORT_CONFIGURED · ${protocol} · ${baudRate} baud. Raw TX niewystawiony; tylko allowlisted read-only executor może nadawać.`;
     } else if (name === 'plan-identity') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED') {
@@ -402,7 +421,13 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
-      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Roughness + engine + fuel adaptations odblokowane read-only; ECU/write/flash nadal zablokowane.`;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
+      state.message = `READ_ONLY_IDENTITY_VERIFIED po native attestation #${state.identityResult.attestationSequence}. Roughness + engine + fuel + readiness odblokowane read-only; ECU/write/flash nadal zablokowane.`;
     } else if (name === 'read-roughness') {
       if (state.identityResult?.identityVerified !== true
           || state.snapshot?.stage !== 'PORT_CONFIGURED'
@@ -487,6 +512,27 @@ async function action(panel, name) {
       state.fuelAdaptationSequence = result.readonlySampleSequence;
       state.fuelAdaptationIdentityFingerprint = result.nativeIdentityFingerprint;
       state.message = `ME7.2 fuel adaptation 0x4004 · native sample #${result.readonlySampleSequence} · read-only.`;
+    } else if (name === 'read-readiness') {
+      if (state.identityResult?.identityVerified !== true
+          || state.snapshot?.stage !== 'PORT_CONFIGURED'
+          || !state.evidenceSession) {
+        throw new TypeError('READ_ONLY_IDENTITY_VERIFIED wymagane przed readiness.');
+      }
+
+      state.evidenceSession.reset();
+      state.evidence = null;
+      const result = await executeDesktopMe72Readiness(state.snapshot.epoch, window);
+      if (result.readonlyProfileId !== 'e39-me72-readiness-4007'
+          || !Number.isSafeInteger(result.readonlySampleSequence)
+          || result.nativeIdentityFingerprint !== state.identityResult.moduleIdentity) {
+        throw new TypeError('Native readiness provenance mismatch.');
+      }
+
+      state.evidence = state.evidenceSession.ingest(result);
+      state.readinessStatus = deriveMe72ReadinessFromEvidence(state.evidence);
+      state.readinessSequence = result.readonlySampleSequence;
+      state.readinessIdentityFingerprint = result.nativeIdentityFingerprint;
+      state.message = `ME7.2 readiness 0x4007 · native sample #${result.readonlySampleSequence} · read-only.`;
     } else if (name === 'read') {
       if (state.snapshot?.stage !== 'PORT_CONFIGURED' || !state.evidenceSession) {
         throw new TypeError('Najpierw otwórz skonfigurowany port.');
@@ -520,6 +566,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
       state.message = 'Port zamknięty. Evidence parser sesji i identity plan wyzerowane.';
     } else if (name === 'clear') {
       state.snapshot = await clearDesktopSerialCandidate(window);
@@ -541,6 +590,9 @@ async function action(panel, name) {
       state.fuelAdaptation = null;
       state.fuelAdaptationSequence = null;
       state.fuelAdaptationIdentityFingerprint = null;
+      state.readinessStatus = null;
+      state.readinessSequence = null;
+      state.readinessIdentityFingerprint = null;
       state.message = `Kandydat usunięty · nowy epoch ${state.snapshot.epoch}.`;
     }
   } catch (error) {
@@ -579,6 +631,9 @@ async function attachDesktopProPanel() {
   state.fuelAdaptation = null;
   state.fuelAdaptationSequence = null;
   state.fuelAdaptationIdentityFingerprint = null;
+  state.readinessStatus = null;
+  state.readinessSequence = null;
+  state.readinessIdentityFingerprint = null;
   state.snapshot = await getDesktopTransportSnapshot(window).catch(() => null);
   if (state.snapshot?.stage === 'PORT_CONFIGURED') {
     state.message = 'Host ma otwarty port z poprzedniego widoku. Zamknij i otwórz ponownie, aby odtworzyć lokalny parser evidence.';
@@ -621,6 +676,7 @@ async function attachDesktopProPanel() {
       <button type="button" data-desktop-pro-action="read-roughness">6. ROUGHNESS C1–C8</button>
       <button type="button" data-desktop-pro-action="read-engine">7. ENGINE SNAPSHOT</button>
       <button type="button" data-desktop-pro-action="read-fuel">8. FUEL ADAPT</button>
+      <button type="button" data-desktop-pro-action="read-readiness">9. READINESS</button>
       <button type="button" data-desktop-pro-action="read">PASSIVE RX</button>
       <button type="button" data-desktop-pro-action="close">CLOSE</button>
       <button type="button" data-desktop-pro-action="clear">CLEAR</button>
@@ -630,9 +686,10 @@ async function attachDesktopProPanel() {
     <p data-desktop-pro-roughness></p>
     <p data-desktop-pro-engine></p>
     <p data-desktop-pro-fuel></p>
+    <p data-desktop-pro-readiness></p>
     <p data-desktop-pro-evidence></p>
     <p data-desktop-pro-message></p>
-    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot i fuel adaptations wymagają 2/2 identity + parser + native local attestation.</p>
+    <p><strong>Boundary:</strong> brak raw TX w UI/API, brak coding/actuation/flash. Native host może wykonać wyłącznie nazwane allowlisted read-only profile; roughness, engine snapshot, fuel adaptations i readiness wymagają 2/2 identity + parser + native local attestation.</p>
   `;
 
   panel.querySelector('[data-desktop-pro-protocol]').addEventListener('change', event => {
