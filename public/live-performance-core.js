@@ -11,12 +11,15 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const LATENCY_WINDOW_SIZE = 32;
 const CYCLE_BUDGET_MS = 2500;
 
-export function selectLiveBatch(supported, cursor = 0, limit = 4) {
+export function selectLiveBatch(supported, cursor = 0, limit = 4, blockedKeys = new Set()) {
   // PID discovery must have provided actual support evidence. Never probe all
   // unsupported ECU PIDs just because a generic OBD connection exists.
   const observed = supported instanceof Set ? supported : new Set();
   const cap = clamp(Number.isFinite(limit) ? Math.trunc(limit) : 4, 1, 4);
-  const eligible = key => key === 'voltage' || observed.has(PID[key]);
+  const blocked = blockedKeys instanceof Set ? blockedKeys : new Set();
+  const allowAdapterVoltage = observed.size > 0;
+  const eligible = key => !blocked.has(key)
+    && (key === 'voltage' ? allowAdapterVoltage : observed.has(PID[key]));
   const fast = FAST.filter(eligible).slice(0, cap);
   const slow = SLOW.filter(eligible);
   const slowSlots = Math.min(2, Math.max(0, cap - fast.length), slow.length);
@@ -40,6 +43,9 @@ export function createLivePerformanceController({
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0, budgetStops = 0;
+  let cycleSerial = 0, pidBackoffs = 0;
+  const pidFailureStreak = new Map();
+  const pidCooldownUntil = new Map();
   const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
   let latencyCount = 0, latencyCursor = 0;
   let p95Cache = null, p95Dirty = true;
@@ -65,6 +71,24 @@ export function createLivePerformanceController({
   const adaptiveBatchLimit = () => {
     const p95 = percentile95();
     return p95 != null && p95 >= 900 ? 3 : 4;
+  };
+
+  const coolingKeys = () => new Set(
+    [...pidCooldownUntil].filter(([, until]) => until > cycleSerial).map(([key]) => key)
+  );
+
+  const markPidFailure = key => {
+    const streak = (pidFailureStreak.get(key) || 0) + 1;
+    pidFailureStreak.set(key, streak);
+    if (streak < 2) return;
+    const backoffCycles = Math.min(8, 2 ** Math.min(streak - 1, 3));
+    pidCooldownUntil.set(key, cycleSerial + backoffCycles);
+    pidBackoffs++;
+  };
+
+  const clearPidFailure = key => {
+    pidFailureStreak.delete(key);
+    pidCooldownUntil.delete(key);
   };
 
   const computeDelay = () => {
@@ -96,6 +120,8 @@ export function createLivePerformanceController({
       wakeCoalesced,
       timerReschedules,
       budgetStops,
+      pidBackoffs,
+      coolingPids: coolingKeys().size,
       inFlight: !!currentTask,
       queuedCommands: 0,
       writesEnabled: false,
@@ -131,8 +157,9 @@ export function createLivePerformanceController({
     return currentTask ?? Promise.resolve();
   }
 
-  function fail(owner, missing) {
+  function fail(owner, missing, key) {
     if (missing) noData++; else errors++;
+    markPidFailure(key);
     consecutiveFailures++;
     if (consecutiveFailures >= 3) {
       onStatus('Trzy kolejne błędy odczytu lub odpowiedzi bez danych. Live zatrzymany; sprawdź adapter i ECU.');
@@ -157,10 +184,15 @@ export function createLivePerformanceController({
       return Object.freeze({ skipped: 'PID_EVIDENCE_UNAVAILABLE' });
     }
 
-    const batch = selectLiveBatch(supported, cursor, adaptiveBatchLimit());
+    cycleSerial++;
+    const blocked = coolingKeys();
+    const batch = selectLiveBatch(supported, cursor, adaptiveBatchLimit(), blocked);
     cursor = batch.nextCursor;
     lastBatchSize = batch.keys.length;
     if (!batch.keys.length) {
+      if (supported instanceof Set && supported.size > 0 && blocked.size > 0) {
+        return Object.freeze({ skipped: 'PID_COOLDOWN', coolingPids: blocked.size });
+      }
       onStatus('Brak potwierdzonych PID. Najpierw zweryfikuj obsługiwane PID w ECU.');
       return Object.freeze({ skipped: 'NO_VERIFIED_PIDS' });
     }
@@ -183,17 +215,18 @@ export function createLivePerformanceController({
           // Actual legacy transport returns number or null. A missing, NaN,
           // infinite or non-numeric result is NOT a completed measurement.
           if (typeof sample !== 'number' || !Number.isFinite(sample)) {
-            if (fail(owner, true)) break;
+            if (fail(owner, true, key)) break;
             continue;
           }
           reads++;
           completed++;
           consecutiveFailures = 0;
+          clearPidFailure(key);
           const elapsed = recordLatency(now() - before);
           averageMs = averageMs == null ? elapsed : averageMs * 0.75 + elapsed * 0.25;
         } catch {
           if (!isConnected() || epoch !== owner) break;
-          if (fail(owner, false)) break;
+          if (fail(owner, false, key)) break;
         }
       }
       if (epoch === owner && isConnected()) {
