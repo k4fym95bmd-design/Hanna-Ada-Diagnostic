@@ -6,8 +6,17 @@ on:
     branches: [main]
     paths:
       - 'desktop-pro/**'
-      - 'public/desktop-host-bridge.js'
-      - 'test/desktop-host-bridge.mjs'
+      - 'public/desktop-*.js'
+      - 'public/passive-legacy-rx.js'
+      - 'public/read-only-request-registry.js'
+      - 'public/module-identity-evidence.js'
+      - 'public/trusted-*.js'
+      - 'public/evidence-contract.js'
+      - 'test/desktop-*.mjs'
+      - 'test/read-only-request-registry.mjs'
+      - 'test/module-identity-evidence.mjs'
+      - 'test/trusted-*.mjs'
+      - 'package.json'
       - '.github/workflows/desktop-pro-windows.yml'
 
 permissions:
@@ -23,8 +32,8 @@ jobs:
         with:
           node-version: '20'
       - uses: dtolnay/rust-toolchain@stable
-      - name: Test desktop host contract
-        run: node --test test/desktop-host-bridge.mjs
+      - name: Test complete Desktop PRO JS contract
+        run: npm run test:desktop-pro
       - name: Test native Rust transport policy
         working-directory: desktop-pro/src-tauri
         run: cargo test
