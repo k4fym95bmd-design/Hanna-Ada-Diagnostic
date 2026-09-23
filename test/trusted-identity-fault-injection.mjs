@@ -16,6 +16,7 @@ const makeEvidence = (epoch, directionHint = 'possible-reply', nativeReadReceipt
 });
 
 const nextRand = value => (value * 1664525 + 1013904223) >>> 0;
+const trustedIdentity = 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021';
 
 test('1000-step trusted identity fault injection stays fail-closed', () => {
   let rnd = 0x51A7C0DE;
@@ -85,7 +86,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           responseRequestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
           nativeReadReceipt: 91,
-          moduleIdentity: 'ME7.2',
+          moduleIdentity: trustedIdentity,
           receiveEvidence: makeEvidence(epoch, 'possible-reply', 91),
           rawTx: [0x00],
         };
@@ -95,6 +96,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           protocol: 'KWP2000_BMW',
           nativeReadReceipt: 91,
           expectedFrameHexes: ['B8 F1 12 00 5B'],
+          expectedModuleIdentity: trustedIdentity,
         }), /raw tx/i);
       } else if (action === 7 && activePlan) {
         const staleEvent = {
@@ -103,7 +105,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           responseRequestId: activePlan.requestId,
           protocol: 'KWP2000_BMW',
           nativeReadReceipt: 92,
-          moduleIdentity: 'ME7.2',
+          moduleIdentity: trustedIdentity,
           receiveEvidence: makeEvidence(epoch + 1, 'possible-reply', 92),
         };
         assert.throws(() => validateTrustedIdentityCandidateEvent(staleEvent, {
@@ -112,6 +114,7 @@ test('1000-step trusted identity fault injection stays fail-closed', () => {
           protocol: 'KWP2000_BMW',
           nativeReadReceipt: 91,
           expectedFrameHexes: ['B8 F1 12 00 5B'],
+          expectedModuleIdentity: trustedIdentity,
         }), /mismatch/i);
       } else if (action === 8 && session.snapshot().repeatCandidateReady) {
         assert.throws(
