@@ -1,6 +1,9 @@
 mod desktop_serial_inventory;
+mod desktop_transport_coordinator;
 
 use serde::Serialize;
+use std::sync::Mutex;
+use tauri::State;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +59,32 @@ fn desktop_list_serial_ports() -> Result<Vec<desktop_serial_inventory::DesktopSe
 }
 
 #[tauri::command]
+fn desktop_bind_serial_candidate(
+    port_name: String,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    let inventory = desktop_serial_inventory::list_sanitized_ports()?;
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    coordinator.bind_from_inventory(&inventory, &port_name)
+}
+
+#[tauri::command]
+fn desktop_clear_serial_candidate(
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    Ok(coordinator.clear())
+}
+
+#[tauri::command]
+fn desktop_transport_snapshot(
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+    Ok(coordinator.snapshot())
+}
+
+#[tauri::command]
 fn desktop_safety_policy() -> SafetyPolicy {
     SafetyPolicy {
         version: 1,
@@ -74,9 +103,13 @@ fn desktop_safety_policy() -> SafetyPolicy {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(Mutex::new(desktop_transport_coordinator::DesktopTransportCoordinator::default()))
         .invoke_handler(tauri::generate_handler![
             desktop_host_status,
             desktop_list_serial_ports,
+            desktop_bind_serial_candidate,
+            desktop_clear_serial_candidate,
+            desktop_transport_snapshot,
             desktop_safety_policy
         ])
         .run(tauri::generate_context!())
