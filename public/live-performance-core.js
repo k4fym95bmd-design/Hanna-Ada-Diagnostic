@@ -134,6 +134,12 @@ export function createLivePerformanceController({
 
   const publish = () => onMetrics(metrics());
 
+  function pauseForBackground() {
+    backgroundPauses++;
+    lastDelayMs = null;
+    publish();
+  }
+
   function schedule(ms, owner, { replace = false } = {}) {
     if (!running || epoch !== owner) return false;
     if (timer !== null) {
@@ -259,11 +265,9 @@ export function createLivePerformanceController({
     if (!running || epoch !== owner) return;
     if (!isConnected()) { onStatus('ECU rozłączone; zatrzymano Live.'); stop(); return; }
     if (!isVisible()) {
-      // True background pause: do not keep a 2 s wake-up timer alive.
+      // True background pause: do not keep a wake-up timer alive.
       // The runtime visibilitychange/pageshow handler calls wake() when visible again.
-      backgroundPauses++;
-      lastDelayMs = null;
-      publish();
+      pauseForBackground();
       return;
     }
     if (currentTask) { schedule(150, owner); return; }
@@ -274,7 +278,10 @@ export function createLivePerformanceController({
       return;
     }
     await perform(owner, true);
-    if (running && epoch === owner) schedule(computeDelay(), owner);
+    if (running && epoch === owner) {
+      if (isVisible()) schedule(computeDelay(), owner);
+      else pauseForBackground();
+    }
   }
 
   function start() {
@@ -301,7 +308,8 @@ export function createLivePerformanceController({
 
     const result = await perform(owner, false);
     if (wasRunning && running && epoch === owner && !currentTask) {
-      schedule(computeDelay(), owner);
+      if (isVisible()) schedule(computeDelay(), owner);
+      else pauseForBackground();
     }
     return result;
   }
