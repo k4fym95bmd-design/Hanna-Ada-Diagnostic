@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BMW_OEM_VCI, e39OemPath, assessIcomEvidence } from '../public/oem-icom-profile.js';
+import { BMW_OEM_VCI, e39OemPath, buildE39OemStation, assessIcomEvidence } from '../public/oem-icom-profile.js';
 
 test('BMW OEM profile keeps all write capabilities locked', () => {
   assert.equal(BMW_OEM_VCI.family, 'ICOM Next');
   assert.equal(BMW_OEM_VCI.primaryInterface, 'ICOM Next A');
   assert.equal(BMW_OEM_VCI.legacyVehicleAdapter, 'ICOM Next C');
+  assert.equal(BMW_OEM_VCI.diagnosisSoftware, 'ISTA');
+  assert.equal(BMW_OEM_VCI.eSeriesProgrammingSoftware, 'ISTA/P');
   assert.equal(BMW_OEM_VCI.writesEnabled, false);
   assert.equal(BMW_OEM_VCI.flashEnabled, false);
 });
@@ -15,6 +17,19 @@ test('1999 E39 maps to the legacy 20-pin OEM hardware path without claiming ECU'
   assert.equal(result.legacy20PinExpected, true);
   assert.deepEqual(result.recommendedHardware, ['ICOM Next A', 'ICOM Next C']);
   assert.equal(result.ecuVerified, false);
+});
+
+test('OEM station separates E39 diagnosis from E-series programming', () => {
+  const station = buildE39OemStation({ productionYear: 1999, productionMonth: 6, hasEngineBay20Pin: true });
+  assert.deepEqual(station.requiredHardware, ['ICOM Next A', 'ICOM Next C']);
+  assert.equal(station.diagnosis.software, 'ISTA');
+  assert.equal(station.programming.software, 'ISTA/P');
+  assert.equal(station.programming.externalPowerSupplyRequired, true);
+  assert.equal(station.network.minLanMbps, 100);
+  assert.equal(station.network.stableIpRequired, true);
+  assert.equal(station.maintenance.icomFirmwareManagedBy, 'ISTA connection manager');
+  assert.equal(station.hannaAda.writesEnabled, false);
+  assert.equal(station.hannaAda.takesOverIstaSession, false);
 });
 
 test('ICOM reachability alone never verifies the ECU', () => {
