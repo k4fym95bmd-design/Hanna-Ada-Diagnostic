@@ -21,6 +21,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
   epoch,
   requestId,
   protocol,
+  nativeReadReceipt,
 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('Invalid trusted identity event');
@@ -29,13 +30,15 @@ export function validateTrustedIdentityCandidateEvent(value, {
 
   if (!Number.isSafeInteger(epoch) || epoch < 1
       || typeof requestId !== 'string' || !REQUEST_ID_RE.test(requestId)
-      || !['DS2', 'KWP2000_BMW'].includes(protocol)) {
+      || !['DS2', 'KWP2000_BMW'].includes(protocol)
+      || !Number.isSafeInteger(nativeReadReceipt) || nativeReadReceipt < 1) {
     throw new TypeError('Invalid trusted identity expectation');
   }
   if (value.epoch !== epoch
       || value.requestId !== requestId
       || value.responseRequestId !== requestId
-      || value.protocol !== protocol) {
+      || value.protocol !== protocol
+      || value.nativeReadReceipt !== nativeReadReceipt) {
     throw new TypeError('Trusted identity event correlation mismatch');
   }
   if (typeof value.moduleIdentity !== 'string'
@@ -59,7 +62,8 @@ export function validateTrustedIdentityCandidateEvent(value, {
       || evidence.frames.length !== evidence.candidateFrames
       || evidence.ecuVerified !== false
       || evidence.writesEnabled !== false
-      || evidence.flashEnabled !== false) {
+      || evidence.flashEnabled !== false
+      || evidence.nativeReadReceipt !== nativeReadReceipt) {
     throw new TypeError('Invalid trusted receive evidence');
   }
 
@@ -89,6 +93,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
     stage: 'FRAME_CANDIDATE',
     candidateFrames: frames.length,
     frames: Object.freeze(frames),
+    nativeReadReceipt,
     ecuVerified: false,
     writesEnabled: false,
     flashEnabled: false,
@@ -99,6 +104,7 @@ export function validateTrustedIdentityCandidateEvent(value, {
     requestId,
     responseRequestId: requestId,
     protocol,
+    nativeReadReceipt,
     moduleIdentity: value.moduleIdentity.trim(),
     receiveEvidence: safeEvidence,
     identityVerified: false,
