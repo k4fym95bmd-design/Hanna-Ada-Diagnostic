@@ -155,3 +155,24 @@ test('compresses large text assets with negotiated Brotli or gzip', async t => {
   assert.equal(head.headers['content-encoding'], 'br');
   assert.equal(head.body.length, 0);
 });
+
+
+test('honors Accept-Encoding quality preferences and q=0 exclusions', async t => {
+  const child = spawn(process.execPath, ['server.mjs'], {
+    env: { ...process.env, PORT: String(port) },
+    stdio: 'ignore',
+  });
+  t.after(() => child.kill('SIGTERM'));
+  await waitForServer(child);
+
+  const preferGzip = await rawBufferRequest('/app.js', 'GET', {
+    'Accept-Encoding': 'br;q=0.2, gzip;q=1',
+  });
+  assert.equal(preferGzip.headers['content-encoding'], 'gzip');
+
+  const identity = await rawBufferRequest('/app.js', 'GET', {
+    'Accept-Encoding': 'br;q=0, gzip;q=0',
+  });
+  assert.equal(identity.headers['content-encoding'], undefined);
+  assert.match(identity.body.toString('utf8'), /Hanna & Ada ready/);
+});
