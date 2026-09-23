@@ -139,27 +139,56 @@ fn desktop_read_bounded(
     broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    // Phase 1: snapshot transport and request ownership, then release both locks.
+    {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let snapshot = coordinator.snapshot();
+        if snapshot.epoch != epoch || !snapshot.transport_open || !snapshot.configured {
+            return Err("transport_not_configured_for_epoch".into());
+        }
+    }
+    let expected_request_id = {
+        let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+        broker.snapshot().active_request_id
+    };
+
+    // Phase 2: blocking serial read holds only the native serial mutex.
+    let io_result = {
+        let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+        native.read_bounded(epoch, max_bytes, timeout_ms)
+    };
+
+    // Phase 3: canonical lock order and post-I/O freshness validation.
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
-    let snapshot = coordinator.snapshot();
-    if snapshot.epoch != epoch || !snapshot.transport_open || !snapshot.configured {
-        return Err("transport_not_configured_for_epoch".into());
+    let transport = coordinator.snapshot();
+    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
+    let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
+    let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+
+    if transport.epoch != epoch || !transport.transport_open || !transport.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured {
+        return Err("transport_changed_after_io".into());
     }
 
-    let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
-    match native.read_bounded(epoch, max_bytes, timeout_ms) {
+    match io_result {
         Ok(mut result) => {
-            let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
-            let broker_state = broker.snapshot();
-            if result.received_bytes > 0 && broker_state.active_request {
-                match broker.record_receive(epoch, result.protocol, result.received_bytes) {
-                    Ok(receipt) => result.native_request_receipt = Some(receipt),
-                    Err(error) => {
-                        native.close_any();
-                        let _ = coordinator.mark_closed(epoch);
-                        broker.reset(epoch);
-                        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
-                        attestation.reset_authority();
-                        return Err(error);
+            if result.received_bytes > 0 {
+                let current = broker.snapshot();
+                if let Some(expected) = expected_request_id.as_deref() {
+                    if current.active_request_id.as_deref() != Some(expected) {
+                        return Err("request_changed_after_io".into());
+                    }
+                    match broker.record_receive(epoch, result.protocol, result.received_bytes) {
+                        Ok(receipt) => result.native_request_receipt = Some(receipt),
+                        Err(error) => {
+                            native.close_any();
+                            let _ = coordinator.mark_closed(epoch);
+                            broker.reset(epoch);
+                            attestation.reset_authority();
+                            return Err(error);
+                        }
                     }
                 }
             }
@@ -168,9 +197,7 @@ fn desktop_read_bounded(
         Err(error) => {
             native.close_any();
             let _ = coordinator.mark_closed(epoch);
-            let mut broker = broker.lock().map_err(|_| "request_broker_state_poisoned".to_string())?;
             broker.reset(epoch);
-            let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
             attestation.reset_authority();
             Err(error)
         }
