@@ -39,12 +39,13 @@ export function deriveTransportEvidence({
 } = {}) {
   const detected = cableDetected === true;
   const bound = detected && hardwareBound === true;
-  const opened = bound && portOpen === true;
+  const observedOpen = portOpen === true;
+  const opened = bound && observedOpen;
   const bytes = nonNegativeInt(observedBytes) ? observedBytes : 0;
   const frames = nonNegativeInt(candidateFrames) ? candidateFrames : 0;
 
   const flags = [];
-  if (portOpen === true && !bound) flags.push('PORT_OPEN_WITHOUT_HARDWARE_BINDING');
+  if (observedOpen && !bound) flags.push('PORT_OPEN_WITHOUT_HARDWARE_BINDING');
   if (bytes > 0 && !opened) flags.push('RX_WITHOUT_VALID_OPEN_SESSION');
   if (frames > 0 && bytes === 0) flags.push('FRAME_WITHOUT_RX_BYTES');
 
@@ -79,7 +80,8 @@ export function deriveTransportEvidence({
     flags: Object.freeze(flags),
     cableDetected: detected,
     hardwareBound: bound,
-    portOpen: opened,
+    portOpen: observedOpen,
+    qualifiedPortOpen: opened,
     observedBytes: bytes,
     candidateFrames: frames,
     ecuVerified: false,
