@@ -52,3 +52,15 @@ test('iOS wired accessory surface remains evidence-only and does not open a gene
   assert.doesNotMatch(wired, /EASession\s*\(/);
   assert.doesNotMatch(wired, /writeData|outputStream|inputStream/);
 });
+
+
+test('iOS BLE channel fails closed after timeout, overflow, or GATT error', async () => {
+  const manager = await source('ios-native/Sources/BluetoothOBDManager.swift');
+  assert.match(manager, /private var commandChannelDesynced = false/);
+  assert.match(manager, /guard !commandChannelDesynced else/);
+  assert.match(manager, /markCommandChannelDesynced\("Timeout waiting for/);
+  assert.match(manager, /markCommandChannelDesynced\("GATT write failed"\)/);
+  assert.match(manager, /markCommandChannelDesynced\("GATT notification failed"\)/);
+  assert.match(manager, /markCommandChannelDesynced\("Oversized BLE response"\)/);
+  assert.match(manager, /commandChannelDesynced = false/);
+});
