@@ -47,6 +47,8 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     private var peripheral: CBPeripheral?
     private var disconnectingPeripheral: CBPeripheral?
     private var pendingConnection: (peripheral: CBPeripheral, name: String)?
+    private var disconnectWatchdog = BLEDisconnectWatchdog()
+    private var disconnectWatchdogTask: Task<Void, Never>?
     private var writeCharacteristic: CBCharacteristic?
     private var notifyCharacteristic: CBCharacteristic?
     private var discoveryRemaining = 0
@@ -75,8 +77,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         central.stopScan()
         pendingConnection = nil
         if let old = peripheral {
-            disconnectingPeripheral = old
-            central.cancelPeripheralConnection(old)
+            beginDisconnect(old)
         }
         resetSession(keepDevices: false)
         let scanEpoch = epoch
@@ -97,8 +98,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
         if let old = peripheral {
             pendingConnection = (candidate, device.name)
-            disconnectingPeripheral = old
-            central.cancelPeripheralConnection(old)
+            beginDisconnect(old)
             resetSession(keepDevices: true)
             state = .ble
             status = "Closing previous BLE session before reconnect…"
@@ -119,8 +119,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         central.stopScan()
         pendingConnection = nil
         if let old = peripheral {
-            disconnectingPeripheral = old
-            central.cancelPeripheralConnection(old)
+            beginDisconnect(old)
         }
         resetSession(keepDevices: true)
         state = .disconnected
@@ -131,12 +130,42 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
         central.stopScan()
         pendingConnection = nil
         if let old = peripheral {
-            disconnectingPeripheral = old
-            central.cancelPeripheralConnection(old)
+            beginDisconnect(old)
         }
         resetSession(keepDevices: true)
         state = .disconnected
         status = "Paused while app is not active"
+    }
+
+    private func beginDisconnect(_ current: CBPeripheral) {
+        disconnectingPeripheral = current
+        disconnectWatchdogTask?.cancel()
+        let token = disconnectWatchdog.begin()
+        let identifier = current.identifier
+
+        disconnectWatchdogTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled,
+                  let self,
+                  self.disconnectWatchdog.owns(token),
+                  self.disconnectingPeripheral?.identifier == identifier else { return }
+
+            _ = self.disconnectWatchdog.complete(token)
+            self.disconnectWatchdogTask = nil
+            self.pendingConnection = nil
+            self.disconnectingPeripheral = nil
+            self.resetSession(keepDevices: true)
+            self.state = .error
+            self.status = "Previous BLE session did not confirm disconnect; retry connection"
+        }
+
+        central.cancelPeripheralConnection(current)
+    }
+
+    private func cancelDisconnectWatchdog() {
+        disconnectWatchdogTask?.cancel()
+        disconnectWatchdogTask = nil
+        disconnectWatchdog.invalidate()
     }
 
     private func startConnection(_ candidate: CBPeripheral, name: String) {
@@ -154,6 +183,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
     private func finishDisconnect(_ disconnected: CBPeripheral, error: Error?) {
         guard disconnectingPeripheral === disconnected else { return }
+        cancelDisconnectWatchdog()
         disconnectingPeripheral = nil
         if let pending = pendingConnection {
             pendingConnection = nil
@@ -334,8 +364,7 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
 
     private func markCommandChannelDesynced(_ reason: String) {
         if let current = peripheral {
-            disconnectingPeripheral = current
-            central.cancelPeripheralConnection(current)
+            beginDisconnect(current)
         }
         resetSession(keepDevices: true)
         commandChannelDesynced = true
@@ -379,6 +408,7 @@ extension BluetoothOBDManager: CBCentralManagerDelegate {
         Task { @MainActor in
             if central.state != .poweredOn {
                 self.pendingConnection = nil
+                self.cancelDisconnectWatchdog()
                 self.disconnectingPeripheral = nil
                 self.resetSession(keepDevices: true)
                 self.state = .disconnected
