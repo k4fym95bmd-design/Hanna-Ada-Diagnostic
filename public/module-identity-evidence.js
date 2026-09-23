@@ -1,6 +1,8 @@
 import { validateReadOnlyRequestPlan } from './read-only-request-registry.js';
 
 const MAX_EVIDENCE_FRAMES = 16;
+const FRAME_HEX_RE = /^(?:[0-9A-F]{2})(?: [0-9A-F]{2})*$/i;
+const frameByteLength = value => FRAME_HEX_RE.test(value || '') ? value.split(' ').length : null;
 const validIdentity = value =>
   typeof value === 'string'
   && /^[A-Za-z0-9._-]{2,64}$/.test(value.trim());
@@ -43,8 +45,14 @@ export function assessModuleIdentityCandidate({
   }
 
   const frame = receiveEvidence.frames[receiveEvidence.frames.length - 1];
-  if (typeof frame.frameHex !== 'string' || frame.frameHex.length < 2 || frame.frameHex.length > 1024) {
+  const byteLength = frameByteLength(frame?.frameHex);
+  if (byteLength == null || byteLength < 1 || byteLength > plan.maxResponseBytes) {
     return blocked('FRAME_METADATA_REQUIRED');
+  }
+  if (receiveEvidence.observedBytes != null
+      && (!Number.isSafeInteger(receiveEvidence.observedBytes)
+        || receiveEvidence.observedBytes < byteLength)) {
+    return blocked('FRAME_OBSERVATION_MISMATCH');
   }
   if (plan.protocol === 'KWP2000_BMW'
       && frame?.directionHint !== 'possible-reply') {
