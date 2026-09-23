@@ -37,9 +37,22 @@ public final class UsbReportTest {
         check(observed.contains("1A86:7523, interfejsy 2, zgoda Androida NIE"), "second VID:PID");
         check(observed.contains("Wykryte urządzenia z poprawnymi danymi: 2"), "accurate count");
         check(observed.contains("Zapisz VID:PID"), "permission guides next observation");
-        check(observed.contains("Sterownik USB-Serial: NIEPOTWIERDZONY"), "no driver assumption");
+        check(observed.contains("brak rodziny = NIEPOTWIERDZONY"), "no driver assumption");
         check(!observed.contains("OTG potwierdzone"), "no hardware claim from enumeration alone");
         check(!observed.contains("POŁĄCZONO"), "no vehicle session claim");
+
+        check("FTDI".equals(UsbSerialEvidence.family("FtdiSerialDriver")), "FTDI class mapping");
+        check("CP210X".equals(UsbSerialEvidence.family("Cp21xxSerialDriver")), "CP210x class mapping");
+        check("CH34X".equals(UsbSerialEvidence.family("Ch34xSerialDriver")), "CH34x class mapping");
+        check("PL2303".equals(UsbSerialEvidence.family("ProlificSerialDriver")), "Prolific mapping");
+        check("UNKNOWN".equals(UsbSerialEvidence.family("AnythingElse")), "unknown driver stays unknown");
+
+        String ftdi = UsbReport.build(21, true, true,
+                Arrays.asList(new UsbReport.Device(0x0403, 0x6001, 1, true, "FTDI", 1)));
+        check(ftdi.contains("sterownik FTDI, porty 1"), "sanitized driver evidence is exported");
+        check(ftdi.contains("profil K+DCAN: KANDYDAT FTDI"), "FTDI is candidate, not BMW proof");
+        check(!ftdi.contains("FtdiSerialDriver"), "implementation class name not exported");
+        check(!ftdi.contains("BMW: POŁĄCZONO"), "FTDI never becomes BMW proof");
 
         String contradictory = UsbReport.build(21, false, true,
                 Arrays.asList(new UsbReport.Device(0x0403, 0x6001, 1, true)));
