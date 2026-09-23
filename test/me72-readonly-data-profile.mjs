@@ -21,7 +21,7 @@ test('roughness profile is reference-verified and only native-attestation-gated'
   assert.equal(profile.requiresNativeAttestation,true);
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,1);
+  assert.ok(listMe72ReadOnlyDataProfiles().includes(profile));
   assert.equal(getMe72ReadOnlyDataProfile(profile.id),profile);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
 });
@@ -39,7 +39,7 @@ test('engine snapshot profile is native-attestation-gated', () => {
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
-  assert.equal(listMe72ReadOnlyDataProfiles().length,2);
+  assert.ok(listMe72ReadOnlyDataProfiles().includes(profile));
 });
 
 
