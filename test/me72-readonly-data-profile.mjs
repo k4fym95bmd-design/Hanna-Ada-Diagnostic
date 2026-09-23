@@ -25,3 +25,19 @@ test('roughness profile is reference-verified and only native-attestation-gated'
   assert.equal(getMe72ReadOnlyDataProfile(profile.id),profile);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
 });
+
+
+test('engine snapshot profile is native-attestation-gated', () => {
+  const profile=getMe72ReadOnlyDataProfile('e39-me72-engine-snapshot-4000');
+  assert.equal(profile.operationId,'e39-dme-me72-engine-snapshot');
+  assert.equal(profile.dataIdentifier,'0x4000');
+  assert.equal(profile.parserId,'e39-me72-engine-snapshot-4000-v1');
+  assert.equal(profile.executorId,'desktop_execute_me72_engine_snapshot');
+  assert.equal(profile.executionEnabled,true);
+  assert.equal(profile.requiresVerifiedIdentity,true);
+  assert.equal(profile.requiresNativeAttestation,true);
+  assert.equal(profile.txBytesExposed,false);
+  assert.equal(profile.writesEnabled,false);
+  assert.equal(assertMe72DataExecutionGated(profile.id),profile);
+  assert.equal(listMe72ReadOnlyDataProfiles().length,2);
+});
