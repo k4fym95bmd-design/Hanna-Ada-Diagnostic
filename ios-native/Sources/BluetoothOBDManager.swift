@@ -333,6 +333,11 @@ final class BluetoothOBDManager: NSObject, ObservableObject {
     }
 
     private func markCommandChannelDesynced(_ reason: String) {
+        if let current = peripheral {
+            disconnectingPeripheral = current
+            central.cancelPeripheralConnection(current)
+        }
+        resetSession(keepDevices: true)
         commandChannelDesynced = true
         state = .error
         status = "\(reason) · reconnect required"
