@@ -284,3 +284,23 @@ test('p95 calculation is stable between writes to the latency ring', async () =>
   assert.equal(first.latencySamples, second.latencySamples);
   assert.equal(first.writesEnabled, false);
 });
+
+
+test('cycle budget sheds remaining reads on a very slow link without parallel retries', async () => {
+  let now = 0;
+  let reads = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { reads++; now += 1000; return 1; },
+    getSupported: () => all,
+    isConnected: () => true,
+    now: () => now,
+  });
+  const result = await c.snapshot();
+  assert.equal(reads, 3);
+  assert.equal(result.completed, 3);
+  assert.equal(result.attempted, 4);
+  assert.equal(result.budgetLimited, true);
+  assert.equal(c.metrics().budgetStops, 1);
+  assert.equal(c.metrics().queuedCommands, 0);
+  assert.equal(c.metrics().writesEnabled, false);
+});
