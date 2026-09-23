@@ -179,7 +179,7 @@ function render(panel) {
 
   const engine = state.engineSnapshot;
   panel.querySelector('[data-desktop-pro-engine]').textContent = engine
-    ? `Engine sample #${state.engineSnapshotSequence} · RPM ${engine.rpm.toFixed(0)} · coolant ${engine.coolantTempC.toFixed(1)}°C · IAT ${engine.intakeAirTempC.toFixed(1)}°C · batt ${engine.batteryVoltage.toFixed(2)} V · load ${engine.loadPercent.toFixed(2)}% · throttle ${engine.throttlePercent.toFixed(2)}% · knock ${engine.knockSensors.map(item => `C${item.cylinder} ${item.voltage.toFixed(3)}V`).join(' ')}`
+    ? `Engine sample #${state.engineSnapshotSequence} · RPM ${engine.rpm.toFixed(0)} · VANOS B1 ${engine.camshaftIntakeBank1Deg.toFixed(3)}° · B2 ${engine.camshaftIntakeBank2Deg.toFixed(3)}° · coolant ${engine.coolantTempC.toFixed(1)}°C · IAT ${engine.intakeAirTempC.toFixed(1)}°C · batt ${engine.batteryVoltage.toFixed(2)} V · load ${engine.loadPercent.toFixed(2)}% · throttle ${engine.throttlePercent.toFixed(2)}% · knock ${engine.knockSensors.map(item => `C${item.cylinder} ${item.voltage.toFixed(3)}V`).join(' ')}`
     : finalized
       ? 'Engine snapshot 0x4000: gotowy do pojedynczego read-only odczytu.'
       : 'Engine snapshot 0x4000: zablokowany do READ_ONLY_IDENTITY_VERIFIED.';
