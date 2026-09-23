@@ -16,12 +16,12 @@ function attachOemCard() {
     Dla starszego E39 z 20-pin: ${path.recommendedHardware.join(' + ')}.</p>
     <div class="ha-cable-steps">
       <div><span>01 · OEM VCI</span><b>POTWIERDZONE W DOKUMENTACJI BMW</b></div>
-      <div><span>02 · Integracja Hanna & Ada</span><b>PLAN / NIEPOŁĄCZONE</b></div>
+      <div><span>02 · Integracja Hanna & Ada</span><b>CORE READ-ONLY GOTOWY</b></div>
       <div><span>03 · ECU BMW</span><b>NIEPOTWIERDZONE</b></div>
     </div>
     <p>BMW AOS wskazuje ICOM Next jako rekomendowany VCI i połączenie komputera z ICOM przez LAN.
-    Nasza aplikacja nie skanuje sieci, nie przejmuje sesji ISTA i nie wysyła poleceń do ICOM.</p>
-    <p><strong>Stan:</strong> profil OEM dodany do projektu; rzeczywista warstwa transportowa ICOM i zweryfikowany odczyt ECU nie są jeszcze wdrożone.
+    Rdzeń walidacji sesji read-only i wygaszania starych dowodów jest gotowy. Aplikacja nadal nie skanuje sieci, nie przejmuje sesji ISTA i nie wysyła poleceń do ICOM.</p>
+    <p><strong>Stan:</strong> profil OEM, bramka dowodowa i pamięć jednej sesji są w projekcie; rzeczywisty transport ICOM i zweryfikowany odczyt ECU nie są jeszcze wdrożone.
     Zapis, kasowanie, kodowanie, aktywacje i flash pozostają zablokowane.</p>
   `;
   root.appendChild(card);
