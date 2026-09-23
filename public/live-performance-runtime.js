@@ -6,6 +6,10 @@ const obd = window.HannaAdaOBD;
 if (!obd) throw new Error('Hanna & Ada OBD runtime must load before Live Performance.');
 const attachedDevices = new WeakSet();
 const $ = selector => document.querySelector(selector);
+const inputPending = () => {
+  try { return navigator.scheduling?.isInputPending?.({ includeContinuous: true }) === true; }
+  catch { return false; }
+};
 const say = (text, error = false) => {
   const el = $('#haRuntimeStatus');
   if (el) { el.textContent = text; el.classList.toggle('bad', error); }
@@ -28,7 +32,7 @@ function commitMetrics() {
   const cycle = stats.lastCycleMs === null ? '—' : `${stats.lastCycleMs} ms`;
   const quiet = stats.lastDelayMs === null ? '—' : `${stats.lastDelayMs} ms`;
   const duty = stats.dutyCyclePct === null ? '—' : `${stats.dutyCyclePct}%`;
-  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · backoff ${stats.pidBackoffs} · cooling ${stats.coolingPids} · kolejka 0`;
+  const text = `ULTRA · poprawne ${stats.reads} · NO DATA ${stats.noData} · błędy ${stats.errors} · cykle ${stats.cycles} · avg ${latency} · p95 ${p95} · cykl ${cycle} · cisza ${quiet} · duty ${duty} · batch ${stats.lastBatchSize}/${stats.batchLimit} · backoff ${stats.pidBackoffs} · UI-yield ${stats.uiYields} · kolejka 0`;
   if (text !== lastMetricText) {
     el.textContent = text;
     lastMetricText = text;
@@ -52,6 +56,7 @@ const controller = createLivePerformanceController({
   getSupported: () => obd.supported,
   isConnected: () => obd.connected === true && obd.adapter === true && obd.ecu === true,
   isVisible: () => !document.hidden && runtimeAttached,
+  shouldYield: inputPending,
   onMetrics: updateMetrics,
   onStatus: message => say(message, true),
 });
