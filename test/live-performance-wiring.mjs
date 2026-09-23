@@ -19,3 +19,12 @@ test('performance code reuses one BLE session and does not offer extra transmit 
   assert.doesNotMatch(runtime + core, /(?:\.writeValue|\.transferOut|\.controlTransferOut|\bfetch\s*\()/);
   assert.match(core, /queuedCommands: 0, writesEnabled: false/);
 });
+
+
+test('runtime coalesces view mutation work and does not query the runtime root on every visibility check', () => {
+  assert.match(runtime, /let runtimeAttached = false/);
+  assert.match(runtime, /function scheduleBind\(\)/);
+  assert.match(runtime, /new MutationObserver\(scheduleBind\)/);
+  assert.match(runtime, /isVisible: \(\) => !document\.hidden && runtimeAttached/);
+  assert.doesNotMatch(runtime, /isVisible: \(\) => !document\.hidden && !!\$\('#haRuntime'\)/);
+});
