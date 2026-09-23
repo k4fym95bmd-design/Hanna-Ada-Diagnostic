@@ -398,7 +398,9 @@ enum Me72ReadonlyOperation {
     Roughness,
     EngineSnapshot,
     FuelAdaptation,
+    OutputStatus,
     Readiness,
+    DtcCount,
 }
 
 impl Me72ReadonlyOperation {
@@ -407,7 +409,9 @@ impl Me72ReadonlyOperation {
             Self::Roughness => "e39-me72-roughness-4003",
             Self::EngineSnapshot => "e39-me72-engine-snapshot-4000",
             Self::FuelAdaptation => "e39-me72-fuel-adaptation-4004",
+            Self::OutputStatus => "e39-me72-output-status-4005",
             Self::Readiness => "e39-me72-readiness-4007",
+            Self::DtcCount => "e39-me72-dtc-count-a200",
         }
     }
 
@@ -420,7 +424,9 @@ impl Me72ReadonlyOperation {
             Self::Roughness => native.execute_me72_roughness(epoch, 197, 750),
             Self::EngineSnapshot => native.execute_me72_engine_snapshot(epoch, 197, 750),
             Self::FuelAdaptation => native.execute_me72_fuel_adaptation(epoch, 197, 750),
+            Self::OutputStatus => native.execute_me72_output_status(epoch, 197, 750),
             Self::Readiness => native.execute_me72_readiness(epoch, 197, 750),
+            Self::DtcCount => native.execute_me72_dtc_count(epoch, 197, 750),
         }
     }
 }
@@ -580,7 +586,7 @@ fn desktop_execute_me72_output_status(
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
     execute_attested_me72_readonly(
-        epoch, Me72ReadonlyOperation::Readiness, state, native, broker, attestation,
+        epoch, Me72ReadonlyOperation::OutputStatus, state, native, broker, attestation,
     )
 }
 
@@ -594,6 +600,19 @@ fn desktop_execute_me72_readiness(
 ) -> Result<desktop_native_serial::DesktopReadResult, String> {
     execute_attested_me72_readonly(
         epoch, Me72ReadonlyOperation::Readiness, state, native, broker, attestation,
+    )
+}
+
+#[tauri::command]
+fn desktop_execute_me72_dtc_count(
+    epoch: u64,
+    state: State<'_, Mutex<desktop_transport_coordinator::DesktopTransportCoordinator>>,
+    native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
+    broker: State<'_, Mutex<desktop_request_broker::DesktopReadOnlyRequestBroker>>,
+    attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
+) -> Result<desktop_native_serial::DesktopReadResult, String> {
+    execute_attested_me72_readonly(
+        epoch, Me72ReadonlyOperation::DtcCount, state, native, broker, attestation,
     )
 }
 
@@ -697,6 +716,7 @@ pub fn run() {
             desktop_execute_me72_fuel_adaptation,
             desktop_execute_me72_output_status,
             desktop_execute_me72_readiness,
+            desktop_execute_me72_dtc_count,
             desktop_consume_readonly_request,
             desktop_cancel_readonly_request,
             desktop_request_broker_snapshot,
