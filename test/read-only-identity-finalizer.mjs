@@ -12,6 +12,8 @@ const correlation = () => ({
   moduleFamily: 'DME_ME72',
   confirmations: 2,
   moduleIdentity: 'ME7.2',
+  confirmedRequestIds: ['identity-request-A','identity-request-B'],
+  confirmedNativeReceipts: [41,42],
   repeatCandidateReady: true,
   localAttestationRequired: true,
   identityVerified: false,
@@ -32,6 +34,10 @@ const attestation = () => ({
   brokerIdle: true,
   brokerAttemptCount: 2,
   brokerEvidencedAttemptCount: 2,
+  brokerEvidencedAttempts: [
+    { requestId:'identity-request-A', nativeReceiveReceipt:41 },
+    { requestId:'identity-request-B', nativeReceiveReceipt:42 },
+  ],
   rawSerialWriteExposed: false,
   identityVerified: false,
   ecuVerified: false,
@@ -96,4 +102,28 @@ test('evidenced count cannot exceed broker attempts', () => {
     brokerAttemptCount: 2,
     brokerEvidencedAttemptCount: 3,
   }), /invalid/i);
+});
+
+
+test('native ledger must match correlation request-receipt pairs', () => {
+  assert.throws(() => finalizeReadOnlyIdentity({
+    correlationSnapshot: correlation(),
+    localAttestation: {
+      ...attestation(),
+      brokerEvidencedAttempts: [
+        { requestId:'identity-request-A', nativeReceiveReceipt:41 },
+        { requestId:'identity-request-B', nativeReceiveReceipt:99 },
+      ],
+    },
+  }), /ledger does not match/i);
+});
+
+test('duplicate native ledger receipts are rejected', () => {
+  assert.throws(() => validateDesktopLocalAttestation({
+    ...attestation(),
+    brokerEvidencedAttempts: [
+      { requestId:'identity-request-A', nativeReceiveReceipt:41 },
+      { requestId:'identity-request-B', nativeReceiveReceipt:41 },
+    ],
+  }), /ledger/i);
 });
