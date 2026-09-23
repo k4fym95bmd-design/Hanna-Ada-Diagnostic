@@ -314,6 +314,28 @@ export function validateDesktopRequestBrokerSnapshot(value) {
       || value.flashEnabled !== false) {
     throw new TypeError('Invalid desktop request broker snapshot');
   }
+  if (!Array.isArray(value.evidencedAttempts)
+      || value.evidencedAttempts.length !== value.evidencedAttemptCount) {
+    throw new TypeError('Invalid native evidence ledger');
+  }
+  const evidencedAttempts = Object.freeze(value.evidencedAttempts.map(item => {
+    if (!item || typeof item !== 'object'
+        || typeof item.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
+        || !Number.isSafeInteger(item.nativeReceiveReceipt)
+        || item.nativeReceiveReceipt < 1) {
+      throw new TypeError('Invalid native evidence ledger item');
+    }
+    return Object.freeze({
+      requestId: item.requestId,
+      nativeReceiveReceipt: item.nativeReceiveReceipt,
+    });
+  }));
+  if (new Set(evidencedAttempts.map(item => item.requestId)).size !== evidencedAttempts.length
+      || new Set(evidencedAttempts.map(item => item.nativeReceiveReceipt)).size !== evidencedAttempts.length) {
+    throw new TypeError('Duplicate native evidence ledger item');
+  }
+
   if (value.stage === 'REQUEST_ACTIVE') {
     if (!value.activeRequest
         || typeof value.activeRequestId !== 'string'
@@ -337,7 +359,7 @@ export function validateDesktopRequestBrokerSnapshot(value) {
       || value.activeReceivedBytes !== 0) {
     throw new TypeError('Idle broker carried stale request state');
   }
-  return Object.freeze({ ...value });
+  return Object.freeze({ ...value, evidencedAttempts });
 }
 
 export async function prepareDesktopReadOnlyRequest(plan, globalObject = globalThis) {
@@ -405,6 +427,7 @@ export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis)
     maxResponseBytes: null,
     attemptCount: 0,
     evidencedAttemptCount: 0,
+    evidencedAttempts: Object.freeze([]),
     maxAttempts: 32,
     activeReceiveReceipt: null,
     activeReceivedBytes: 0,
@@ -432,6 +455,14 @@ export function validateDesktopLocalIdentityAttestation(value) {
       || !Number.isInteger(value.brokerEvidencedAttemptCount)
       || value.brokerEvidencedAttemptCount < 2
       || value.brokerEvidencedAttemptCount > value.brokerAttemptCount
+      || !Array.isArray(value.brokerEvidencedAttempts)
+      || value.brokerEvidencedAttempts.length !== value.brokerEvidencedAttemptCount
+      || value.brokerEvidencedAttempts.some(item =>
+        !item || typeof item !== 'object'
+        || typeof item.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
+        || !Number.isSafeInteger(item.nativeReceiveReceipt)
+        || item.nativeReceiveReceipt < 1)
       || value.rawSerialWriteExposed !== false
       || value.identityVerified !== false
       || value.ecuVerified !== false
@@ -439,7 +470,17 @@ export function validateDesktopLocalIdentityAttestation(value) {
       || value.flashEnabled !== false) {
     throw new TypeError('Invalid desktop local identity attestation');
   }
-  return Object.freeze({ ...value });
+  const brokerEvidencedAttempts = Object.freeze(
+    value.brokerEvidencedAttempts.map(item => Object.freeze({
+      requestId: item.requestId,
+      nativeReceiveReceipt: item.nativeReceiveReceipt,
+    }))
+  );
+  if (new Set(brokerEvidencedAttempts.map(item => item.requestId)).size !== brokerEvidencedAttempts.length
+      || new Set(brokerEvidencedAttempts.map(item => item.nativeReceiveReceipt)).size !== brokerEvidencedAttempts.length) {
+    throw new TypeError('Duplicate desktop local identity attestation ledger');
+  }
+  return Object.freeze({ ...value, brokerEvidencedAttempts });
 }
 
 export async function attestDesktopIdentityContext(epoch, protocol, globalObject = globalThis) {
