@@ -266,3 +266,21 @@ test('latency percentile storage stays bounded to 32 successful reads', async ()
   assert.equal(m.p95Ms, 10);
   assert.equal(m.writesEnabled, false);
 });
+
+
+test('p95 calculation is stable between writes to the latency ring', async () => {
+  let now = 0;
+  const c = createLivePerformanceController({
+    readPid: async () => { now += 25; return 1; },
+    getSupported: () => new Set([0x0c]),
+    isConnected: () => true,
+    now: () => now,
+  });
+  await c.snapshot();
+  const first = c.metrics();
+  const second = c.metrics();
+  assert.equal(first.p95Ms, 25);
+  assert.equal(second.p95Ms, 25);
+  assert.equal(first.latencySamples, second.latencySamples);
+  assert.equal(first.writesEnabled, false);
+});
