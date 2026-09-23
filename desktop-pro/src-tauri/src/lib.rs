@@ -239,8 +239,15 @@ fn desktop_execute_me72_identity(
     match native.execute_me72_identity(epoch, 197, 750) {
         Ok(mut result) => {
             if result.received_bytes > 0 {
-                let receipt = broker.record_receive(epoch, result.protocol, result.received_bytes)?;
-                result.native_request_receipt = Some(receipt);
+                match broker.record_receive(epoch, result.protocol, result.received_bytes) {
+                    Ok(receipt) => result.native_request_receipt = Some(receipt),
+                    Err(error) => {
+                        native.close_any();
+                        let _ = coordinator.mark_closed(epoch);
+                        broker.reset(epoch);
+                        return Err(error);
+                    }
+                }
             }
             Ok(result)
         }
