@@ -23,10 +23,55 @@ import java.util.UUID;
  */
 final class BluetoothLink {
     static final int REQUEST_CONNECT_PERMISSION = 421;
+    private static final Object PROBE_LOCK = new Object();
+    private static long probeGeneration;
+    private static BluetoothSocket activeProbeSocket;
     private static final UUID SPP_UUID =
             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
 
     private BluetoothLink() { }
+
+    static long beginProbe() {
+        synchronized (PROBE_LOCK) {
+            probeGeneration = probeGeneration == Long.MAX_VALUE ? 1L : probeGeneration + 1L;
+            return probeGeneration;
+        }
+    }
+
+    static void cancelActiveProbe() {
+        BluetoothSocket socket;
+        synchronized (PROBE_LOCK) {
+            probeGeneration = probeGeneration == Long.MAX_VALUE ? 1L : probeGeneration + 1L;
+            socket = activeProbeSocket;
+            activeProbeSocket = null;
+        }
+        closeQuietly(socket);
+    }
+
+    private static boolean currentProbe(long token) {
+        synchronized (PROBE_LOCK) {
+            return token > 0L && probeGeneration == token;
+        }
+    }
+
+    private static boolean claimProbeSocket(long token, BluetoothSocket socket) {
+        synchronized (PROBE_LOCK) {
+            if (token <= 0L || probeGeneration != token || activeProbeSocket != null) return false;
+            activeProbeSocket = socket;
+            return true;
+        }
+    }
+
+    private static void releaseProbeSocket(BluetoothSocket socket) {
+        synchronized (PROBE_LOCK) {
+            if (activeProbeSocket == socket) activeProbeSocket = null;
+        }
+    }
+
+    private static void closeQuietly(BluetoothSocket socket) {
+        if (socket == null) return;
+        try { socket.close(); } catch (IOException ignored) { }
+    }
 
     static boolean hasPermission(Context context) {
         return Build.VERSION.SDK_INT < 31
@@ -78,10 +123,11 @@ final class BluetoothLink {
     }
 
     /** Blocking call: caller MUST run it on a background thread. */
-    static String testPairedSppConnection(Context context, BluetoothDevice device) {
+    static String testPairedSppConnection(Context context, BluetoothDevice device, long probeToken) {
         if (device == null || !available()) return "Bluetooth niedostępny.";
         if (!hasPermission(context)) return "Brak zgody Bluetooth Androida.";
         if (!enabled(context)) return "Włącz Bluetooth w ustawieniach tabletu.";
+        if (!currentProbe(probeToken)) return "SPP: test anulowany. To nie dowodzi połączenia z ECU.";
         BluetoothSocket socket = null;
         String outcome = "Brak wyniku testu.";
         try {
@@ -90,18 +136,31 @@ final class BluetoothLink {
                 return "Urządzenie nie jest sparowane.";
             }
             socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
+            if (!claimProbeSocket(probeToken, socket)) {
+                closeQuietly(socket);
+                return "SPP: test anulowany. To nie dowodzi połączenia z ECU.";
+            }
             socket.connect();
-            outcome = "SPP: połączono z adapterem, bez odczytu i wysyłania danych.";
+            outcome = currentProbe(probeToken)
+                    ? "SPP: połączono z adapterem, bez odczytu i wysyłania danych."
+                    : "SPP: test anulowany.";
         } catch (SecurityException ignored) {
-            outcome = "Android zablokował dostęp Bluetooth. Sprawdź uprawnienia.";
+            outcome = currentProbe(probeToken)
+                    ? "Android zablokował dostęp Bluetooth. Sprawdź uprawnienia."
+                    : "SPP: test anulowany.";
         } catch (IOException ignored) {
-            outcome = "SPP: brak połączenia. Urządzenie może korzystać z BLE zamiast SPP.";
+            outcome = currentProbe(probeToken)
+                    ? "SPP: brak połączenia. Urządzenie może korzystać z BLE zamiast SPP."
+                    : "SPP: test anulowany.";
         } finally {
+            releaseProbeSocket(socket);
             if (socket != null) {
                 try {
                     socket.close();
                 } catch (IOException ignored) {
-                    outcome = "Nie udało się potwierdzić zamknięcia sesji Bluetooth.";
+                    if (currentProbe(probeToken)) {
+                        outcome = "Nie udało się potwierdzić zamknięcia sesji Bluetooth.";
+                    }
                 }
             }
         }
