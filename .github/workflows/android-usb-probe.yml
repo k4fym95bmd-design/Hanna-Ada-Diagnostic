@@ -40,11 +40,13 @@ jobs:
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/UsbReportTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyFrameEvidenceTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyEvidenceCorrelationTest.java \
-            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/KdcanTransportSessionTest.java
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/KdcanTransportSessionTest.java \
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/KdcanTransportFaultTest.java
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.UsbReportTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyFrameEvidenceTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyEvidenceCorrelationTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.KdcanTransportSessionTest
+          java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.KdcanTransportFaultTest
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
