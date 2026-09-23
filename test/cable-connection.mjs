@@ -468,3 +468,64 @@ test('trusted origin configuration is exact bounded and rejects remote HTTP', ()
     allowedOrigins: ['https://user:secret@bmw.floot.app'],
   }), /exact origin/i);
 });
+
+
+test('concurrent bridge reads share one serial enumeration in flight', async t => {
+  let calls = 0;
+  let release;
+  const serialState = {
+    list: async () => {
+      calls++;
+      await new Promise(resolve => { release = resolve; });
+      return [{ path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001' }];
+    },
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial:serialState, token, allowedOrigin:origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const headers = { Origin:origin, Authorization:`Bearer ${token}` };
+
+  const requests = Array.from({ length:8 }, () => fetch(base + '/v1/status', { headers }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release();
+  const responses = await Promise.all(requests);
+  for (const response of responses) assert.equal(response.status, 200);
+
+  const perf = bridge.getPerformance();
+  assert.equal(perf.serialListCalls, 1);
+  assert.ok(perf.serialListCoalesced >= 7);
+});
+
+test('serial enumeration coalescing does not cache across completed checks', async t => {
+  let calls = 0;
+  const serialState = {
+    list: async () => {
+      calls++;
+      return [{ path:'COM7', manufacturer:'FTDI', vendorId:'0403', productId:'6001' }];
+    },
+    createPort: path => {
+      const p = new EventEmitter();
+      p.path = path; p.isOpen = false;
+      p.open = cb => { p.isOpen = true; cb(null); };
+      p.close = cb => { p.isOpen = false; p.emit('close'); cb?.(null); };
+      return p;
+    },
+  };
+  const bridge = createCableBridge({ serial:serialState, token, allowedOrigin:origin });
+  await new Promise(resolve => bridge.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => bridge.server.close(resolve)));
+  const base = `http://127.0.0.1:${bridge.server.address().port}`;
+  const headers = { Origin:origin, Authorization:`Bearer ${token}` };
+  assert.equal((await fetch(base + '/v1/status', { headers })).status, 200);
+  assert.equal((await fetch(base + '/v1/status', { headers })).status, 200);
+  assert.equal(calls, 2, 'single-flight must not become stale caching');
+});
