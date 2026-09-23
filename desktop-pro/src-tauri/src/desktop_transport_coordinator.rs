@@ -22,6 +22,8 @@ pub struct DesktopTransportSnapshot {
 pub struct DesktopTransportCoordinator {
     epoch: u64,
     selected: Option<DesktopSerialCandidate>,
+    transport_open: bool,
+    configured: bool,
 }
 
 impl DesktopTransportCoordinator {
@@ -29,7 +31,11 @@ impl DesktopTransportCoordinator {
         match &self.selected {
             Some(item) => DesktopTransportSnapshot {
                 version: 1,
-                stage: if item.kind == "usb" {
+                stage: if self.configured {
+                    "PORT_CONFIGURED"
+                } else if self.transport_open {
+                    "PORT_OPEN"
+                } else if item.kind == "usb" {
                     "USB_CANDIDATE_BOUND"
                 } else {
                     "SERIAL_CANDIDATE_BOUND"
@@ -40,8 +46,8 @@ impl DesktopTransportCoordinator {
                 vid: item.vid,
                 pid: item.pid,
                 candidate_family: item.candidate_family,
-                transport_open: false,
-                configured: false,
+                transport_open: self.transport_open,
+                configured: self.configured,
                 ecu_verified: false,
                 writes_enabled: false,
             },
@@ -81,14 +87,51 @@ impl DesktopTransportCoordinator {
             return Err("unsafe_inventory_state".into());
         }
 
+        if self.transport_open || self.configured {
+            return Err("transport_must_be_closed_before_rebind".into());
+        }
         self.epoch = if self.epoch == u64::MAX { 1 } else { self.epoch + 1 };
         self.selected = Some(candidate);
+        self.transport_open = false;
+        self.configured = false;
+        Ok(self.snapshot())
+    }
+
+    pub fn mark_open_configured(
+        &mut self,
+        expected_epoch: u64,
+    ) -> Result<DesktopTransportSnapshot, String> {
+        if self.epoch != expected_epoch {
+            return Err("stale_epoch".into());
+        }
+        if self.selected.is_none() {
+            return Err("no_bound_candidate".into());
+        }
+        if self.transport_open || self.configured {
+            return Err("transport_already_open".into());
+        }
+        self.transport_open = true;
+        self.configured = true;
+        Ok(self.snapshot())
+    }
+
+    pub fn mark_closed(
+        &mut self,
+        expected_epoch: u64,
+    ) -> Result<DesktopTransportSnapshot, String> {
+        if self.epoch != expected_epoch {
+            return Err("stale_epoch".into());
+        }
+        self.transport_open = false;
+        self.configured = false;
         Ok(self.snapshot())
     }
 
     pub fn clear(&mut self) -> DesktopTransportSnapshot {
         self.epoch = if self.epoch == u64::MAX { 1 } else { self.epoch + 1 };
         self.selected = None;
+        self.transport_open = false;
+        self.configured = false;
         self.snapshot()
     }
 }
@@ -126,6 +169,13 @@ mod tests {
         assert!(!first.configured);
         assert!(!first.ecu_verified);
         assert!(!first.writes_enabled);
+
+        let configured = state.mark_open_configured(first.epoch).unwrap();
+        assert_eq!(configured.stage, "PORT_CONFIGURED");
+        assert!(configured.transport_open);
+        assert!(configured.configured);
+        assert!(!configured.ecu_verified);
+        state.mark_closed(first.epoch).unwrap();
 
         let second = state.bind_from_inventory(&inventory, "COM8").unwrap();
         assert_eq!(second.epoch, 2);
