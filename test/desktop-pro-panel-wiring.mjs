@@ -105,3 +105,11 @@ test('native receipt is mandatory before broker consume', async () => {
   assert.match(panel, /expectedFrameHexes: state\.evidence\.frames\.map/);
   assert.match(panel, /consumeDesktopReadOnlyRequest\([\s\S]*state\.nativeReadReceipt/);
 });
+
+
+test('desktop identity UX blocks attestation without verified profile parser', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /isIdentityParserVerified/);
+  assert.match(panel, /VERIFIED PROFILE PARSER REQUIRED/);
+  assert.match(panel, /VERIFIED_PROFILE_PARSER_REQUIRED/);
+});
