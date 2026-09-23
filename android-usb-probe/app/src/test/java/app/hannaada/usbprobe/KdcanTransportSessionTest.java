@@ -25,6 +25,7 @@ public final class KdcanTransportSessionTest {
         check(bound.epoch == 1L, "first epoch");
         check("FTDI".equals(bound.driverFamily), "driver family bound");
         check(!bound.portOpen && !bound.configured && !bound.requestBound, "bound is not open");
+        check(UnifiedEvidenceContract.HARDWARE_BOUND.equals(bound.evidenceStage), "canonical bound evidence stage");
         check(!bound.ecuVerified && !bound.writesEnabled, "safe defaults");
 
         KdcanTransportSession.Snapshot open =
@@ -32,6 +33,7 @@ public final class KdcanTransportSessionTest {
         check(open.portOpen, "port state opened");
         check(!open.configured, "open port is not automatically configured");
         check("PORT_OPEN".equals(open.stage), "open stage");
+        check(UnifiedEvidenceContract.PORT_OPEN.equals(open.evidenceStage), "canonical open evidence stage");
 
         boolean unconfiguredRejected = false;
         try {
