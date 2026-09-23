@@ -446,8 +446,11 @@ test('native request broker accepts canonical metadata and never exposes TX', as
               assert.equal(args.requestId, active.requestId);
               assert.equal(args.nativeRequestReceipt, active.receipt);
               evidencedAttempts.push({
+                operationId: active.operationId,
                 requestId: active.requestId,
                 nativeReceiveReceipt: args.nativeRequestReceipt,
+                nativeIdentityFingerprint: active.nativeIdentityFingerprint
+                  || 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
               });
               active = null;
               evidenced += 1;
@@ -591,6 +594,7 @@ test('ME7.2 executor sends only epoch and request id over IPC', async () => {
               receivedBytes: 6,
               bytes: [0xB8,0x12,0xF1,0x01,0xA2,0xF8],
               nativeRequestReceipt: 61,
+              nativeIdentityFingerprint: 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021',
               ecuVerified: false,
               writesEnabled: false,
             };
@@ -602,6 +606,7 @@ test('ME7.2 executor sends only epoch and request id over IPC', async () => {
 
   const result = await executeDesktopMe72Identity(7, 'identity-native-0001', fake);
   assert.equal(result.nativeRequestReceipt, 61);
+  assert.equal(result.nativeIdentityFingerprint, 'PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021');
   assert.equal(calls.length, 1);
   assert.equal('bytes' in calls[0][1], false);
   assert.equal('payload' in calls[0][1], false);
