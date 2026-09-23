@@ -8,6 +8,7 @@ import {
 
 test('roughness profile is reference-verified and only native-attestation-gated', () => {
   const profile=getMe72ReadOnlyDataProfile('e39-dme-me72-cylinder-roughness');
+  assert.equal(profile.operationId,'e39-dme-me72-cylinder-roughness');
   assert.equal(profile.protocol,'KWP2000_BMW');
   assert.equal(profile.operation,'LIVE_DATA_SNAPSHOT');
   assert.equal(profile.dataIdentifier,'0x4003');
@@ -21,5 +22,6 @@ test('roughness profile is reference-verified and only native-attestation-gated'
   assert.equal(profile.txBytesExposed,false);
   assert.equal(profile.writesEnabled,false);
   assert.equal(listMe72ReadOnlyDataProfiles().length,1);
+  assert.equal(getMe72ReadOnlyDataProfile(profile.id),profile);
   assert.equal(assertMe72DataExecutionGated(profile.id),profile);
 });
