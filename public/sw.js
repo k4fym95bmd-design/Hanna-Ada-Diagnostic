@@ -20,16 +20,37 @@ const RUNTIME = new Set([
   '/obd-runtime.js',
   '/terminal-readonly-guard.js',
   '/diagnostic-core-v2.js',
+  '/diagnostic-core.js',
   '/cable-workbench.js',
+  '/cable-connection-model.js',
+  '/evidence-contract.js',
+  '/bridge-state-ordering.js',
+  '/bridge-error-policy.js',
+  '/cable-plug-readiness.js',
+  '/usb-chipset-candidates.js',
   '/cable-rx-panel.js',
+  '/kdcan-cable-profile.js',
   '/kdcan-cable-panel.js',
+  '/universal-transport-router.js',
   '/universal-platform-panel.js',
+  '/live-performance-core.js',
   '/live-performance-runtime.js',
   '/tuning-stage-extension.js',
+  '/tuning-analysis-core.js',
   '/tuning-analysis-panel.js',
+  '/oem-icom-profile.js',
   '/oem-icom-panel.js',
+  '/webusb-cable-discovery.js',
   '/webusb-workbench-extension.js',
   '/desktop-host-bridge.js',
+  '/desktop-receive-evidence.js',
+  '/read-only-request-registry.js',
+  '/trusted-identity-verifier.js',
+  '/trusted-correlation-session.js',
+  '/trusted-identity-event.js',
+  '/read-only-identity-finalizer.js',
+  '/identity-parser-profile.js',
+  '/me72-identity-parser.js',
   '/desktop-pro-panel.js',
 ]);
 
@@ -95,8 +116,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  const dependencyAsset = request.destination === 'script' || request.destination === 'style';
-  if (!PRECACHE.includes(url.pathname) && !RUNTIME.has(url.pathname) && !dependencyAsset) return;
+  if (!PRECACHE.includes(url.pathname) && !RUNTIME.has(url.pathname)) return;
 
   event.respondWith((async () => {
     const cached = await caches.match(request);
