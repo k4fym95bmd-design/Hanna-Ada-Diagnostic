@@ -43,6 +43,7 @@ public final class LegacyPortConfigurationPlanTest {
                 LegacyPortConfigurationPlan.build(open, open.epoch - 1L, ds2, ds2Resolved);
         check(!stale.ready && "STALE_EPOCH".equals(stale.stage), "stale epoch rejected");
 
+        session.markConfigured("session-portplan-1234567890", open.epoch);
         session.bindRequest("session-portplan-1234567890", open.epoch, "request-plan-0001");
         LegacyPortConfigurationPlan.Result busy =
                 LegacyPortConfigurationPlan.build(session.snapshot(), open.epoch, ds2, ds2Resolved);
