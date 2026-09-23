@@ -28,3 +28,13 @@ test('launcher keeps Windows PowerShell 5.1 compatible syntax', () => {
   assert.match(script, /\$bridgeScheme = if \(\$BridgeUsesTls\)/);
   assert.match(script, /\$bridgeProbeHost = if \(\$BridgeHost -eq "::1"\)/);
 });
+
+
+test('preflight runs before any child process or bridge token creation', () => {
+  const preflightIndex = script.indexOf('npm run test:preflight-windows');
+  const tokenIndex = script.indexOf('$bytes = New-Object byte[] 32');
+  const serverIndex = script.indexOf('$server = Start-Process');
+  assert.ok(preflightIndex >= 0);
+  assert.ok(preflightIndex < tokenIndex);
+  assert.ok(preflightIndex < serverIndex);
+});
