@@ -207,17 +207,20 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
           message: 'Wyłącznie pasywny odbiór: ramka lub echo nie dowodzą odpowiedzi ECU. Brak komend TX.' });
       }
       if (req.method === 'GET' && route === '/v1/snapshot') {
+        const capturedAt = Date.now();
         const status = await currentStatus();
         const sample = status.portOpen && rxMonitor ? rxMonitor.snapshot() : { observedBytes: 0, rejectedCandidates: 0, frames: [], kwpFrames: [], ecuVerified: false };
+        const telemetry = buildCableTelemetry({ status, rx: sample, capturedAt });
         return json(res, 200, {
           version: 1,
           snapshotVersion: 1,
           bridgeInstanceId,
           stateRevision: status.stateRevision,
           sessionEpoch: status.sessionEpoch,
-          capturedAt: Date.now(),
+          capturedAt,
           status,
           rx: { ...sample, ecuVerified: false },
+          telemetry,
           ecuVerified: false,
           writesEnabled: false,
           flashEnabled: false,
