@@ -1,4 +1,6 @@
 const loaded = new Map();
+const loadedStyles = new Map();
+const prefetched = new Set();
 
 const importOnce = path => {
   if (!loaded.has(path)) {
@@ -9,6 +11,33 @@ const importOnce = path => {
     }));
   }
   return loaded.get(path);
+};
+
+const loadStyle = path => {
+  if (!loadedStyles.has(path)) {
+    loadedStyles.set(path, new Promise(resolve => {
+      const existing = document.querySelector(`link[rel="stylesheet"][href="${path}"]`);
+      if (existing) { resolve(existing); return; }
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = path;
+      link.addEventListener('load', () => resolve(link), { once: true });
+      link.addEventListener('error', () => resolve(null), { once: true });
+      document.head.appendChild(link);
+    }));
+  }
+  return loadedStyles.get(path);
+};
+
+const prefetchModule = path => {
+  if (prefetched.has(path)) return;
+  prefetched.add(path);
+  const link = document.createElement('link');
+  link.rel = 'prefetch';
+  link.as = 'script';
+  link.href = path;
+  link.fetchPriority = 'low';
+  document.head.appendChild(link);
 };
 
 const afterFirstPaint = () => new Promise(resolve => {
@@ -28,6 +57,12 @@ const idle = () => new Promise(resolve => {
 });
 
 async function loadDiagnosticCore() {
+  await Promise.all([
+    loadStyle('/pro-runtime.css'),
+    loadStyle('/diagnostic-core-v2.css'),
+    loadStyle('/cable-workbench.css'),
+    loadStyle('/live-performance.css'),
+  ]);
   // Keep one canonical OBD session owner. The performance layer loads only after it.
   await importOnce('/obd-runtime.js');
   await Promise.all([
@@ -68,5 +103,10 @@ window.addEventListener('hannaada:module-rendered', event => {
   await afterFirstPaint();
   await loadDiagnosticCore();
   await idle();
-  await Promise.all([loadTuning(), loadHardwareExtras()]);
+  ['/tuning-stage-extension.js','/tuning-analysis-panel.js','/oem-icom-panel.js'].forEach(prefetchModule);
+  if ('usb' in navigator) prefetchModule('/webusb-workbench-extension.js');
+  if (window.__TAURI_INTERNALS__ || window.__TAURI__) {
+    prefetchModule('/desktop-host-bridge.js');
+    prefetchModule('/desktop-pro-panel.js');
+  }
 })();
