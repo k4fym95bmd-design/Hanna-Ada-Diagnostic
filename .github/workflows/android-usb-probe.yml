@@ -40,6 +40,7 @@ jobs:
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacySerialProfile.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyPortConfigurationPlan.java \
             android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyPortApplyPolicy.java \
+            android-usb-probe/app/src/main/java/app/hannaada/usbprobe/LegacyReadOnlyEnvelope.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/UsbReportTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyFrameEvidenceTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyEvidenceCorrelationTest.java \
@@ -47,7 +48,8 @@ jobs:
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/KdcanTransportFaultTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacySerialProfileTest.java \
             android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyPortConfigurationPlanTest.java \
-            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyPortApplyPolicyTest.java
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyPortApplyPolicyTest.java \
+            android-usb-probe/app/src/test/java/app/hannaada/usbprobe/LegacyReadOnlyEnvelopeTest.java
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.UsbReportTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyFrameEvidenceTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyEvidenceCorrelationTest
@@ -56,6 +58,7 @@ jobs:
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacySerialProfileTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyPortConfigurationPlanTest
           java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyPortApplyPolicyTest
+          java -cp "$RUNNER_TEMP/usb-report-tests" app.hannaada.usbprobe.LegacyReadOnlyEnvelopeTest
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
