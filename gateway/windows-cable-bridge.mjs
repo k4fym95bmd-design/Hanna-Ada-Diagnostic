@@ -11,6 +11,12 @@ import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
 import { buildCableTelemetry } from './cable-session-health.mjs';
 
 const MAX_BODY = 2048;
+const SERIAL_OPEN_OPTIONS = Object.freeze({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+export const SERIAL_OPEN_PROBE = Object.freeze({
+  ...SERIAL_OPEN_OPTIONS,
+  label: 'unverified-serial-transport-probe',
+  bmwProtocolVerified: false,
+});
 const isLoopback = host => ['127.0.0.1', 'localhost', '::1'].includes(host);
 const validPort = p => p && typeof p.path === 'string' && p.path.length > 0 && p.path.length <= 240;
 const portFingerprint = p => {
@@ -95,7 +101,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       selectedPath: detected ? selected : null, sessionId: opened ? sessionId : null,
       cableBinding: cableBinding?.active ? cableBinding : null,
       ecuVerified: false, writesEnabled: false, flashEnabled: false,
-      message: opened ? 'Port USB-serial otwarty. ECU niezweryfikowane.' : detected ? 'Kabel wybrany; port zamknięty.' : 'Nie wybrano wykrytego kabla.' };
+      serialOpenProbe: SERIAL_OPEN_PROBE,
+      message: opened ? 'Port USB-serial otwarty w niezweryfikowanym profilu transportowym. ECU niezweryfikowane.' : detected ? 'Kabel wybrany; port zamknięty.' : 'Nie wybrano wykrytego kabla.' };
   };
   const readBody = async req => {
     let data = '';
@@ -131,6 +138,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
         coding: false,
         actuation: false,
         flashing: false,
+        serialOpenProbe: SERIAL_OPEN_PROBE,
       });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
       if (req.method === 'GET' && route === '/v1/readiness') {
@@ -244,7 +252,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       token: process.env.HAA_BRIDGE_TOKEN,
       allowedOrigin: process.env.HAA_BRIDGE_ORIGIN,
       host, tls,
-      serial: { list: () => SerialPort.list(), createPort: path => new SerialPort({ path, baudRate: 9600, autoOpen: false }) },
+      serial: { list: () => SerialPort.list(), createPort: path => new SerialPort({ path, ...SERIAL_OPEN_OPTIONS, autoOpen: false }) },
     });
     const port = Number(process.env.HAA_BRIDGE_PORT || 8765);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid bridge TCP port');
