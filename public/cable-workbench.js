@@ -1,7 +1,7 @@
 import { cableStatus, validateBridgeStatus, validateBridgeUrl } from './cable-connection-model.js';
 import { KDCAN_INPA_SWITCH_TARGET, usbIdentity } from './kdcan-cable-profile.js';
 import { identifyUsbSerialCandidate } from './usb-chipset-candidates.js';
-import { assessCablePlugReadiness } from './cable-plug-readiness.js';
+import { assessCablePlugReadiness, findNewCablePorts } from './cable-plug-readiness.js';
 
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
@@ -22,7 +22,8 @@ function display() {
   const status = cableStatus({ cableDetected: work.detected, portOpen: work.opened });
   root.dataset.cablePortOpen = String(work.opened);
   root.dataset.cableModeCurrent = work.mode;
-  const states = [Boolean(work.selectedPath) || status.cableDetected, status.portOpen, status.ecuVerified];
+  const modeSelected = work.mode === 'bridge' ? (Boolean(work.selectedPath) || status.cableDetected) : status.cableDetected;
+  const states = [modeSelected, status.portOpen, status.ecuVerified];
   root.querySelectorAll('[data-cable-stage]').forEach((item, index) => {
     item.classList.toggle('verified', states[index]);
     item.querySelector('b').textContent = states[index] ? 'POTWIERDZONE' : 'NIEPOTWIERDZONE';
@@ -177,15 +178,33 @@ async function applyBridgeReadiness(result) {
   return readiness;
 }
 async function waitForCable(maxMs = 30000) {
+  const baselineResult = await bridgeRequest('/v1/readiness');
+  const baselineReadiness = await applyBridgeReadiness(baselineResult);
+  const baselinePorts = work.ports.map(port => ({ ...port }));
+
+  // If a unique strong candidate is already present, do not force the user to unplug/replug it.
+  if (baselineReadiness.recommendedPath) return baselineReadiness;
+
   const started = Date.now();
   while (Date.now() - started < maxMs) {
-    const result = await bridgeRequest('/v1/readiness');
-    const readiness = await applyBridgeReadiness(result);
-    display();
-    if (readiness.detectedCount > 0) return readiness;
     await new Promise(resolve => setTimeout(resolve, 1000));
+    const result = await bridgeRequest('/v1/readiness');
+    await applyBridgeReadiness(result);
+    const appeared = findNewCablePorts(baselinePorts, work.ports);
+    if (appeared.length > 0) {
+      const readiness = assessCablePlugReadiness(appeared);
+      work.selectedPath = readiness.recommendedPath || '';
+      display();
+      return Object.freeze({
+        ...readiness,
+        message: readiness.recommendedPath
+          ? `Nowe urządzenie USB-serial wykryte na ${readiness.recommendedPath}. To nadal nie potwierdza BMW ani ECU.`
+          : 'Pojawiło się nowe urządzenie szeregowe, ale identyfikacja jest niejednoznaczna. Wybierz port ręcznie.'
+      });
+    }
+    display();
   }
-  throw new TypeError('Nie wykryto kabla USB w ciągu 30 sekund.');
+  throw new TypeError('Nie wykryto nowego wiarygodnego kandydata kabla USB w ciągu 30 sekund.');
 }
 async function listPorts() {
   const result = await bridgeRequest('/v1/ports');
@@ -224,6 +243,12 @@ function attach() {
       work.serialPort = null;
       delete section.dataset.directUsbVendorId;
       delete section.dataset.directUsbProductId;
+    }
+    if (work.mode !== button.dataset.cableMode && work.mode === 'bridge') {
+      work.selectedPath = '';
+      work.ports = [];
+      delete section.dataset.bridgeUsbVendorId;
+      delete section.dataset.bridgeUsbProductId;
     }
     work.mode = button.dataset.cableMode; work.detected = work.opened = false; display();
   }));
