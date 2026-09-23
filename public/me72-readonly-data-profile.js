@@ -49,6 +49,7 @@ const engineSnapshotProfile=Object.freeze({
   flashEnabled:false,
   sourceRefs:Object.freeze([
     'pBmwScanner me72.py: tested ME7.2/M62TU KWP2000 request 0x22 0x40 0x00 with reference response and scaling',
+    'DS2PlusPlus dme_me7_2.json analog_status: intake camshaft bank 1 start_pos 13 and bank 2 start_pos 15, signed short scale 0.0039 deg',
   ]),
 });
 
