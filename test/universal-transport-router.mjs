@@ -20,8 +20,14 @@ test('Android can fall back to WebUSB discovery or Windows bridge', () => {
   assert.equal(chooseTransportRoute({ platform: 'android', bridgeReachable: true }).route, TransportRoute.WINDOWS_BRIDGE);
 });
 
-test('Windows prefers direct Web Serial when available', () => {
+test('Windows prefers the canonical bridge when it is reachable', () => {
   const r = chooseTransportRoute({ platform: 'windows', webSerial: true, secureContext: true, bridgeReachable: true });
+  assert.equal(r.route, TransportRoute.WINDOWS_BRIDGE);
+  assert.equal(r.writesEnabled, false);
+});
+
+test('Windows falls back to direct Web Serial when the bridge is unavailable', () => {
+  const r = chooseTransportRoute({ platform: 'windows', webSerial: true, secureContext: true, bridgeReachable: false });
   assert.equal(r.route, TransportRoute.WINDOWS_DIRECT);
   assert.equal(r.writesEnabled, false);
 });
