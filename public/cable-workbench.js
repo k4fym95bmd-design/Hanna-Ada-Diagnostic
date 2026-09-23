@@ -7,6 +7,7 @@ import { classifyBridgeFailure } from './bridge-error-policy.js';
 // Adds a cable route to the EXISTING VCI page without replacing the BLE runtime.
 // Enumerate/open/close only: there is NO ECU TX/RX, coding, actuation or flash.
 const work = { mode: 'desktop', serialPort: null, bridgeUrl: null, bridgeToken: null, bridgeFreshness: null, ports: [], selectedPath: '', bridgeOnline: false, detected: false, opened: false, busy: false, message: 'Nie wybrano portu.' };
+let cableWaitAbort = null;
 const $ = (root, sel) => root.querySelector(sel);
 const hasWebSerial = () => typeof navigator !== 'undefined' && !!navigator.serial?.requestPort;
 const platform = () => /Android/i.test(navigator.userAgent) ? 'android' : /iPhone|iPad|iPod/i.test(navigator.userAgent) ? 'ios' : /Windows/i.test(navigator.userAgent) ? 'windows' : 'desktop';
@@ -125,9 +126,16 @@ async function action(name) {
       const readiness = await applyBridgeReadiness(await bridgeRequest('/v1/readiness'));
       report(readiness.message);
     } else if (name === 'bridge-wait') {
+      cableWaitAbort?.abort();
+      const owner = new AbortController();
+      cableWaitAbort = owner;
       report('Czekam na podłączenie kabla USB…');
-      const readiness = await waitForCable();
-      report(readiness.recommendedPath ? `${readiness.message} Port został wybrany, ale nie otwarty.` : readiness.message);
+      try {
+        const readiness = await waitForCable(30000, owner.signal);
+        report(readiness.recommendedPath ? `${readiness.message} Port został wybrany, ale nie otwarty.` : readiness.message);
+      } finally {
+        if (cableWaitAbort === owner) cableWaitAbort = null;
+      }
     } else if (name === 'bridge-open') {
       const path = requestedPort;
       if (!path || !work.ports.some(p => p.path === path)) throw new TypeError('Wybierz port z aktualnej listy.');
@@ -186,9 +194,13 @@ function useBridgeStatus(raw) {
     }
   }
 }
-async function bridgeRequest(path, payload) {
+async function bridgeRequest(path, payload, { signal } = {}) {
   if (!work.bridgeUrl || !work.bridgeToken) throw new TypeError('Najpierw połącz most Windows.');
-  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 8000);
+  const controller = new AbortController();
+  const relayAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) relayAbort();
+  else signal?.addEventListener?.('abort', relayAbort, { once: true });
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const result = await fetch(`${work.bridgeUrl}${path}`, {
       method: payload === undefined ? 'GET' : 'POST',
@@ -202,7 +214,10 @@ async function bridgeRequest(path, payload) {
       throw error;
     }
     return result.json();
-  } finally { clearTimeout(timeout); }
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener?.('abort', relayAbort);
+  }
 }
 async function applyBridgeReadiness(result) {
   if (!result || result.version !== 1 || result.readOnly !== true || result.arbitraryTx !== false
@@ -222,8 +237,21 @@ async function applyBridgeReadiness(result) {
     || (work.ports.some(p => p.path === result.selectedPath) ? result.selectedPath : '');
   return readiness;
 }
-async function waitForCable(maxMs = 30000) {
-  const baselineResult = await bridgeRequest('/v1/readiness');
+async function waitForCable(maxMs = 30000, signal) {
+  const checkAbort = () => {
+    if (signal?.aborted) throw new DOMException('Wykrywanie kabla przerwane.', 'AbortError');
+  };
+  const delay = ms => new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Wykrywanie kabla przerwane.', 'AbortError'));
+    };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener?.('abort', abort, { once: true });
+  });
+  checkAbort();
+  const baselineResult = await bridgeRequest('/v1/readiness', undefined, { signal });
   const baselineReadiness = await applyBridgeReadiness(baselineResult);
   const baselinePorts = work.ports.map(port => ({ ...port }));
 
@@ -232,8 +260,9 @@ async function waitForCable(maxMs = 30000) {
 
   const started = Date.now();
   while (Date.now() - started < maxMs) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    const result = await bridgeRequest('/v1/readiness');
+    await delay(1000);
+    checkAbort();
+    const result = await bridgeRequest('/v1/readiness', undefined, { signal });
     await applyBridgeReadiness(result);
     const appeared = findNewCablePorts(baselinePorts, work.ports);
     if (appeared.length > 0) {
@@ -303,8 +332,16 @@ function attach() {
   display();
 }
 if (typeof document !== 'undefined') {
+  const onModuleRendered = event => {
+    if (event.detail?.module !== 'vci') {
+      cableWaitAbort?.abort();
+      cableWaitAbort = null;
+      return;
+    }
+    attach();
+  };
   const start = () => {
-    window.addEventListener('hannaada:module-rendered', attach);
+    window.addEventListener('hannaada:module-rendered', onModuleRendered);
     attach();
   };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
