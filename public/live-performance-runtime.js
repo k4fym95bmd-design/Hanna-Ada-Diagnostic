@@ -13,14 +13,19 @@ const inputPending = () => {
 let longTaskHoldUntil = 0;
 if ('PerformanceObserver' in window) {
   try {
-    const longTaskObserver = new PerformanceObserver(list => {
-      for (const entry of list.getEntries()) {
-        if (entry.duration >= 50) {
-          longTaskHoldUntil = Math.max(longTaskHoldUntil, performance.now() + 120);
+    const supported = PerformanceObserver.supportedEntryTypes || [];
+    const type = supported.includes('long-animation-frame') ? 'long-animation-frame'
+      : supported.includes('longtask') ? 'longtask' : null;
+    if (type) {
+      const longTaskObserver = new PerformanceObserver(list => {
+        for (const entry of list.getEntries()) {
+          if (entry.duration >= 50) {
+            longTaskHoldUntil = Math.max(longTaskHoldUntil, performance.now() + 120);
+          }
         }
-      }
-    });
-    longTaskObserver.observe({ type: 'longtask', buffered: false });
+      });
+      longTaskObserver.observe({ type, buffered: false });
+    }
   } catch {}
 }
 const shouldYield = () => inputPending() || performance.now() < longTaskHoldUntil;
