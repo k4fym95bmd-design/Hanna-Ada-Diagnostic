@@ -1,0 +1,74 @@
+name: R36SX read-only probe
+
+on:
+  pull_request:
+    paths:
+      - 'r36sx/**'
+      - '.github/workflows/r36sx-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MIPS little-endian cross compiler and emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mipsel-linux-gnu binutils-mipsel-linux-gnu qemu-user file
+      - name: Build host test program
+        run: |
+          mkdir -p dist
+          cc -std=c11 -O2 -Wall -Wextra -Werror -pedantic r36sx/probe.c -o dist/probe-host
+      - name: Smoke-test fixture (no USB or car)
+        run: |
+          set -eu
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "$fixture"' EXIT
+          mkdir -p "$fixture/proc" "$fixture/dev" "$fixture/sys/bus/usb/devices/1-1"
+          printf 'cpu model : MIPS 74Kc\n' > "$fixture/proc/cpuinfo"
+          printf '0403\n' > "$fixture/sys/bus/usb/devices/1-1/idVendor"
+          printf '6001\n' > "$fixture/sys/bus/usb/devices/1-1/idProduct"
+          touch "$fixture/dev/ttyUSB0"
+          HANNA_ADA_PROBE_ROOT="$fixture" dist/probe-host > dist/smoke.txt
+          grep -q 'MODE: READ ONLY' dist/smoke.txt
+          grep -q 'MIPS 74Kc' dist/smoke.txt
+          grep -q '0403:6001' dist/smoke.txt
+          grep -q '/dev/ttyUSB0' dist/smoke.txt
+          grep -q 'NOT VERIFIED' dist/smoke.txt
+          cat dist/smoke.txt
+      - name: Cross-compile static MIPS32 little-endian executable
+        run: |
+          mipsel-linux-gnu-gcc -std=c11 -Os -Wall -Wextra -Werror -pedantic \
+            -march=mips32r2 -mabi=32 -EL -static \
+            r36sx/probe.c -o dist/hanna-ada-r36sx-probe.mipsel
+          file dist/hanna-ada-r36sx-probe.mipsel
+          readelf -h dist/hanna-ada-r36sx-probe.mipsel | grep -E 'Class:|Data:|Machine:'
+          file dist/hanna-ada-r36sx-probe.mipsel | grep -q 'MIPS'
+          if readelf -l dist/hanna-ada-r36sx-probe.mipsel | grep -q INTERP; then
+            echo 'Unexpected dynamic interpreter' >&2
+            exit 1
+          fi
+      - name: MIPS emulation smoke test (not hardware validation)
+        run: |
+          qemu-mipsel dist/hanna-ada-r36sx-probe.mipsel > dist/qemu-smoke.txt
+          grep -q 'MODE: READ ONLY' dist/qemu-smoke.txt
+          grep -q 'NOT VERIFIED' dist/qemu-smoke.txt
+      - name: Include checksum for transfer verification
+        run: |
+          cd dist
+          sha256sum hanna-ada-r36sx-probe.mipsel > SHA256SUMS
+      - name: Upload experimental executable and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: hanna-ada-r36sx-experimental-probe
+          path: |
+            dist/hanna-ada-r36sx-probe.mipsel
+            dist/SHA256SUMS
+            dist/smoke.txt
+            dist/qemu-smoke.txt
+          retention-days: 14
