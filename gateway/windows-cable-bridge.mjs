@@ -84,6 +84,20 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       if (req.method === 'OPTIONS') return origin === allowedOrigin ? (res.writeHead(204), res.end()) : json(res, 403, { error: 'ORIGIN_DENIED' });
       if (!equalToken((req.headers.authorization || '').replace(/^Bearer /, ''))) return json(res, 401, { error: 'UNAUTHORIZED' });
       const route = new URL(req.url || '/', 'http://local.invalid').pathname;
+      if (req.method === 'GET' && route === '/v1/capabilities') return json(res, 200, {
+        version: 1,
+        bridge: 'hanna-ada-kdcan',
+        readOnly: true,
+        usbEnumeration: true,
+        portOpenClose: true,
+        passiveRx: true,
+        atomicSnapshot: true,
+        arbitraryTx: false,
+        dtcErase: false,
+        coding: false,
+        actuation: false,
+        flashing: false,
+      });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
       if (req.method === 'GET' && route === '/v1/ports') {
         const ports = (await serial.list()).filter(validPort).map(safePort);
