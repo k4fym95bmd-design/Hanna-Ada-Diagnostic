@@ -19,7 +19,7 @@ const plan = requestId => instantiateReadOnlyRequest('e39-dme-me72-module-identi
   requestId,
 });
 
-test('two independent matching attempts are required for read-only identity verification', () => {
+test('two independent matching attempts produce only a repeated correlated candidate', () => {
   const verifier = new TrustedIdentityVerifier({
     epoch: 7,
     operationId: 'e39-dme-me72-module-identity',
@@ -43,9 +43,11 @@ test('two independent matching attempts are required for read-only identity veri
     responseRequestId: 'identity-request-B',
     moduleIdentity: 'ME7.2',
   });
-  assert.equal(second.stage, 'READ_ONLY_IDENTITY_VERIFIED');
+  assert.equal(second.stage, 'REPEATED_CORRELATED_IDENTITY_CANDIDATE');
   assert.equal(second.confirmations, 2);
-  assert.equal(second.identityVerified, true);
+  assert.equal(second.repeatCandidateReady, true);
+  assert.equal(second.localAttestationRequired, true);
+  assert.equal(second.identityVerified, false);
   assert.equal(second.ecuVerified, false);
   assert.equal(second.writesEnabled, false);
 });
@@ -127,4 +129,26 @@ test('echo or stale epoch can never contribute a confirmation', () => {
   });
   assert.equal(stale.stage, 'STALE_EPOCH');
   assert.equal(stale.confirmations, 0);
+});
+
+
+test('browser-side verifier can never emit the canonical verified stage', () => {
+  const verifier = new TrustedIdentityVerifier({
+    epoch:7,
+    operationId:'e39-dme-me72-module-identity',
+    protocol:'KWP2000_BMW',
+    moduleFamily:'DME_ME72',
+  });
+  for (const id of ['identity-safe-0001','identity-safe-0002','identity-safe-0003']) {
+    const result = verifier.recordAttempt({
+      requestPlan:plan(id),
+      receiveEvidence:evidence(),
+      responseRequestId:id,
+      moduleIdentity:'ME7.2',
+    });
+    assert.notEqual(result.stage, 'READ_ONLY_IDENTITY_VERIFIED');
+    assert.equal(result.identityVerified, false);
+    assert.equal(result.ecuVerified, false);
+  }
+  assert.equal(verifier.snapshot().identityVerified, false);
 });
