@@ -34,3 +34,11 @@ test('legacy interval polling is stopped when ultra runtime takes ownership', ()
   assert.match(runtime, /typeof obd\.stopLive === 'function'/);
   assert.match(runtime, /obd\.stopLive\(\)/);
 });
+
+
+test('runtime cooperatively yields to pending user input where supported', () => {
+  assert.match(runtime, /navigator\.scheduling\?\.isInputPending/);
+  assert.match(runtime, /shouldYield: inputPending/);
+  assert.match(core, /if \(shouldYield\(\)\)/);
+  assert.match(core, /schedule\(100, owner\)/);
+});
