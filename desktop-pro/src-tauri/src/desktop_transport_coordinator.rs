@@ -5,7 +5,9 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct DesktopTransportSnapshot {
     pub version: u8,
+    pub evidence_contract_version: u8,
     pub stage: &'static str,
+    pub evidence_stage: &'static str,
     pub epoch: u64,
     pub port_name: Option<String>,
     pub kind: Option<String>,
@@ -29,9 +31,8 @@ pub struct DesktopTransportCoordinator {
 impl DesktopTransportCoordinator {
     pub fn snapshot(&self) -> DesktopTransportSnapshot {
         match &self.selected {
-            Some(item) => DesktopTransportSnapshot {
-                version: 1,
-                stage: if self.configured {
+            Some(item) => {
+                let stage = if self.configured {
                     "PORT_CONFIGURED"
                 } else if self.transport_open {
                     "PORT_OPEN"
@@ -39,21 +40,36 @@ impl DesktopTransportCoordinator {
                     "USB_CANDIDATE_BOUND"
                 } else {
                     "SERIAL_CANDIDATE_BOUND"
-                },
-                epoch: self.epoch,
-                port_name: Some(item.port_name.clone()),
-                kind: Some(item.kind.clone()),
-                vid: item.vid,
-                pid: item.pid,
-                candidate_family: item.candidate_family,
-                transport_open: self.transport_open,
-                configured: self.configured,
-                ecu_verified: false,
-                writes_enabled: false,
-            },
+                };
+                let evidence_stage = if item.kind != "usb" {
+                    "NO_CABLE"
+                } else if self.transport_open {
+                    "PORT_OPEN"
+                } else {
+                    "HARDWARE_BOUND"
+                };
+                DesktopTransportSnapshot {
+                    version: 1,
+                    evidence_contract_version: 1,
+                    stage,
+                    evidence_stage,
+                    epoch: self.epoch,
+                    port_name: Some(item.port_name.clone()),
+                    kind: Some(item.kind.clone()),
+                    vid: item.vid,
+                    pid: item.pid,
+                    candidate_family: item.candidate_family,
+                    transport_open: self.transport_open,
+                    configured: self.configured,
+                    ecu_verified: false,
+                    writes_enabled: false,
+                }
+            }
             None => DesktopTransportSnapshot {
                 version: 1,
+                evidence_contract_version: 1,
                 stage: "NO_CANDIDATE",
+                evidence_stage: "NO_CABLE",
                 epoch: self.epoch,
                 port_name: None,
                 kind: None,
@@ -165,6 +181,8 @@ mod tests {
         assert_eq!(first.epoch, 1);
         assert_eq!(first.port_name.as_deref(), Some("COM7"));
         assert_eq!(first.candidate_family, Some("FTDI"));
+        assert_eq!(first.evidence_contract_version, 1);
+        assert_eq!(first.evidence_stage, "HARDWARE_BOUND");
         assert!(!first.transport_open);
         assert!(!first.configured);
         assert!(!first.ecu_verified);
@@ -172,6 +190,7 @@ mod tests {
 
         let configured = state.mark_open_configured(first.epoch).unwrap();
         assert_eq!(configured.stage, "PORT_CONFIGURED");
+        assert_eq!(configured.evidence_stage, "PORT_OPEN");
         assert!(configured.transport_open);
         assert!(configured.configured);
         assert!(!configured.ecu_verified);
@@ -181,6 +200,7 @@ mod tests {
         assert_eq!(second.epoch, 2);
         assert_eq!(second.port_name.as_deref(), Some("COM8"));
         assert_eq!(second.candidate_family, None);
+        assert_eq!(second.evidence_stage, "HARDWARE_BOUND");
     }
 
     #[test]
@@ -195,6 +215,7 @@ mod tests {
         let bound = state.bind_from_inventory(&inventory, "COM7").unwrap();
         let cleared = state.clear();
         assert_eq!(cleared.stage, "NO_CANDIDATE");
+        assert_eq!(cleared.evidence_stage, "NO_CABLE");
         assert!(cleared.epoch > bound.epoch);
         assert!(!cleared.transport_open);
         assert!(!cleared.writes_enabled);
