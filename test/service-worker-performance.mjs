@@ -73,8 +73,9 @@ test('critical shell is small and heavy modules are staged after first paint', (
   assert.match(html, /src="\/ultra-bootstrap\.js"/);
   assert.doesNotMatch(html, /src="\/(?:obd-runtime|cable-workbench|desktop-pro-panel|webusb-workbench-extension|live-performance-runtime)\.js"/);
   assert.match(bootstrap, /afterFirstPaint/);
-  assert.match(bootstrap, /await importOnce\('\/obd-runtime\.js'\)/);
-  assert.match(bootstrap, /await loadDiagnosticCore\(\)/);
+  assert.match(bootstrap, /async function loadObdStack\(\)/);
+  assert.match(bootstrap, /async function loadCableStack\(\)/);
+  assert.match(bootstrap, /await loadForModule\(initialModule\)/);
   assert.match(bootstrap, /await idle\(\)/);
   assert.match(bootstrap, /window\.__TAURI_INTERNALS__/);
   assert.match(bootstrap, /'usb' in navigator/);
@@ -90,9 +91,12 @@ test('background startup waits for visibility and optional prefetch respects sav
   assert.match(bootstrap, /cache: 'force-cache'/);
 });
 
-test('service worker runtime-caches imported JS and CSS dependencies without caching APIs', () => {
-  assert.match(sw, /request\.destination === 'script'/);
-  assert.match(sw, /request\.destination === 'style'/);
+test('service worker runtime cache is an explicit diagnostic dependency allowlist', () => {
+  assert.match(sw, /'\/live-performance-core\.js'/);
+  assert.match(sw, /'\/cable-connection-model\.js'/);
+  assert.match(sw, /'\/desktop-receive-evidence\.js'/);
+  assert.doesNotMatch(sw, /request\.destination === 'script'/);
+  assert.doesNotMatch(sw, /request\.destination === 'style'/);
   assert.match(sw, /url\.pathname\.startsWith\('\/api\/'\)/);
   assert.match(sw, /url\.pathname\.startsWith\('\/config\/'\)/);
 });
@@ -115,4 +119,15 @@ test('hot diagnostic panels use explicit app events instead of subtree observers
   assert.match(files.join('\n'), /hannaada:module-rendered/);
   assert.match(files.join('\n'), /hannaada:cable-workbench-mounted/);
   assert.match(files.join('\n'), /hannaada:cable-workbench-state/);
+});
+
+
+test('module intent prewarms likely stacks without executing unrelated stacks', () => {
+  assert.match(bootstrap, /function warmForModule\(module\)/);
+  assert.match(bootstrap, /pointerover/);
+  assert.match(bootstrap, /focusin/);
+  assert.match(bootstrap, /if \(module === 'vci'\)/);
+  assert.match(bootstrap, /if \(module === 'bmw-expert'\)/);
+  assert.match(bootstrap, /if \(module === 'tuning'\)/);
+  assert.doesNotMatch(bootstrap, /await loadObdStack\(\);\s*await loadCableStack\(\);\s*await loadTuning\(\)/);
 });
