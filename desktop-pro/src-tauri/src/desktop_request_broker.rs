@@ -15,13 +15,16 @@ struct ActiveRequest {
     started_at: Instant,
     receive_receipt: Option<u64>,
     received_bytes: usize,
+    identity_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopEvidencedAttempt {
+    pub operation_id: &'static str,
     pub request_id: String,
     pub native_receive_receipt: u64,
+    pub native_identity_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +157,7 @@ impl DesktopReadOnlyRequestBroker {
             started_at: Instant::now(),
             receive_receipt: None,
             received_bytes: 0,
+            identity_fingerprint: None,
         });
         Ok(self.snapshot())
     }
@@ -236,6 +240,37 @@ impl DesktopReadOnlyRequestBroker {
         Ok(receipt)
     }
 
+    pub fn record_identity_receive(
+        &mut self,
+        epoch: u64,
+        protocol: &str,
+        received_bytes: usize,
+        fingerprint: &str,
+    ) -> Result<u64, String> {
+        if fingerprint.len() < 8 || fingerprint.len() > 128
+            || !fingerprint.bytes().all(|b|
+                b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-')) {
+            return Err("invalid_native_identity_fingerprint".into());
+        }
+        {
+            let active = self.active.as_ref().ok_or_else(|| "no_active_request".to_string())?;
+            if active.operation_id != "e39-dme-me72-module-identity" {
+                return Err("identity_fingerprint_not_allowed_for_operation".into());
+            }
+        }
+        let receipt = self.record_receive(epoch, protocol, received_bytes)?;
+        let active = self.active.as_mut().ok_or_else(|| "no_active_request".to_string())?;
+        match active.identity_fingerprint.as_deref() {
+            Some(existing) if existing != fingerprint => {
+                self.active = None;
+                return Err("native_identity_fingerprint_changed_within_request".into());
+            }
+            None => active.identity_fingerprint = Some(fingerprint.to_string()),
+            _ => {}
+        }
+        Ok(receipt)
+    }
+
     pub fn consume(
         &mut self,
         epoch: u64,
@@ -255,12 +290,16 @@ impl DesktopReadOnlyRequestBroker {
             || active.received_bytes == 0 {
             return Err("native_receive_receipt_required".into());
         }
+        let evidenced_operation_id = active.operation_id;
         let evidenced_request_id = active.request_id.clone();
+        let native_identity_fingerprint = active.identity_fingerprint.clone();
         self.active = None;
         self.evidenced_attempt_count += 1;
         self.evidenced_attempts.push(DesktopEvidencedAttempt {
+            operation_id: evidenced_operation_id,
             request_id: evidenced_request_id,
             native_receive_receipt,
+            native_identity_fingerprint,
         });
         Ok(self.snapshot())
     }
@@ -389,7 +428,10 @@ mod tests {
             "broker-request-replay",
             "KWP2000_BMW", 750, 197,
         ).unwrap();
-        let receipt = broker.record_receive(7, "KWP2000_BMW", 12).unwrap();
+        let receipt = broker.record_identity_receive(
+            7, "KWP2000_BMW", 12,
+            "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
+        ).unwrap();
         broker.consume(7, "broker-request-replay", receipt).unwrap();
 
         assert_eq!(
@@ -456,8 +498,14 @@ mod tests {
             "native_receive_receipt_required"
         );
 
-        let first = broker.record_receive(7, "KWP2000_BMW", 4).unwrap();
-        let second = broker.record_receive(7, "KWP2000_BMW", 5).unwrap();
+        let first = broker.record_identity_receive(
+            7, "KWP2000_BMW", 4,
+            "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
+        ).unwrap();
+        let second = broker.record_identity_receive(
+            7, "KWP2000_BMW", 5,
+            "PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021"
+        ).unwrap();
         assert_eq!(first, second);
         let active = broker.snapshot();
         assert_eq!(active.active_receive_receipt, Some(first));
@@ -468,8 +516,13 @@ mod tests {
         assert_eq!(done.stage, "BROKER_IDLE");
         assert_eq!(done.evidenced_attempt_count, 1);
         assert_eq!(done.evidenced_attempts.len(), 1);
+        assert_eq!(done.evidenced_attempts[0].operation_id, "e39-dme-me72-module-identity");
         assert_eq!(done.evidenced_attempts[0].request_id, "broker-request-receipt");
         assert_eq!(done.evidenced_attempts[0].native_receive_receipt, first);
+        assert_eq!(
+            done.evidenced_attempts[0].native_identity_fingerprint.as_deref(),
+            Some("PN7506366-HW0F-CI01-DIA8-BI60-BW08-BY00-SP001021")
+        );
         assert_eq!(done.active_receive_receipt, None);
         assert_eq!(done.active_received_bytes, 0);
     }
