@@ -58,8 +58,8 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     const expected = Buffer.from(token);
     return provided.length === expected.length && timingSafeEqual(provided, expected);
   };
-  const currentStatus = async () => {
-    const ports = (await serial.list()).filter(validPort);
+  const currentStatus = async (knownPorts = null) => {
+    const ports = Array.isArray(knownPorts) ? knownPorts.filter(validPort) : (await serial.list()).filter(validPort);
     const selectedPort = selected !== null ? ports.find(p => p.path === selected) || null : null;
     const detected = selectedPort !== null;
     if (!detected && selected !== null && active?.isOpen) {
@@ -134,8 +134,9 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
       });
       if (req.method === 'GET' && route === '/v1/status') return json(res, 200, await currentStatus());
       if (req.method === 'GET' && route === '/v1/readiness') {
-        const ports = (await serial.list()).filter(validPort).map(safePort);
-        const status = await currentStatus();
+        const enumerated = (await serial.list()).filter(validPort);
+        const status = await currentStatus(enumerated);
+        const ports = enumerated.map(safePort);
         return json(res, 200, {
           version: 1,
           readOnly: true,
