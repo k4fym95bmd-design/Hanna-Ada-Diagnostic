@@ -17,6 +17,11 @@ test('Desktop PRO panel is wired into the canonical VCI shell without raw TX', a
   assert.match(panel, /read-only-request-registry/);
   assert.match(panel, /TrustedCorrelationSession/);
   assert.match(panel, /validateTrustedIdentityCandidateEvent/);
+  assert.match(panel, /prepareDesktopReadOnlyRequest/);
+  assert.match(panel, /consumeDesktopReadOnlyRequest/);
+  assert.match(panel, /cancelDesktopReadOnlyRequest/);
+  assert.match(panel, /attestDesktopIdentityContext/);
+  assert.match(panel, /finalizeReadOnlyIdentity/);
   assert.match(panel, /PLAN IDENTITY/);
   assert.match(panel, /hannaada:trusted-identity-candidate/);
   assert.match(panel, /confirmations.*\/2/);
@@ -52,7 +57,9 @@ test('trusted identity UI has no manual identity override or TX material field',
   assert.doesNotMatch(panel, /data-desktop-pro-module-identity/);
   assert.doesNotMatch(panel, /<input[^>]+moduleIdentity/i);
   assert.doesNotMatch(panel, /requestBytes|txBytes|rawTx/);
-  assert.match(panel, /READ_ONLY_IDENTITY_VERIFIED 2\/2/);
+  assert.match(panel, /REPEATED_CORRELATED_IDENTITY_CANDIDATE/);
+  assert.match(panel, /LOCAL ATTEST/);
+  assert.match(panel, /READ_ONLY_IDENTITY_VERIFIED po native attestation/);
   assert.match(panel, /ECU\/write\/flash nadal zablokowane/);
 });
 
@@ -62,4 +69,15 @@ test('native open is gated to a USB candidate and canonical evidence is visible'
   assert.match(panel, /evidence \$\{snap\?\.evidenceStage \|\| 'NO_CABLE'\}/);
   assert.match(panel, /boundClosed = stage === 'USB_CANDIDATE_BOUND' && snap\?\.kind === 'usb'/);
   assert.doesNotMatch(panel, /\['USB_CANDIDATE_BOUND','SERIAL_CANDIDATE_BOUND'\]\.includes\(stage\)/);
+});
+
+
+test('native broker and attestation are required before final identity', async () => {
+  const panel = await readFile(new URL('../public/desktop-pro-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /state\.brokerSnapshot = await prepareDesktopReadOnlyRequest/);
+  assert.match(panel, /await consumeDesktopReadOnlyRequest\(plan\.epoch, plan\.requestId/);
+  assert.match(panel, /data-desktop-pro-action="cancel-identity"/);
+  assert.match(panel, /data-desktop-pro-action="attest-identity"/);
+  assert.match(panel, /finalizeReadOnlyIdentity\(\{/);
+  assert.doesNotMatch(panel, /identityVerified\s*=\s*true/);
 });
