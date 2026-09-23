@@ -29,3 +29,35 @@ test('WebUSB discovery uses a user click and never sends a USB or ECU command', 
     assert.doesNotMatch(module, /\.claimInterface\s*\(/);
   }
 });
+
+
+test('WebUSB reset invalidates in-flight discovery instead of accepting stale completion', () => {
+  assert.match(ui, /let sessionEpoch = 0/);
+  assert.match(ui, /let operationSerial = 0/);
+  assert.match(ui, /let activeOperation = 0/);
+  assert.match(ui, /function operationCurrent\(operation, ownerEpoch\)/);
+  assert.match(ui, /sessionEpoch === ownerEpoch/);
+  assert.match(ui, /function invalidateUsbSession\(\)/);
+  assert.match(ui, /sessionEpoch\+\+/);
+  assert.match(ui, /activeOperation = 0/);
+});
+
+test('WebUSB chooser and probe discard stale async results', () => {
+  assert.match(ui, /const ownerEpoch = \+\+sessionEpoch/);
+  assert.match(ui, /if \(!operationCurrent\(operation, ownerEpoch\)\) return/);
+  assert.match(ui, /const device = chosenDevice/);
+  assert.match(ui, /chosenDevice !== device/);
+  assert.match(ui, /finally \{ finishOperation\(operation\); \}/);
+});
+
+test('WebUSB reset remains available as cancellation while an operation is pending', () => {
+  assert.match(ui, /data-webusb-reset/);
+  assert.match(ui, /disabled = !chosenDevice && !inProgress/);
+  assert.doesNotMatch(ui, /function reset\(\) \{\s*if \(inProgress\) return/);
+});
+
+test('WebUSB physical disconnect invalidates the current discovery epoch', () => {
+  assert.match(ui, /navigator\.usb\?\.addEventListener\?\.\('disconnect'/);
+  assert.match(ui, /event\.device === chosenDevice/);
+  assert.match(ui, /invalidateUsbSession\(\)/);
+});
