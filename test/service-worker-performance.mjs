@@ -194,3 +194,14 @@ test('main diagnostic trace keeps a fixed memory budget', () => {
   assert.match(app, /state\.trace\.splice\(0,state\.trace\.length-TRACE_LIMIT\)/);
   assert.match(app, /appendTrace\('SYS  UI simulation only/);
 });
+
+
+test('tuning card renderer is split out of the critical app bundle', () => {
+  const tuningView = readFileSync(new URL('../public/tuning-view.js', import.meta.url), 'utf8');
+  assert.match(app, /import\('\/tuning-view\.js'\)/);
+  assert.match(bootstrap, /'\/tuning-view\.js'/);
+  assert.match(sw, /'\/tuning-view\.js'/);
+  assert.match(tuningView, /export function renderTuningBody/);
+  assert.match(tuningView, /IDENTIFY ECU FIRST/);
+  assert.doesNotMatch(app, /<article class="product/);
+});
