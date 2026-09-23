@@ -1,3 +1,5 @@
+mod desktop_serial_inventory;
+
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -49,6 +51,11 @@ fn desktop_host_status() -> HostStatus {
 }
 
 #[tauri::command]
+fn desktop_list_serial_ports() -> Result<Vec<desktop_serial_inventory::DesktopSerialCandidate>, String> {
+    desktop_serial_inventory::list_sanitized_ports()
+}
+
+#[tauri::command]
 fn desktop_safety_policy() -> SafetyPolicy {
     SafetyPolicy {
         version: 1,
@@ -69,6 +76,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             desktop_host_status,
+            desktop_list_serial_ports,
             desktop_safety_policy
         ])
         .run(tauri::generate_context!())
