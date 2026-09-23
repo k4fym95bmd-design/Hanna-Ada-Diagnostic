@@ -1,6 +1,8 @@
 // Metadata-only registry of read-only diagnostic operations.
 // No raw request bytes are stored or exposed here.
 export const READONLY_REQUEST_REGISTRY_VERSION = 1;
+const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
+const FORBIDDEN_PLAN_KEYS = Object.freeze(['bytes','payload','command','requestBytes','rawTx','rawCommand']);
 
 const entries = Object.freeze([
   Object.freeze({
@@ -57,7 +59,7 @@ export function getReadOnlyRequest(id) {
 export function instantiateReadOnlyRequest(id, { epoch, requestId } = {}) {
   const entry = getReadOnlyRequest(id);
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new TypeError('Invalid request epoch');
-  if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 128) {
+  if (typeof requestId !== 'string' || !REQUEST_ID_RE.test(requestId)) {
     throw new TypeError('Invalid request id');
   }
 
@@ -75,6 +77,7 @@ export function instantiateReadOnlyRequest(id, { epoch, requestId } = {}) {
     expectedDirection: entry.expectedDirection,
     requestMaterial: entry.requestMaterial,
     requiresConfiguredTransport: true,
+    requiresEpochBinding: true,
     requiresRequestCorrelation: true,
     txBytesExposed: false,
     writeLike: false,
@@ -88,11 +91,11 @@ export function validateReadOnlyRequestPlan(value) {
       || value.registryVersion !== READONLY_REQUEST_REGISTRY_VERSION
       || typeof value.operationId !== 'string'
       || !Number.isSafeInteger(value.epoch) || value.epoch < 1
-      || typeof value.requestId !== 'string'
-      || value.requestId.length < 8 || value.requestId.length > 128
+      || typeof value.requestId !== 'string' || !REQUEST_ID_RE.test(value.requestId)
       || !['DS2', 'KWP2000_BMW'].includes(value.protocol)
       || value.operation !== 'MODULE_IDENTITY'
       || value.requiresConfiguredTransport !== true
+      || value.requiresEpochBinding !== true
       || value.requiresRequestCorrelation !== true
       || value.txBytesExposed !== false
       || value.writeLike !== false
@@ -101,12 +104,30 @@ export function validateReadOnlyRequestPlan(value) {
     throw new TypeError('Invalid read-only request plan');
   }
 
+  for (const key of FORBIDDEN_PLAN_KEYS) {
+    if (key in value) throw new TypeError('Read-only request plan contains forbidden material');
+  }
+
   const canonical = getReadOnlyRequest(value.operationId);
-  if (canonical.protocol !== value.protocol
-      || canonical.moduleFamily !== value.moduleFamily
-      || canonical.maxResponseBytes !== value.maxResponseBytes
-      || canonical.timeoutMs !== value.timeoutMs) {
+  const exactFields = [
+    'vehicleFamily',
+    'moduleFamily',
+    'protocol',
+    'operation',
+    'timeoutMs',
+    'maxResponseBytes',
+    'expectedDirection',
+    'requestMaterial',
+    'requiresConfiguredTransport',
+    'requiresEpochBinding',
+    'requiresRequestCorrelation',
+    'txBytesExposed',
+    'writeLike',
+    'ecuVerified',
+    'writesEnabled',
+  ];
+  if (exactFields.some(key => canonical[key] !== value[key])) {
     throw new TypeError('Read-only request plan diverged from registry');
   }
-  return value;
+  return Object.freeze({ ...value });
 }
