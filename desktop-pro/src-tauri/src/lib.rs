@@ -113,17 +113,52 @@ fn desktop_open_configured_port(
     native: State<'_, Mutex<desktop_native_serial::DesktopNativeSerialState>>,
     attestation: State<'_, Mutex<desktop_local_attestation::DesktopLocalAttestationState>>,
 ) -> Result<desktop_transport_coordinator::DesktopTransportSnapshot, String> {
+    // Phase 1: snapshot the bound candidate and release coordinator before blocking OS open().
+    let bound = {
+        let coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
+        let snapshot = coordinator.snapshot();
+        if snapshot.epoch != epoch || snapshot.transport_open || snapshot.configured {
+            return Err("transport_not_ready_for_open".into());
+        }
+        snapshot
+    };
+    {
+        let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
+        attestation.reset_authority();
+    }
+
+    // Phase 2: only the native serial mutex is held across serialport::open/configure.
+    let native_open = {
+        let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+        native.open_configured(&bound, epoch, &protocol, baud_rate)
+    };
+    native_open?;
+
+    // Phase 3: canonical revalidation before coordinator promotion.
     let mut coordinator = state.lock().map_err(|_| "transport_state_poisoned".to_string())?;
-    let bound = coordinator.snapshot();
+    let current = coordinator.snapshot();
     let mut native = native.lock().map_err(|_| "native_serial_state_poisoned".to_string())?;
+    let native_snapshot = native.snapshot();
     let mut attestation = attestation.lock().map_err(|_| "local_attestation_state_poisoned".to_string())?;
-    attestation.reset_authority();
-    native.open_configured(&bound, epoch, &protocol, baud_rate)?;
+
+    if current.epoch != epoch || current.transport_open || current.configured
+        || native_snapshot.epoch != epoch || !native_snapshot.transport_open
+        || !native_snapshot.configured || native_snapshot.protocol != Some(protocol.as_str()) {
+        if native_snapshot.epoch == epoch {
+            native.close_any();
+        }
+        attestation.reset_authority();
+        return Err("transport_changed_during_open".into());
+    }
+
     match coordinator.mark_open_configured(epoch) {
         Ok(snapshot) => Ok(snapshot),
         Err(error) => {
             // Never leave a native handle open if coordinator promotion fails.
-            native.close_any();
+            if native.snapshot().epoch == epoch {
+                native.close_any();
+            }
+            attestation.reset_authority();
             Err(error)
         }
     }
