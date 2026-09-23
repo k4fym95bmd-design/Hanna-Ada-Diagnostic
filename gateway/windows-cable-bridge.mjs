@@ -11,6 +11,8 @@ import { KdcanReadonlySession } from './kdcan-readonly-session.mjs';
 import { buildCableTelemetry } from './cable-session-health.mjs';
 
 const MAX_BODY = 2048;
+// Process-local salt keeps hardware correlation useful during one run without creating a stable cross-run identifier.
+const FINGERPRINT_SALT = randomBytes(32);
 const SERIAL_OPEN_OPTIONS = Object.freeze({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
 export const SERIAL_OPEN_PROBE = Object.freeze({
   ...SERIAL_OPEN_OPTIONS,
@@ -25,7 +27,7 @@ const portFingerprint = p => {
     .join('|');
   if (!privateParts) return null;
   const scoped = [p?.vendorId || '', p?.productId || '', privateParts].join('|');
-  return createHash('sha256').update(scoped).digest('hex').slice(0, 24);
+  return createHash('sha256').update(FINGERPRINT_SALT).update(scoped).digest('hex').slice(0, 24);
 };
 const safePort = p => ({
   path: p.path,
@@ -82,19 +84,26 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     if (opened && kdcanSession && sessionId) {
       const vendorId = usbNumber(selectedPort?.vendorId);
       const productId = usbNumber(selectedPort?.productId);
-      if (vendorId != null && productId != null) {
-        try {
-          kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected, hardwareFingerprint: portFingerprint(selectedPort) });
-          cableBinding = kdcanSession.snapshot();
-        } catch {
-          invalidateActiveSession();
-          return {
-            version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
-            selectedPath: null, sessionId: null, cableBinding: null,
-            ecuVerified: false, writesEnabled: false, flashEnabled: false,
-            message: 'Tożsamość kabla lub świeżość sesji zmieniła się. Port zamknięto i sesję unieważniono.'
-          };
-        }
+      if (vendorId == null || productId == null) {
+        invalidateActiveSession();
+        return {
+          version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+          selectedPath: null, sessionId: null, cableBinding: null,
+          ecuVerified: false, writesEnabled: false, flashEnabled: false,
+          message: 'Zniknęły dane VID:PID aktywnego kabla. Sesję unieważniono.'
+        };
+      }
+      try {
+        kdcanSession.markPresent({ sessionId, vendorId, productId, portPath: selected, hardwareFingerprint: portFingerprint(selectedPort) });
+        cableBinding = kdcanSession.snapshot();
+      } catch {
+        invalidateActiveSession();
+        return {
+          version: 1, transport: 'physical-vci', cableDetected: false, portOpen: false,
+          selectedPath: null, sessionId: null, cableBinding: null,
+          ecuVerified: false, writesEnabled: false, flashEnabled: false,
+          message: 'Tożsamość kabla lub świeżość sesji zmieniła się. Port zamknięto i sesję unieważniono.'
+        };
       }
     }
     return { version: 1, transport: 'physical-vci', cableDetected: detected, portOpen: opened,
@@ -238,7 +247,7 @@ export function createCableBridge({ serial, token, allowedOrigin, host = '127.0.
     }
   };
   const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
-  server.on('close', () => { clearRx(); kdcanSession = null; try { if (active?.isOpen) active.close(); } catch {} });
+  server.on('close', () => invalidateActiveSession());
   return { server, host, getStatus: currentStatus };
 }
 
