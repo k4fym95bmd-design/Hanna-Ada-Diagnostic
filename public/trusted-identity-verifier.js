@@ -11,6 +11,8 @@ export class TrustedIdentityVerifier {
   #seenRequestIds = new Set();
   #acceptedIdentity = null;
   #confirmations = 0;
+  #confirmedRequestIds = [];
+  #confirmedNativeReceipts = [];
 
   constructor({ epoch, operationId, protocol, moduleFamily } = {}) {
     if (!Number.isSafeInteger(epoch) || epoch < 1) throw new TypeError('Invalid verifier epoch');
@@ -72,15 +74,27 @@ export class TrustedIdentityVerifier {
       });
     }
 
+    const nativeReceipt = receiveEvidence?.nativeReadReceipt;
+    if (!Number.isSafeInteger(nativeReceipt) || nativeReceipt < 1) {
+      return blocked('NATIVE_RECEIPT_REQUIRED', this.#confirmations);
+    }
+    if (this.#confirmedNativeReceipts.includes(nativeReceipt)) {
+      return blocked('NATIVE_RECEIPT_REPLAY_REJECTED', this.#confirmations);
+    }
+
     if (this.#acceptedIdentity === null) {
       this.#acceptedIdentity = candidate.moduleIdentity;
       this.#confirmations = 1;
+      this.#confirmedRequestIds.push(plan.requestId);
+      this.#confirmedNativeReceipts.push(nativeReceipt);
       return Object.freeze({
         correlated: true,
         moduleIdentityEligible: true,
         stage: 'IDENTITY_CONFIRMATION_REQUIRED',
         moduleIdentity: this.#acceptedIdentity,
         confirmations: 1,
+        confirmedRequestIds: Object.freeze([...this.#confirmedRequestIds]),
+        confirmedNativeReceipts: Object.freeze([...this.#confirmedNativeReceipts]),
         repeatCandidateReady: false,
         localAttestationRequired: true,
         identityVerified: false,
@@ -93,6 +107,8 @@ export class TrustedIdentityVerifier {
     if (candidate.moduleIdentity !== this.#acceptedIdentity) {
       this.#acceptedIdentity = null;
       this.#confirmations = 0;
+      this.#confirmedRequestIds = [];
+      this.#confirmedNativeReceipts = [];
       return Object.freeze({
         correlated: true,
         moduleIdentityEligible: false,
@@ -109,6 +125,8 @@ export class TrustedIdentityVerifier {
     }
 
     this.#confirmations += 1;
+    this.#confirmedRequestIds.push(plan.requestId);
+    this.#confirmedNativeReceipts.push(nativeReceipt);
     const repeatCandidateReady = this.#confirmations >= 2;
     return Object.freeze({
       correlated: true,
@@ -116,6 +134,8 @@ export class TrustedIdentityVerifier {
       stage: repeatCandidateReady ? 'REPEATED_CORRELATED_IDENTITY_CANDIDATE' : 'IDENTITY_CONFIRMATION_REQUIRED',
       moduleIdentity: this.#acceptedIdentity,
       confirmations: this.#confirmations,
+      confirmedRequestIds: Object.freeze([...this.#confirmedRequestIds]),
+      confirmedNativeReceipts: Object.freeze([...this.#confirmedNativeReceipts]),
       repeatCandidateReady,
       localAttestationRequired: true,
       identityVerified: false,
@@ -133,6 +153,8 @@ export class TrustedIdentityVerifier {
       moduleFamily: this.#moduleFamily,
       confirmations: this.#confirmations,
       moduleIdentity: this.#acceptedIdentity,
+      confirmedRequestIds: Object.freeze([...this.#confirmedRequestIds]),
+      confirmedNativeReceipts: Object.freeze([...this.#confirmedNativeReceipts]),
       attemptCount: this.#seenRequestIds.size,
       maxAttempts: MAX_VERIFIER_ATTEMPTS,
       repeatCandidateReady: this.#confirmations >= 2,
@@ -148,6 +170,8 @@ export class TrustedIdentityVerifier {
     this.#seenRequestIds.clear();
     this.#acceptedIdentity = null;
     this.#confirmations = 0;
+    this.#confirmedRequestIds = [];
+    this.#confirmedNativeReceipts = [];
   }
 }
 
