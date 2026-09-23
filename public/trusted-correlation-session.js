@@ -25,8 +25,8 @@ export class TrustedCorrelationSession {
   }
 
   prepareAttempt(requestId) {
-    if (this.#verifier.snapshot().identityVerified) {
-      throw new TypeError('Identity already verified for this session');
+    if (this.#verifier.snapshot().repeatCandidateReady) {
+      throw new TypeError('Repeated identity candidate already collected; local attestation is required');
     }
     if (this.#activePlan) throw new TypeError('Request token already active');
     if (typeof requestId !== 'string' || requestId.length < 8 || requestId.length > 128) {
@@ -93,7 +93,9 @@ export class TrustedCorrelationSession {
       activeRequestId: this.#activePlan?.requestId || null,
       confirmations: verifier.confirmations,
       moduleIdentity: verifier.moduleIdentity,
-      identityVerified: verifier.identityVerified,
+      repeatCandidateReady: verifier.repeatCandidateReady,
+      localAttestationRequired: true,
+      identityVerified: false,
       txBytesExposed: false,
       writeLike: false,
       ecuVerified: false,
