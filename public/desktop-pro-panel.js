@@ -200,7 +200,7 @@ function render(panel) {
 
   const outputStatus = state.outputStatus;
   panel.querySelector('[data-desktop-pro-output-status]').textContent = outputStatus
-    ? `Output status #${state.outputStatusSequence} · fuel pump ${outputStatus.fuelPump ? 'ON' : 'OFF'} · fan ${outputStatus.electricFan ? 'ON' : 'OFF'} · thermostat ${outputStatus.thermostat ? 'ON' : 'OFF'} · secondary air ${outputStatus.secondaryAirPump ? 'ON' : 'OFF'} · leak pump ${outputStatus.leakDiagnosticPump ? 'ON' : 'OFF'} · O2 heaters ${[outputStatus.oxygenHeaterBeforeBank1,outputStatus.oxygenHeaterBeforeBank2,outputStatus.oxygenHeaterAfterBank1,outputStatus.oxygenHeaterAfterBank2].filter(Boolean).length}/4`
+    ? `Output status #${state.outputStatusSequence} · fuel pump ${outputStatus.fuelPump ? 'ON' : 'OFF'} · fan ${outputStatus.electricFan ? 'ON' : 'OFF'} · thermostat ${outputStatus.thermostat ? 'ON' : 'OFF'} · secondary-air valve ${outputStatus.secondaryAirValve ? 'ON' : 'OFF'} · pump ${outputStatus.secondaryAirPump ? 'ON' : 'OFF'} · leak pump ${outputStatus.leakDiagnosticPump ? 'ON' : 'OFF'} · O2 pre ${[outputStatus.oxygenHeaterBeforeBank1,outputStatus.oxygenHeaterBeforeBank2].filter(Boolean).length}/2 · post raw 0x40=${outputStatus.postCatHeaterBit40 ? 1 : 0} 0x80=${outputStatus.postCatHeaterBit80 ? 1 : 0} · post-bank map CONFLICT`
     : finalized
       ? 'Output status 0x4005: gotowy do pojedynczego read-only odczytu.'
       : 'Output status 0x4005: zablokowany do READ_ONLY_IDENTITY_VERIFIED.';
