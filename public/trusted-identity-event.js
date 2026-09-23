@@ -73,6 +73,9 @@ export function validateTrustedIdentityCandidateEvent(value, {
   }
 
   const expectedFrames = expectedFrameHexes.map(frame => frame.toUpperCase());
+  if (evidence.frames.length !== expectedFrames.length) {
+    throw new TypeError('Trusted identity event frame provenance mismatch');
+  }
   const frames = evidence.frames.map((frame, index) => {
     if (!frame || typeof frame !== 'object' || Array.isArray(frame)) {
       throw new TypeError('Invalid trusted receive frame');
