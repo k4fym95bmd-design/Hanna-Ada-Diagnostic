@@ -77,3 +77,25 @@ test('invalid selector metadata is rejected instead of being guessed', () => {
   const s = new KdcanReadonlySession();
   assert.throws(() => s.begin({ sessionId, vendorId: 0x0403, productId: 0x6001, selectorPosition: 'pins-7-8' }), /selector/i);
 });
+
+
+test('hardware fingerprint cannot change inside one K+DCAN session', () => {
+  const s = new KdcanReadonlySession();
+  s.begin({
+    sessionId, vendorId:0x0403, productId:0x6001, portPath:'COM7',
+    hardwareFingerprint:'111111111111111111111111'
+  });
+  assert.throws(() => s.markPresent({
+    sessionId, vendorId:0x0403, productId:0x6001, portPath:'COM7',
+    hardwareFingerprint:'222222222222222222222222'
+  }), /fingerprint/i);
+  assert.equal(s.snapshot().ecuVerified, false);
+});
+
+test('raw or malformed hardware identifiers are rejected', () => {
+  const s = new KdcanReadonlySession();
+  assert.throws(() => s.begin({
+    sessionId, vendorId:0x0403, productId:0x6001,
+    hardwareFingerprint:'USB\\VID_0403&PID_6001\\secret-serial'
+  }), /fingerprint/i);
+});
