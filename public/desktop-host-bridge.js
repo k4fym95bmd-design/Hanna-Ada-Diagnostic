@@ -518,8 +518,15 @@ export function validateDesktopLocalIdentityAttestation(value) {
       || value.brokerEvidencedAttempts.length !== value.brokerEvidencedAttemptCount
       || value.brokerEvidencedAttempts.some(item =>
         !item || typeof item !== 'object'
+        || typeof item.operationId !== 'string'
+        || !['e39-dme-me72-module-identity','e39-legacy-module-identity'].includes(item.operationId)
         || typeof item.requestId !== 'string'
         || !/^[A-Za-z0-9._:-]{8,64}$/.test(item.requestId)
+        || (item.nativeIdentityFingerprint !== null
+            && (typeof item.nativeIdentityFingerprint !== 'string'
+              || !/^[A-Za-z0-9._:-]{8,128}$/.test(item.nativeIdentityFingerprint)))
+        || (item.operationId === 'e39-dme-me72-module-identity'
+            && item.nativeIdentityFingerprint === null)
         || !Number.isSafeInteger(item.nativeReceiveReceipt)
         || item.nativeReceiveReceipt < 1)
       || (value.nativeIdentityFingerprint !== null
@@ -537,13 +544,25 @@ export function validateDesktopLocalIdentityAttestation(value) {
   }
   const brokerEvidencedAttempts = Object.freeze(
     value.brokerEvidencedAttempts.map(item => Object.freeze({
+      operationId: item.operationId,
       requestId: item.requestId,
       nativeReceiveReceipt: item.nativeReceiveReceipt,
+      nativeIdentityFingerprint: item.nativeIdentityFingerprint,
     }))
   );
   if (new Set(brokerEvidencedAttempts.map(item => item.requestId)).size !== brokerEvidencedAttempts.length
       || new Set(brokerEvidencedAttempts.map(item => item.nativeReceiveReceipt)).size !== brokerEvidencedAttempts.length) {
     throw new TypeError('Duplicate desktop local identity attestation ledger');
+  }
+  if (value.protocol === 'KWP2000_BMW') {
+    const me72Attempts = brokerEvidencedAttempts.filter(
+      item => item.operationId === 'e39-dme-me72-module-identity'
+    );
+    if (me72Attempts.length < 2
+        || me72Attempts.some(item =>
+          item.nativeIdentityFingerprint !== value.nativeIdentityFingerprint)) {
+      throw new TypeError('Native identity attestation ledger fingerprint mismatch');
+    }
   }
   return Object.freeze({ ...value, brokerEvidencedAttempts });
 }
