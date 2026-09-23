@@ -31,6 +31,7 @@ const attestation = () => ({
   transportConfigured: true,
   brokerIdle: true,
   brokerAttemptCount: 2,
+  brokerEvidencedAttemptCount: 2,
   rawSerialWriteExposed: false,
   identityVerified: false,
   ecuVerified: false,
@@ -77,4 +78,13 @@ test('one confirmation can never be finalized', () => {
     correlationSnapshot: { ...correlation(), confirmations: 1, repeatCandidateReady: false },
     localAttestation: attestation(),
   }), /candidate required/i);
+});
+
+
+test('attestation rejects planned-but-not-evidenced attempts', () => {
+  assert.throws(() => validateDesktopLocalAttestation({
+    ...attestation(),
+    brokerAttemptCount: 2,
+    brokerEvidencedAttemptCount: 1,
+  }), /invalid/i);
 });
