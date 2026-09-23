@@ -33,19 +33,27 @@ test('native identity authority is reset on transport lifecycle changes', async 
 });
 
 
-test('roughness provenance failure is fail-closed after RX', async () => {
+test('shared ME7.2 live-data helper owns provenance fail-close and lease release', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
-  const roughness = source.slice(
-    source.indexOf('fn desktop_execute_me72_roughness'),
-    source.indexOf('fn desktop_consume_readonly_request')
+  const helper = source.slice(
+    source.indexOf('fn execute_attested_me72_readonly'),
+    source.indexOf('#[tauri::command]\nfn desktop_execute_me72_roughness')
   );
-  assert.doesNotMatch(roughness, /record_me72_readonly_sample\(epoch\)\?/);
+  assert.match(helper,/begin_readonly_sample\(epoch\)/);
+  assert.match(helper,/readonly_sample_active/);
+  assert.match(helper,/transport_changed_after_io/);
+  assert.match(helper,/readonly_sample_lease_lost/);
+  assert.match(helper,/readonly_profile_mismatch/);
+  assert.doesNotMatch(helper,/record_me72_readonly_sample\(epoch\)\?/);
   assert.match(
-    roughness,
-    /record_me72_readonly_sample\(epoch\)[\s\S]*Err\(error\)[\s\S]*native\.close_any\(\)[\s\S]*coordinator\.mark_closed\(epoch\)[\s\S]*broker\.reset\(epoch\)[\s\S]*attestation\.reset_authority\(\)[\s\S]*return Err\(error\)/
+    helper,
+    /record_me72_readonly_sample\(epoch\)[\s\S]*Err\(error\)[\s\S]*native\.close_any\(\)[\s\S]*broker\.reset\(epoch\)[\s\S]*attestation\.reset_authority\(\)/
+  );
+  assert.match(
+    helper,
+    /if let Err\(error\) = attestation\.authorize_me72_readonly\(epoch\)[\s\S]*finish_readonly_sample\(epoch\)[\s\S]*return Err\(error\)/
   );
 });
-
 
 test('Desktop PRO hot RX loops reuse fixed stack scratch buffers', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/desktop_native_serial.rs', import.meta.url), 'utf8');
@@ -56,52 +64,50 @@ test('Desktop PRO hot RX loops reuse fixed stack scratch buffers', async () => {
 });
 
 
-test('Desktop PRO identity and roughness split preflight from physical serial I/O', async () => {
+test('Desktop PRO identity and shared live-data helper split preflight from physical serial I/O', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
   const identity = source.slice(
     source.indexOf('fn desktop_execute_me72_identity'),
-    source.indexOf('fn desktop_execute_me72_roughness')
+    source.indexOf('enum Me72ReadonlyOperation')
   );
-  const roughness = source.slice(
-    source.indexOf('fn desktop_execute_me72_roughness'),
-    source.indexOf('fn desktop_consume_readonly_request')
+  const helper = source.slice(
+    source.indexOf('fn execute_attested_me72_readonly'),
+    source.indexOf('#[tauri::command]\nfn desktop_execute_me72_roughness')
   );
 
-  assert.match(identity, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
-  assert.match(roughness, /Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+  assert.match(identity,/Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
+  assert.match(helper,/Phase 1:[\s\S]*Phase 2:[\s\S]*Phase 3:/);
 
-  const identityIo = identity.slice(identity.indexOf('// Phase 2:'), identity.indexOf('// Phase 3:'));
-  const roughnessIo = roughness.slice(roughness.indexOf('// Phase 2:'), roughness.indexOf('// Phase 3:'));
+  const identityIo=identity.slice(identity.indexOf('// Phase 2:'),identity.indexOf('// Phase 3:'));
+  const helperIo=helper.slice(helper.indexOf('// Phase 2:'),helper.indexOf('// Phase 3:'));
 
-  assert.match(identityIo, /native\.lock\(\)/);
-  assert.doesNotMatch(identityIo, /state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
-
-  assert.match(roughnessIo, /native\.lock\(\)/);
-  assert.doesNotMatch(roughnessIo, /state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
+  assert.match(identityIo,/native\.lock\(\)/);
+  assert.doesNotMatch(identityIo,/state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
+  assert.match(helperIo,/native\.lock\(\)/);
+  assert.doesNotMatch(helperIo,/state\.lock\(\)|broker\.lock\(\)|attestation\.lock\(\)/);
 });
 
-test('Desktop PRO revalidates transport and request authority after serial I/O', async () => {
+test('Desktop PRO revalidates identity and shared live-data authority after serial I/O', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
   const identity = source.slice(
     source.indexOf('fn desktop_execute_me72_identity'),
-    source.indexOf('fn desktop_execute_me72_roughness')
+    source.indexOf('enum Me72ReadonlyOperation')
   );
-  const roughness = source.slice(
-    source.indexOf('fn desktop_execute_me72_roughness'),
-    source.indexOf('fn desktop_consume_readonly_request')
+  const helper = source.slice(
+    source.indexOf('fn execute_attested_me72_readonly'),
+    source.indexOf('#[tauri::command]\nfn desktop_execute_me72_roughness')
   );
 
-  for (const command of [identity, roughness]) {
-    assert.match(command, /transport\.epoch != epoch/);
-    assert.match(command, /native_snapshot\.epoch != epoch/);
-    assert.match(command, /!native_snapshot\.transport_open/);
-    assert.match(command, /native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
-    assert.match(command, /transport_changed_after_io/);
+  for(const block of [identity,helper]){
+    assert.match(block,/transport\.epoch != epoch/);
+    assert.match(block,/native_snapshot\.epoch != epoch/);
+    assert.match(block,/!native_snapshot\.transport_open/);
+    assert.match(block,/native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
+    assert.match(block,/transport_changed_after_io/);
   }
-
-  assert.ok((identity.match(/authorize_native_execution\(/g) || []).length >= 2);
-  assert.match(roughness, /readonly_sample_active/);
-  assert.match(roughness, /authorize_me72_readonly\(epoch\)/);
+  assert.ok((identity.match(/authorize_native_execution\(/g)||[]).length>=2);
+  assert.match(helper,/readonly_sample_active/);
+  assert.ok((helper.match(/authorize_me72_readonly\(epoch\)/g)||[]).length>=2);
 });
 
 test('Desktop broker lease blocks request prepare while roughness sample is in flight', async () => {
@@ -168,33 +174,39 @@ test('Desktop serial open revalidates epoch and native protocol before promotion
 });
 
 
-test('engine and fuel samples use broker lease and post-I/O revalidation', async () => {
+test('all named ME7.2 live-data commands delegate to fixed internal enum variants', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
-  for (const [startName,endName] of [
-    ['fn desktop_execute_me72_engine_snapshot','fn desktop_execute_me72_fuel_adaptation'],
-    ['fn desktop_execute_me72_fuel_adaptation','fn desktop_consume_readonly_request'],
-  ]) {
-    const block = source.slice(source.indexOf(startName), source.indexOf(endName));
-    assert.match(block,/begin_readonly_sample\(epoch\)/);
-    assert.match(block,/readonly_sample_active/);
-    assert.match(block,/native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
-    assert.match(block,/authorize_me72_readonly\(epoch\)/);
-    assert.match(block,/finish_readonly_sample\(epoch\)/);
-    assert.doesNotMatch(block,/raw_write|request_bytes|payload:/i);
+  const expected=[
+    ['desktop_execute_me72_roughness','Roughness'],
+    ['desktop_execute_me72_engine_snapshot','EngineSnapshot'],
+    ['desktop_execute_me72_fuel_adaptation','FuelAdaptation'],
+    ['desktop_execute_me72_readiness','Readiness'],
+  ];
+  for(const [name,variant] of expected){
+    const start=source.indexOf(`fn ${name}`);
+    const next=source.indexOf('#[tauri::command]',start+5);
+    const block=source.slice(start,next<0?source.length:next);
+    assert.match(block,new RegExp(`execute_attested_me72_readonly\\([\\s\\S]*Me72ReadonlyOperation::${variant}`));
+    assert.doesNotMatch(block,/begin_readonly_sample|raw_write|request_bytes|payload:/i);
   }
+  assert.doesNotMatch(source,/#\[tauri::command\][\s\S]{0,80}fn desktop_execute_me72_readonly/);
 });
 
-
-test('readiness sample uses broker lease and post-I/O revalidation', async () => {
+test('ME7.2 internal operation enum maps only the four named read-only profiles', async () => {
   const source = await readFile(new URL('../desktop-pro/src-tauri/src/lib.rs', import.meta.url), 'utf8');
-  const block = source.slice(
-    source.indexOf('fn desktop_execute_me72_readiness'),
-    source.indexOf('fn desktop_consume_readonly_request')
+  const enumBlock=source.slice(
+    source.indexOf('enum Me72ReadonlyOperation'),
+    source.indexOf('fn execute_attested_me72_readonly')
   );
-  assert.match(block,/begin_readonly_sample\(epoch\)/);
-  assert.match(block,/readonly_sample_active/);
-  assert.match(block,/native_snapshot\.protocol != Some\("KWP2000_BMW"\)/);
-  assert.match(block,/authorize_me72_readonly\(epoch\)/);
-  assert.match(block,/finish_readonly_sample\(epoch\)/);
-  assert.doesNotMatch(block,/raw_write|request_bytes|payload:/i);
+  for(const token of [
+    'Roughness',
+    'EngineSnapshot',
+    'FuelAdaptation',
+    'Readiness',
+    'e39-me72-roughness-4003',
+    'e39-me72-engine-snapshot-4000',
+    'e39-me72-fuel-adaptation-4004',
+    'e39-me72-readiness-4007',
+  ]) assert.match(enumBlock,new RegExp(token));
+  assert.doesNotMatch(enumBlock,/payload|request_bytes|raw_write|did\s*:/i);
 });
