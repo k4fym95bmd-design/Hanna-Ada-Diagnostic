@@ -8,6 +8,7 @@ const PID = Object.freeze({
 const FAST = Object.freeze(['rpm', 'coolant']);
 const SLOW = Object.freeze(['maf', 'throttle', 'stft1', 'ltft1', 'stft2', 'ltft2', 'iat', 'speed', 'load', 'voltage']);
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const LATENCY_WINDOW_SIZE = 32;
 
 export function selectLiveBatch(supported, cursor = 0) {
   // PID discovery must have provided actual support evidence. Never probe all
@@ -36,14 +37,32 @@ export function createLivePerformanceController({
   let running = false, epoch = 0, timer = null, currentTask = null, cursor = 0;
   let averageMs = null, reads = 0, noData = 0, errors = 0, cycles = 0, consecutiveFailures = 0;
   let lastCycleMs = null, lastDelayMs = null, lastBatchSize = 0, wakeCoalesced = 0, timerReschedules = 0;
+  const latencyWindow = new Float64Array(LATENCY_WINDOW_SIZE);
+  let latencyCount = 0, latencyCursor = 0;
+
+  const recordLatency = value => {
+    const safe = clamp(value, 0, 60_000);
+    latencyWindow[latencyCursor] = safe;
+    latencyCursor = (latencyCursor + 1) % LATENCY_WINDOW_SIZE;
+    latencyCount = Math.min(latencyCount + 1, LATENCY_WINDOW_SIZE);
+    return safe;
+  };
+
+  const percentile95 = () => {
+    if (!latencyCount) return null;
+    const copy = Array.from(latencyWindow.slice(0, latencyCount)).sort((a, b) => a - b);
+    return copy[Math.min(copy.length - 1, Math.ceil(copy.length * 0.95) - 1)];
+  };
 
   const computeDelay = () => {
     if (averageMs == null && lastCycleMs == null) return 900;
     const readDriven = averageMs == null ? 0 : averageMs * 2;
+    const p95 = percentile95();
+    const tailDriven = p95 == null ? 0 : p95 * 1.5;
     // Never make the polling loop more aggressive than the previous 600 ms floor.
-    // For slower links, keep a quiet interval proportional to the full sequential cycle.
+    // For slower or jittery links, keep a quiet interval proportional to the full sequential cycle.
     const cycleDriven = lastCycleMs == null ? 0 : lastCycleMs * 0.75;
-    return clamp(Math.round(Math.max(readDriven, cycleDriven)), 600, 3000);
+    return clamp(Math.round(Math.max(readDriven, tailDriven, cycleDriven)), 600, 3000);
   };
 
   const metrics = () => {
@@ -53,6 +72,8 @@ export function createLivePerformanceController({
     return Object.freeze({
       running, reads, noData, errors, cycles,
       averageMs: averageMs == null ? null : Math.round(averageMs),
+      p95Ms: percentile95() == null ? null : Math.round(percentile95()),
+      latencySamples: latencyCount,
       lastCycleMs: lastCycleMs == null ? null : Math.round(lastCycleMs),
       lastDelayMs: lastDelayMs == null ? null : Math.round(lastDelayMs),
       lastBatchSize,
@@ -146,7 +167,7 @@ export function createLivePerformanceController({
           reads++;
           completed++;
           consecutiveFailures = 0;
-          const elapsed = clamp(now() - before, 0, 60_000);
+          const elapsed = recordLatency(now() - before);
           averageMs = averageMs == null ? elapsed : averageMs * 0.75 + elapsed * 0.25;
         } catch {
           if (!isConnected() || epoch !== owner) break;
