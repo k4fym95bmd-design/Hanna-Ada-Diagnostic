@@ -1,12 +1,17 @@
 version: 2.1
 
 # External fallback CI for PR #35.
-# Deliberately manual: automatic runs are disabled so a noisy draft PR
-# cannot burn another hosted-runner quota.
+# Manual-only by default: select exactly which fallback target should run.
 parameters:
-  run_fallback:
-    type: boolean
-    default: false
+  fallback_target:
+    type: enum
+    default: none
+    enum:
+      - none
+      - core
+      - windows
+      - android
+      - all
 
 orbs:
   win: circleci/windows@5.0.0
@@ -84,8 +89,8 @@ jobs:
           destination: hanna-ada-android5-usb-probe-debug.apk
 
 workflows:
-  external-fallback:
-    when: << pipeline.parameters.run_fallback >>
+  fallback-core:
+    when: pipeline.parameters.fallback_target == "core" or pipeline.parameters.fallback_target == "all"
     jobs:
       - core-js:
           filters:
@@ -93,12 +98,20 @@ workflows:
               only:
                 - main
                 - feat/read-only-workshop-fusion-20260922
+
+  fallback-windows:
+    when: pipeline.parameters.fallback_target == "windows" or pipeline.parameters.fallback_target == "all"
+    jobs:
       - windows-desktop-pro:
           filters:
             branches:
               only:
                 - main
                 - feat/read-only-workshop-fusion-20260922
+
+  fallback-android:
+    when: pipeline.parameters.fallback_target == "android" or pipeline.parameters.fallback_target == "all"
+    jobs:
       - android-usb-probe:
           filters:
             branches:
