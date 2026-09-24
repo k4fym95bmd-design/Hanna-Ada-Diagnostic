@@ -9,12 +9,12 @@ parameters:
     default: false
 
 orbs:
-  win: circleci/windows@5.0
+  win: circleci/windows@5.0.0
 
 jobs:
   core-js:
     docker:
-      - image: cimg/node:current
+      - image: cimg/node:lts
     resource_class: small
     steps:
       - checkout
