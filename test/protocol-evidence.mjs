@@ -58,7 +58,7 @@ test('session reducer refuses ELM ERROR identity and invalidates protocol-tainte
   }
   state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', epoch: 0, identity: 'ELM327 v2.2' });
   state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', epoch: 0, raw: '41 00 80 00 00 00\r>' });
-  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', epoch: 0, raw: 'ATDP\rCAN ERROR\r>' });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', epoch: 0, raw: 'CAN ERROR\r>' });
   assert.equal(state.protocol, 'unknown');
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', epoch: 0, raw: '43 00\r>' });
   assert.equal(state.dtcs, null);
