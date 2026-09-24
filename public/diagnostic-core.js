@@ -105,7 +105,7 @@ export function decodeStoredDTCs(raw, protocol = 'unknown') {
     // DTC response. Require 43 at the start of the actual frame payload.
     if (bytes[0] !== 0x43) continue;
     if (framed && protocol === 'legacy') throw new DiagnosticError('PROTOCOL_MISMATCH', 'CAN frame conflicts with detected legacy vehicle protocol', evidence);
-    if (!framed && protocol === 'unknown') throw new DiagnosticError('PROTOCOL_REQUIRED', 'Unframed DTC data requires verified ATDP or ATDPN protocol', evidence);
+    if (!framed && protocol === 'unknown') throw new DiagnosticError('PROTOCOL_REQUIRED', 'Unframed DTC data requires verified protocol evidence', evidence);
     responders++;
     usedCANFrame ||= framed;
     const payload = bytes.slice(1);
@@ -167,7 +167,7 @@ export function isValidAdapterIdentity(identity) {
 
 export function createDiagnosticSession() {
   return Object.freeze({ epoch: 0, stage: 'DISCONNECTED', protocol: 'unknown',
-    adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
+    protocolSource: null, adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
 }
 
 // Pure, epoch-guarded state machine suitable for a Floot React state reducer.
@@ -190,14 +190,23 @@ export function reduceDiagnosticSession(session, event) {
       // A fresh ECU probe invalidates protocol/DTC evidence from any earlier
       // probe even when the BLE link and epoch have not changed.
       return Object.freeze({ ...session, stage: 'ECU', pids: result.pids,
-        protocol: 'unknown', dtcs: null, lastErrorCode: null });
+        protocol: 'unknown', protocolSource: null, dtcs: null, lastErrorCode: null });
     } catch (error) {
       return Object.freeze({ ...session, stage: 'ADAPTER', pids: null, dtcs: null,
-        protocol: 'unknown', lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
+        protocol: 'unknown', protocolSource: null,
+        lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
     }
   }
   if (event.type === 'PROTOCOL_RESPONSE' && session.stage === 'ECU') {
-    return Object.freeze({ ...session, protocol: classifyVehicleProtocol(event.raw), dtcs: null });
+    const authoritative = event.source === 'ATDPN';
+    const protocol = authoritative ? classifyVehicleProtocol(event.raw) : 'unknown';
+    return Object.freeze({
+      ...session,
+      protocol,
+      protocolSource: protocol === 'unknown' ? null : 'ATDPN',
+      dtcs: null,
+      lastErrorCode: protocol === 'unknown' ? session.lastErrorCode : null,
+    });
   }
   if (event.type === 'DTC_RESPONSE' && session.stage === 'ECU') {
     try {
