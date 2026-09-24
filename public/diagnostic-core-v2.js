@@ -152,5 +152,5 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   window.addEventListener('hannaada:module-rendered', ensurePanel);
   window.addEventListener('hannaada:obd-disconnected', resetEvidenceUi);
   ensurePanel();
-  window.HannaAdaDiagV2 = { startLive, stopLive, readProtocol };
+  window.HannaAdaDiagV2 = { startLive, stopLive, readProtocol, readDtc: readDecode };
 })();
