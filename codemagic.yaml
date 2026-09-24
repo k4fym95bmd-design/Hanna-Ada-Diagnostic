@@ -43,3 +43,6 @@ workflows:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             test
+
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
