@@ -117,3 +117,19 @@ test('BLE disconnect invalidates session and detaches old listeners before recon
   assert.match(runtime, /HA\.server=HA\.write=HA\.notify=null/);
   assert.match(runtime, /HA\.device=null/);
 });
+
+
+test('web DTC protocol handoff trusts ATDPN and keeps ATDP display-only', async () => {
+  const extension = await source('public/diagnostic-core-v2.js');
+  const detect = extension.slice(
+    extension.indexOf('async function detectProtocol()'),
+    extension.indexOf('async function readProtocol()')
+  );
+
+  assert.match(detect, /send\('ATDPN', 5000\)/);
+  assert.match(detect, /const verifiedKind = classifyVehicleProtocol\(rawNumber\)/);
+  assert.match(detect, /return verifiedKind/);
+  assert.match(detect, /ATDP description only/);
+  assert.match(detect, /return 'unknown'/);
+  assert.doesNotMatch(detect, /latestProtocol = describedKind/);
+});
