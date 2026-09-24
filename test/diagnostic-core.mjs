@@ -106,7 +106,15 @@ test('session unknown protocol rejects raw DTC without inventing zero faults', (
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.equal(state.dtcs, null);
   assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
-  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', raw: 'ATDP\rISO 15765-4 CAN\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDP', raw: 'ISO 15765-4 CAN\r>', epoch: 0 });
+  assert.equal(state.protocol, 'unknown');
+  assert.equal(state.protocolSource, null);
+  state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
+  assert.equal(state.dtcs, null);
+  assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A6\r>', epoch: 0 });
+  assert.equal(state.protocol, 'can');
+  assert.equal(state.protocolSource, 'ATDPN');
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.deepEqual(state.dtcs.codes, []);
   assert.equal(state.lastErrorCode, null);
@@ -135,4 +143,29 @@ test('adapter identity helper rejects echoes and adapter errors but accepts obse
   for (const value of ['ELM327 v2.2', 'Carista EVO', 'vLink BLE']) {
     assert.equal(isValidAdapterIdentity(value), true, value);
   }
+});
+
+
+test('protocol reducer requires explicit ATDPN source even when descriptive text is recognizable', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+
+  const atdp = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', source: 'ATDP', raw: 'ISO 9141-2\r>', epoch: 0,
+  });
+  assert.equal(atdp.protocol, 'unknown');
+  assert.equal(atdp.protocolSource, null);
+
+  const missingSource = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', raw: 'A3\r>', epoch: 0,
+  });
+  assert.equal(missingSource.protocol, 'unknown');
+
+  const atdpn = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A3\r>', epoch: 0,
+  });
+  assert.equal(atdpn.protocol, 'legacy');
+  assert.equal(atdpn.protocolSource, 'ATDPN');
 });
