@@ -165,3 +165,33 @@ test('legacy READ DTC has no independent permissive decoder and delegates to Cor
   assert.match(extension, /readDtc: readDecode/);
   assert.match(extension, /decodeStoredDTCs\(raw, protocol\)/);
 });
+
+
+test('Core V2 DTC read is single-owner and rejects stale session completions', async () => {
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.match(extension, /let dtcReadSerial = 0/);
+  assert.match(extension, /let activeDtcRead = 0/);
+  assert.match(extension, /function assertSession\(ownerEpoch\)/);
+  assert.match(extension, /h\.sessionEpoch !== ownerEpoch/);
+  assert.match(extension, /if \(activeDtcRead\) return/);
+  assert.match(extension, /const token = \+\+dtcReadSerial/);
+  assert.match(extension, /activeDtcRead !== token/);
+  assert.match(extension, /error\?\.code === 'STALE_SESSION'/);
+  assert.match(extension, /setDtcButtonsDisabled\(true\)/);
+  assert.match(extension, /setDtcButtonsDisabled\(false\)/);
+});
+
+test('Core V2 keeps bounded in-memory provenance for the latest DTC read only', async () => {
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.match(extension, /let lastDtcEvidence = null/);
+  assert.match(extension, /protocolSource: latestProtocolSource/);
+  assert.match(extension, /raw: String\(raw\)/);
+  assert.match(extension, /status: 'verified'/);
+  assert.match(extension, /status: 'error'/);
+  assert.match(extension, /raw: raw == null \? null : String\(raw\)/);
+  assert.match(extension, /function getLastDtcEvidence\(\)/);
+  assert.match(extension, /lastDtcEvidence = null/);
+  assert.match(extension, /getLastDtcEvidence,/);
+});
