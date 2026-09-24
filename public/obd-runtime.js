@@ -1,10 +1,12 @@
-const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,poll:null,sessionEpoch:0,connectInFlight:false,activeNotifyHandler:null,activeDisconnectHandler:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,overflows:0,staleRx:0,lastLatency:null,lastCommand:null}};
+const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,poll:null,sessionEpoch:0,connectInFlight:false,activeNotifyHandler:null,activeDisconnectHandler:null,values:{},supported:new Set(),supportedVerified:false,stats:{tx:0,rx:0,timeouts:0,overflows:0,staleRx:0,lastLatency:null,lastCommand:null}};
 const UUID={carista:{service:'0000fff0-0000-1000-8000-00805f9b34fb',notify:'0000fff1-0000-1000-8000-00805f9b34fb',write:'0000fff2-0000-1000-8000-00805f9b34fb'},ffe0:{service:'0000ffe0-0000-1000-8000-00805f9b34fb',notify:'0000ffe1-0000-1000-8000-00805f9b34fb',write:'0000ffe1-0000-1000-8000-00805f9b34fb'},nus:{service:'6e400001-b5a3-f393-e0a9-e50e24dcca9e',notify:'6e400003-b5a3-f393-e0a9-e50e24dcca9e',write:'6e400002-b5a3-f393-e0a9-e50e24dcca9e'}};
 const enc=new TextEncoder(),dec=new TextDecoder();
 const MAX_RX_BUFFER=64*1024;
 const scheduleUi=fn=>typeof requestAnimationFrame==='function'?requestAnimationFrame(fn):setTimeout(fn,0);
 const logQueue=[];let logFrame=null,statsFrame=null,lastStatsText='',injectFrame=null;
 const valueNodeCache=new Map();
+let diagnosticCorePromise=null;
+function diagnosticCore(){if(!diagnosticCorePromise)diagnosticCorePromise=import('/diagnostic-core.js');return diagnosticCorePromise}
 function flushLogs(){logFrame=null;const box=document.querySelector('#haRealConsole');if(!box){logQueue.length=0;return}const entries=logQueue.splice(0,logQueue.length);const fragment=document.createDocumentFragment();for(const [kind,msg] of entries){const d=document.createElement('div');d.className='rt-'+kind.toLowerCase();d.textContent=`${kind}  ${msg}`;fragment.appendChild(d)}box.appendChild(fragment);while(box.children.length>160)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight}
 function log(kind,msg){logQueue.push([String(kind),String(msg)]);if(logQueue.length>96)logQueue.splice(0,logQueue.length-96);if(logFrame===null)logFrame=scheduleUi(flushLogs);if(window.HA_DEBUG_OBD===true)console.log('[H&A OBD]',kind,msg)}
 function setChip(id,on,text){const e=document.querySelector(id);if(!e)return;e.classList.toggle('on',!!on);e.classList.toggle('bad',!on);if(text)e.querySelector('b').textContent=text}
@@ -18,19 +20,70 @@ async function command(cmd,timeout=6000){if(!HA.write)throw new Error('Adapter n
 function hexLines(raw){return clean(raw).toUpperCase().split(/(?=7E[0-9A-F]|41|43)/).map(x=>x.replace(/[^0-9A-F ]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean)}
 function bytesFrom(s){const h=s.replace(/[^0-9A-F]/gi,'');const out=[];for(let i=0;i+1<h.length;i+=2)out.push(parseInt(h.slice(i,i+2),16));return out}
 function findPid(raw,pid){const p=parseInt(pid,16);for(const line of hexLines(raw)){const b=bytesFrom(line);for(let i=0;i<b.length-2;i++)if(b[i]===0x41&&b[i+1]===p)return b.slice(i+2)}return null}
-function decodeSupported(raw,base=0){const a=findPid(raw,base.toString(16).padStart(2,'0'));if(!a||a.length<4)return[];const bits=(a[0]<<24)|(a[1]<<16)|(a[2]<<8)|a[3];const out=[];for(let i=1;i<=32;i++)if(bits&(1<<(32-i)))out.push(base+i);return out}
 const PIDS={load:{cmd:'0104',unit:'%',parse:a=>a?.length?a[0]*100/255:null},coolant:{cmd:'0105',unit:'°C',parse:a=>a?.length?a[0]-40:null},stft1:{cmd:'0106',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft1:{cmd:'0107',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},stft2:{cmd:'0108',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft2:{cmd:'0109',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},rpm:{cmd:'010C',unit:'rpm',parse:a=>a?.length>1?((a[0]*256+a[1])/4):null},speed:{cmd:'010D',unit:'km/h',parse:a=>a?.length?a[0]:null},iat:{cmd:'010F',unit:'°C',parse:a=>a?.length?a[0]-40:null},maf:{cmd:'0110',unit:'g/s',parse:a=>a?.length>1?((a[0]*256+a[1])/100):null},throttle:{cmd:'0111',unit:'%',parse:a=>a?.length?a[0]*100/255:null},voltage:{cmd:'ATRV',unit:'V',parse:null}};
-function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||HA.supported.size===0)return true;return HA.supported.has(parseInt(cmd.slice(2),16))}
+function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||!HA.supportedVerified)return true;return HA.supported.has(parseInt(cmd.slice(2),16))}
 async function readPid(key){const p=PIDS[key];if(!p||!HA.ecu)throw new Error('ECU offline');if(!isPidSupported(p.cmd)){HA.values[key]=null;updateValue(key,null,p.unit,'N/S');return null}const raw=await command(p.cmd);if(classify(raw)==='no-data'){updateValue(key,null,p.unit,'NO DATA');return null}let v;if(key==='voltage'){const m=clean(raw).match(/(\d+(?:\.\d+)?)\s*V/i);v=m?Number(m[1]):null}else v=p.parse(findPid(raw,p.cmd.slice(2)));HA.values[key]=v;updateValue(key,v,p.unit);return v}
 function updateValue(key,v,unit,note=''){let e=valueNodeCache.get(key);if(!e?.isConnected){e=document.querySelector(`[data-ha-value="${key}"]`);if(e)valueNodeCache.set(key,e)}if(!e)return;const text=v==null?(note||'—'):`${Number(v).toFixed(key==='rpm'||key==='speed'?0:1)} ${unit}`;if(e.textContent!==text)e.textContent=text}
-async function probeSupported(){const raw=await command('0100',15000);const p=decodeSupported(raw,0);p.forEach(x=>HA.supported.add(x));log('SYS',`Supported PID 01-20: ${p.map(x=>'0x'+x.toString(16).padStart(2,'0').toUpperCase()).join(', ')||'none parsed'}`);return raw}
-async function initElm(){status('BLE połączone · inicjalizacja ELM…');for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSTFF','ATSP0']){const r=await command(c,c==='ATZ'?9000:5000);const cls=classify(r);if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`)}const ati=clean(await command('ATI'));HA.adapter=/ELM|OBD|CARISTA|VLINK|VEEPEAK/i.test(ati)||ati.length>1;setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');log('SYS','Adapter ID: '+ati);try{const proto=clean(await command('ATDP'));log('SYS','Protocol: '+proto)}catch{}status('Adapter online · sprawdzam ECU…');try{const p=await probeSupported();HA.ecu=/41\s*00|4100/i.test(clean(p));setChip('#haEcu',HA.ecu,HA.ecu?'ECU ONLINE':'ECU —');if(HA.ecu){status('ECU ONLINE · Generic OBD-II gotowy');try{await readPid('voltage')}catch{}}else status('Adapter online · brak poprawnej odpowiedzi ECU',true)}catch(e){HA.ecu=false;setChip('#haEcu',false,'ECU —');status('Adapter online · ECU nie odpowiedziało',true);log('ERR',e.message)}}
+async function probeSupported(){
+  HA.supported.clear();
+  HA.supportedVerified=false;
+  const raw=await command('0100',15000);
+  const core=await diagnosticCore();
+  const verified=core.decodeSupportedPIDs(raw);
+  for(const pid of verified.pids)HA.supported.add(pid);
+  HA.supportedVerified=true;
+  log('SYS',`Verified PID 01-20: ${verified.pids.map(x=>'0x'+x.toString(16).padStart(2,'0').toUpperCase()).join(', ')||'none supported'} · responders ${verified.responderCount}`);
+  return verified;
+}
+async function initElm(){
+  status('BLE połączone · inicjalizacja ELM…');
+  for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSTFF','ATSP0']){
+    const r=await command(c,c==='ATZ'?9000:5000);
+    const cls=classify(r);
+    if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`);
+  }
+
+  const core=await diagnosticCore();
+  const ati=clean(await command('ATI'));
+  HA.adapter=core.isValidAdapterIdentity(ati);
+  setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');
+  log('SYS','Adapter ID: '+ati);
+  if(!HA.adapter)throw new Error('Niezweryfikowana odpowiedź adaptera ATI');
+
+  status('Adapter online · sprawdzam ECU…');
+  try{
+    const verified=await probeSupported();
+    HA.ecu=true;
+    setChip('#haEcu',true,'ECU ONLINE');
+    status(`ECU ONLINE · Generic OBD-II · ${verified.responderCount} responder(s)`);
+
+    try{
+      const rawNumber=await command('ATDPN',5000);
+      const kind=core.classifyVehicleProtocol(rawNumber);
+      if(kind!=='unknown'){
+        log('SYS',`Protocol verified by ATDPN: ${kind}`);
+      }else{
+        const description=clean(await command('ATDP',5000));
+        log('SYS','Protocol description only: '+description);
+      }
+    }catch{}
+
+    try{await readPid('voltage')}catch{}
+  }catch(e){
+    HA.ecu=false;
+    HA.supported.clear();
+    HA.supportedVerified=false;
+    setChip('#haEcu',false,'ECU —');
+    status('Adapter online · brak zweryfikowanej odpowiedzi PID 0100',true);
+    log('ERR',e?.message||String(e));
+  }
+}
 async function connect(){if(!navigator.bluetooth){status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);return}if(HA.connectInFlight){status('Połączenie BLE już trwa — nie uruchamiam drugiej sesji.',true);return}if(HA.connected){status('BLE jest już połączone. Najpierw rozłącz bieżącą sesję.',true);return}const owner=++HA.sessionEpoch;HA.connectInFlight=true;try{status('Wybierz adapter BLE…');const services=Object.values(UUID).map(x=>x.service);const device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});if(owner!==HA.sessionEpoch)return;HA.device=device;const disconnectHandler=()=>{if(owner===HA.sessionEpoch)disconnect()};HA.activeDisconnectHandler=disconnectHandler;device.addEventListener('gattserverdisconnected',disconnectHandler);status(`Łączenie: ${device.name||'BLE OBD'}…`);const server=await device.gatt.connect();if(owner!==HA.sessionEpoch){try{device.gatt.disconnect()}catch{}return}HA.server=server;const d=await discover(server);if(owner!==HA.sessionEpoch)return;HA.notify=d.n;HA.write=d.w;await HA.notify.startNotifications();if(owner!==HA.sessionEpoch)return;const notifyHandler=ev=>onNotify(ev,owner);HA.activeNotifyHandler=notifyHandler;HA.notify.addEventListener('characteristicvaluechanged',notifyHandler);HA.connected=true;setChip('#haBle',true,'BLE ON');log('SYS',`BLE connected: ${device.name||'unknown'} · ${d.name}`);await initElm();if(owner!==HA.sessionEpoch)return}catch(e){if(owner!==HA.sessionEpoch)return;status(e.message||String(e),true);log('ERR',e.message||String(e));disconnect()}finally{if(owner===HA.sessionEpoch)HA.connectInFlight=false}}
 function stopLive(){if(HA.poll){clearInterval(HA.poll);HA.poll=null}if(HA.ultraControllerReady===true&&typeof HA.stopUltraLive==='function')void HA.stopUltraLive();const b=document.querySelector('#haLiveToggle');if(b)b.textContent='START LIVE'}
 function abortPending(reason='Session closed'){const p=HA.pending;HA.pending=null;HA.buffer='';if(!p)return false;clearTimeout(p.timer);p.reject(new Error(reason));return true}
 function detachBleListeners(){try{if(HA.notify&&HA.activeNotifyHandler)HA.notify.removeEventListener('characteristicvaluechanged',HA.activeNotifyHandler)}catch{}try{if(HA.device&&HA.activeDisconnectHandler)HA.device.removeEventListener('gattserverdisconnected',HA.activeDisconnectHandler)}catch{}HA.activeNotifyHandler=null;HA.activeDisconnectHandler=null}
 function resetSessionUi(){for(const key of Object.keys(HA.values))delete HA.values[key];for(const [key,p] of Object.entries(PIDS))updateValue(key,null,p.unit);const dtc=document.querySelector('#haDtcResult');if(dtc)dtc.replaceChildren(Object.assign(document.createElement('span'),{className:'rt-none',textContent:'Nie odczytano'}));HA.stats.lastLatency=null;HA.stats.lastCommand=null;refreshStats();window.dispatchEvent(new CustomEvent('hannaada:obd-disconnected',{detail:{epoch:HA.sessionEpoch}}))}
-function disconnect(){stopLive();HA.sessionEpoch++;HA.connectInFlight=false;detachBleListeners();abortPending('BLE disconnected');const device=HA.device;HA.connected=HA.adapter=HA.ecu=false;HA.buffer='';HA.supported.clear();HA.server=HA.write=HA.notify=null;HA.device=null;try{if(device?.gatt?.connected)device.gatt.disconnect()}catch{}setChip('#haBle',false,'BLE —');setChip('#haAdapter',false,'ADAPTER —');setChip('#haEcu',false,'ECU —');status('Rozłączono',true);resetSessionUi()}
+function disconnect(){stopLive();HA.sessionEpoch++;HA.connectInFlight=false;detachBleListeners();abortPending('BLE disconnected');const device=HA.device;HA.connected=HA.adapter=HA.ecu=false;HA.buffer='';HA.supported.clear();HA.supportedVerified=false;HA.server=HA.write=HA.notify=null;HA.device=null;try{if(device?.gatt?.connected)device.gatt.disconnect()}catch{}setChip('#haBle',false,'BLE —');setChip('#haAdapter',false,'ADAPTER —');setChip('#haEcu',false,'ECU —');status('Rozłączono',true);resetSessionUi()}
 async function readAll(){if(!HA.ecu)return status('ECU offline',true);const keys=['rpm','coolant','maf','throttle','stft1','ltft1','stft2','ltft2','iat','speed','load','voltage'];for(const k of keys){try{await readPid(k)}catch(e){log('WARN',`${k}: ${e.message}`)}}}
 function toggleLive(){if(!HA.ecu)return status('Najpierw połącz ECU',true);if(HA.ultraControllerReady!==true||typeof HA.startUltraLive!=='function')return status('ULTRA scheduler jeszcze się ładuje — nie uruchamiam drugiego pollera.',true);if(typeof HA.isUltraLiveRunning==='function'&&HA.isUltraLiveRunning()){stopLive();status('ULTRA Live zatrzymany');return}HA.startUltraLive();const b=document.querySelector('#haLiveToggle');if(b)b.textContent='STOP LIVE';status('ULTRA Live aktywny · jeden scheduler')}
 async function readDtc(){if(!HA.ecu)return status('Najpierw połącz ECU',true);const safe=window.HannaAdaDiagV2?.readDtc;if(typeof safe!=='function')return status('Zweryfikowany dekoder DTC jeszcze się ładuje — spróbuj ponownie.',true);const box=document.querySelector('#haDtcResult');if(box)box.replaceChildren(Object.assign(document.createElement('span'),{className:'rt-none',textContent:'Odczyt przez Diagnostic Core V2…'}));return safe()}
