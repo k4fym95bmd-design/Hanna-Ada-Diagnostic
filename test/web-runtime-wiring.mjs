@@ -205,3 +205,17 @@ test('Core V2 distinguishes unverified DTC state from verified zero faults', asy
   assert.match(extension, /status: 'error'[\s\S]*codes: null/);
   assert.match(extension, /Array\.isArray\(lastDtcEvidence\.codes\) \? \[\.\.\.lastDtcEvidence\.codes\] : null/);
 });
+
+
+test('legacy browser ECU gate uses canonical ATI and PID0100 validators', async () => {
+  const runtime = await source('public/obd-runtime.js');
+
+  assert.match(runtime, /diagnosticCorePromise=import\('\/diagnostic-core\.js'\)/);
+  assert.match(runtime, /core\.isValidAdapterIdentity\(ati\)/);
+  assert.match(runtime, /core\.decodeSupportedPIDs\(raw\)/);
+  assert.doesNotMatch(runtime, /HA\.ecu=\/41\\s\*00\|4100/);
+  assert.doesNotMatch(runtime, /function decodeSupported\(/);
+  assert.match(runtime, /supportedVerified:false/);
+  assert.match(runtime, /HA\.supportedVerified=true/);
+  assert.match(runtime, /!HA\.supportedVerified/);
+});
