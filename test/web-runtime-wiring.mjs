@@ -133,3 +133,21 @@ test('web DTC protocol handoff trusts ATDPN and keeps ATDP display-only', async 
   assert.match(detect, /return 'unknown'/);
   assert.doesNotMatch(detect, /latestProtocol = describedKind/);
 });
+
+
+test('browser disconnect clears live values and invalidates Core V2 evidence UI', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.match(runtime, /function resetSessionUi\(\)/);
+  assert.match(runtime, /for\(const key of Object\.keys\(HA\.values\)\)delete HA\.values\[key\]/);
+  assert.match(runtime, /for\(const \[key,p\] of Object\.entries\(PIDS\)\)updateValue\(key,null,p\.unit\)/);
+  assert.match(runtime, /hannaada:obd-disconnected/);
+  assert.match(runtime, /resetSessionUi\(\)/);
+
+  assert.match(extension, /function resetEvidenceUi\(\)/);
+  assert.match(extension, /latestProtocol = 'unknown'/);
+  assert.match(extension, /protocol\.textContent = '—'/);
+  assert.match(extension, /No DTC read in this session\./);
+  assert.match(extension, /addEventListener\('hannaada:obd-disconnected', resetEvidenceUi\)/);
+});
