@@ -1,0 +1,45 @@
+workflows:
+  ios-native-readonly:
+    name: Hanna & Ada Native iOS · fallback CI
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: latest
+    scripts:
+      - name: Environment
+        script: |
+          echo "CM_COMMIT=$CM_COMMIT"
+          xcodebuild -version
+          swift --version
+      - name: Install XcodeGen
+        script: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+      - name: Generate Xcode project
+        script: |
+          cd ios-native
+          xcodegen generate
+      - name: Build for iOS Simulator without signing
+        script: |
+          cd ios-native
+          xcodebuild \
+            -project HannaAdaDiag.xcodeproj \
+            -scheme HannaAdaDiag \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Run native iOS unit tests
+        script: |
+          cd ios-native
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; ids=[d["udid"] for runtime, entries in devices.items() if "iOS" in runtime for d in entries if d.get("isAvailable") and d["name"].startswith("iPhone")]; print(ids[0] if ids else "")')
+          test -n "$DEVICE_ID" || { echo "No available iPhone simulator"; exit 1; }
+          xcodebuild \
+            -project HannaAdaDiag.xcodeproj \
+            -scheme HannaAdaDiag \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            test
