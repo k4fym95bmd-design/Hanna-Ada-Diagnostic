@@ -55,7 +55,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     if (!lastDtcEvidence) return null;
     return {
       ...lastDtcEvidence,
-      codes: Array.isArray(lastDtcEvidence.codes) ? [...lastDtcEvidence.codes] : [],
+      codes: Array.isArray(lastDtcEvidence.codes) ? [...lastDtcEvidence.codes] : null,
     };
   }
 
@@ -243,7 +243,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
         status: 'error',
         errorCode: error?.code || 'READ_ERROR',
         responderCount: null,
-        codes: [],
+        codes: null,
       };
 
       // Parsing failures are UNKNOWN, not a successful empty DTC read.
