@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'hanna-ada-static-';
-const CACHE_NAME = CACHE_PREFIX + 'ultra-v6';
+const CACHE_NAME = CACHE_PREFIX + 'ultra-v7';
 
 const PRECACHE = Object.freeze([
   '/',
