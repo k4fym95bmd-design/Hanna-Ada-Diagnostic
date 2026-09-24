@@ -108,6 +108,17 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     list.replaceChildren(span);
   }
 
+  function resetEvidenceUi() {
+    latestProtocol = 'unknown';
+    const protocol = document.querySelector('#haProtocolValue');
+    if (protocol) protocol.textContent = '—';
+    const cycle = document.querySelector('#haCycle');
+    if (cycle) cycle.textContent = '—';
+    const poll = document.querySelector('#haPollState');
+    if (poll) poll.textContent = 'IDLE';
+    showDTCResult('No DTC read in this session.', 'v2-empty');
+  }
+
   async function readDecode() {
     const button = document.querySelector('#haDecodeDtc');
     if (button) button.disabled = true;
@@ -139,6 +150,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
 
   window.addEventListener('hannaada:obd-runtime-mounted', ensurePanel);
   window.addEventListener('hannaada:module-rendered', ensurePanel);
+  window.addEventListener('hannaada:obd-disconnected', resetEvidenceUi);
   ensurePanel();
   window.HannaAdaDiagV2 = { startLive, stopLive, readProtocol };
 })();
