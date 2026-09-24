@@ -34,7 +34,7 @@ test('OBD console and counters batch DOM work instead of repainting per BLE frag
   assert.match(runtime, /if\(statsFrame!==null\)return/);
   assert.match(runtime, /HA_DEBUG_OBD===true/);
   assert.doesNotMatch(runtime, /console\.log\('\[H&A OBD\]',kind,msg\)\}/);
-  assert.match(runtime, /stopLive,parseDtc/);
+  assert.match(runtime, /toggleLive,stopLive,classify,probeSupported/);
 });
 
 
@@ -150,4 +150,18 @@ test('browser disconnect clears live values and invalidates Core V2 evidence UI'
   assert.match(extension, /protocol\.textContent = '—'/);
   assert.match(extension, /No DTC read in this session\./);
   assert.match(extension, /addEventListener\('hannaada:obd-disconnected', resetEvidenceUi\)/);
+});
+
+
+test('legacy READ DTC has no independent permissive decoder and delegates to Core V2', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.doesNotMatch(runtime, /function parseDtc\(/);
+  assert.doesNotMatch(runtime, /function dtcFromPair\(/);
+  assert.doesNotMatch(runtime, /parseDtc,/);
+  assert.match(runtime, /window\.HannaAdaDiagV2\?\.readDtc/);
+  assert.match(runtime, /Zweryfikowany dekoder DTC jeszcze się ładuje/);
+  assert.match(extension, /readDtc: readDecode/);
+  assert.match(extension, /decodeStoredDTCs\(raw, protocol\)/);
 });
