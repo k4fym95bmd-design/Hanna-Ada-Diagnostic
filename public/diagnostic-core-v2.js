@@ -29,17 +29,31 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   }
 
   async function detectProtocol() {
-    let raw = '';
-    try { raw = await send('ATDPN', 5000); } catch { /* Older adapters may not implement ATDPN. */ }
-    let kind = classifyVehicleProtocol(raw);
-    if (kind === 'unknown') {
-      raw = await send('ATDP', 5000);
-      kind = classifyVehicleProtocol(raw);
+    let rawNumber = '';
+    try { rawNumber = await send('ATDPN', 5000); } catch { /* Older adapters may not implement ATDPN. */ }
+    const verifiedKind = classifyVehicleProtocol(rawNumber);
+
+    if (verifiedKind !== 'unknown') {
+      latestProtocol = verifiedKind;
+      const el = document.querySelector('#haProtocolValue');
+      if (el) el.textContent = `${verifiedKind.toUpperCase()} · ATDPN verified`;
+      return verifiedKind;
     }
-    latestProtocol = kind;
+
+    // ATDP may provide useful display text, but it must never authorize
+    // protocol-aware unframed Mode 03 decoding.
+    latestProtocol = 'unknown';
     const el = document.querySelector('#haProtocolValue');
-    if (el) el.textContent = kind === 'unknown' ? 'Unverified' : `${kind.toUpperCase()} · read-only`;
-    return kind;
+    try {
+      const rawDescription = await send('ATDP', 5000);
+      const describedKind = classifyVehicleProtocol(rawDescription);
+      if (el) el.textContent = describedKind === 'unknown'
+        ? 'Unverified'
+        : `${describedKind.toUpperCase()} · ATDP description only`;
+    } catch {
+      if (el) el.textContent = 'Unverified';
+    }
+    return 'unknown';
   }
 
   async function readProtocol() {
