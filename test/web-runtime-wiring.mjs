@@ -195,3 +195,13 @@ test('Core V2 keeps bounded in-memory provenance for the latest DTC read only', 
   assert.match(extension, /lastDtcEvidence = null/);
   assert.match(extension, /getLastDtcEvidence,/);
 });
+
+
+test('Core V2 distinguishes unverified DTC state from verified zero faults', async () => {
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.match(extension, /let lastDtcEvidence = null/);
+  assert.match(extension, /status: 'verified'[\s\S]*codes: \[\.\.\.parsed\.codes\]/);
+  assert.match(extension, /status: 'error'[\s\S]*codes: null/);
+  assert.match(extension, /Array\.isArray\(lastDtcEvidence\.codes\) \? \[\.\.\.lastDtcEvidence\.codes\] : null/);
+});
