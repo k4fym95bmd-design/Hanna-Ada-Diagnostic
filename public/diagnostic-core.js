@@ -158,6 +158,13 @@ export function decodeSupportedPIDs(raw) {
   return Object.freeze({ status: 'verified', responderCount: responders, pids: Object.freeze(pids) });
 }
 
+export function isValidAdapterIdentity(identity) {
+  if (typeof identity !== 'string') return false;
+  const value = identity.trim();
+  if (!value || /^(?:ATI|OK|SEARCHING\.{0,3})$/i.test(value)) return false;
+  return !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(value.toUpperCase());
+}
+
 export function createDiagnosticSession() {
   return Object.freeze({ epoch: 0, stage: 'DISCONNECTED', protocol: 'unknown',
     adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
@@ -174,9 +181,7 @@ export function reduceDiagnosticSession(session, event) {
     return Object.freeze({ ...session, stage: 'BLE' });
   }
   if (event.type === 'ADAPTER_IDENTIFIED' && session.stage === 'BLE' &&
-      typeof event.identity === 'string' && event.identity.trim() &&
-      !/^(?:ATI|OK|SEARCHING\.{0,3})$/i.test(event.identity.trim()) &&
-      !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(event.identity.toUpperCase())) {
+      isValidAdapterIdentity(event.identity)) {
     return Object.freeze({ ...session, stage: 'ADAPTER', adapterIdentity: event.identity.trim() });
   }
   if (event.type === 'PID_RESPONSE' && ['ADAPTER', 'ECU'].includes(session.stage)) {
