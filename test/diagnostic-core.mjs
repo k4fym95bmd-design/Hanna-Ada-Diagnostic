@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DiagnosticError, classifyVehicleProtocol, decodeStoredDTCs,
-  decodeSupportedPIDs, createDiagnosticSession, reduceDiagnosticSession
+  decodeSupportedPIDs, isValidAdapterIdentity, createDiagnosticSession, reduceDiagnosticSession
 } from '../public/diagnostic-core.js';
 
 function rejectsCode(fn, code) {
@@ -125,4 +125,14 @@ test('disconnect invalidates delayed responses and clears sensitive session data
   assert.equal(state.dtcs, null);
   const stale = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00', epoch: 0 });
   assert.equal(stale, state);
+});
+
+
+test('adapter identity helper rejects echoes and adapter errors but accepts observed identities', () => {
+  for (const value of ['ATI', 'OK', 'SEARCHING...', 'ERROR', 'CAN ERROR', 'NO DATA', '?', '']) {
+    assert.equal(isValidAdapterIdentity(value), false, value);
+  }
+  for (const value of ['ELM327 v2.2', 'Carista EVO', 'vLink BLE']) {
+    assert.equal(isValidAdapterIdentity(value), true, value);
+  }
 });
