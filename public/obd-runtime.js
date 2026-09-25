@@ -1,3 +1,4 @@
+import { decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
 const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
@@ -114,7 +115,14 @@ const PIDS={load:{cmd:'0104',unit:'%',parse:a=>a?.length?a[0]*100/255:null},cool
 function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||HA.supported.size===0)return true;return HA.supported.has(parseInt(cmd.slice(2),16))}
 async function readPid(key){const p=PIDS[key];if(!p||!HA.ecu)throw new Error('ECU offline');if(!isPidSupported(p.cmd)){HA.values[key]=null;updateValue(key,null,p.unit,'N/S');return null}const raw=await command(p.cmd);if(classify(raw)==='no-data'){updateValue(key,null,p.unit,'NO DATA');return null}let v;if(key==='voltage'){const m=clean(raw).match(/(\d+(?:\.\d+)?)\s*V/i);v=m?Number(m[1]):null}else v=p.parse(findPid(raw,p.cmd.slice(2)));HA.values[key]=v;updateValue(key,v,p.unit);return v}
 function updateValue(key,v,unit,note=''){const e=document.querySelector(`[data-ha-value="${key}"]`);if(e)e.textContent=v==null?(note||'—'):`${Number(v).toFixed(key==='rpm'||key==='speed'?0:1)} ${unit}`}
-async function probeSupported(){const raw=await command('0100',15000);const p=decodeSupported(raw,0);p.forEach(x=>HA.supported.add(x));log('SYS',`Supported PID 01-20: ${p.map(x=>'0x'+x.toString(16).padStart(2,'0').toUpperCase()).join(', ')||'none parsed'}`);return raw}
+async function probeSupported(){
+  const raw=await command('0100',15000);
+  const verified=decodeSupportedPIDs(raw);
+  HA.supported.clear();
+  verified.pids.forEach(pid=>HA.supported.add(pid));
+  log('SYS',`Verified PID 01-20: ${verified.pids.map(pid=>'0x'+pid.toString(16).padStart(2,'0').toUpperCase()).join(', ')||'none supported'} · responders ${verified.responderCount}`);
+  return raw;
+}
 async function establishProtocolAuthority(){
   const atdpnRaw=await command('ATDPN',5000);
   let atdpRaw;
@@ -139,14 +147,7 @@ async function initElm(){
   log('SYS','Adapter ID: '+ati);
   status('Adapter online · sprawdzam ECU…');
   try{
-    const p=await probeSupported();
-    const ecuResponded=/41\s*00|4100/i.test(clean(p));
-    if(!ecuResponded){
-      HA.ecu=false;
-      setChip('#haEcu',false,'ECU —');
-      status('Adapter online · brak poprawnej odpowiedzi ECU',true);
-      return;
-    }
+    await probeSupported();
     const {contract,classification}=await establishProtocolAuthority();
     if(classification!=='can'&&classification!=='legacy'){
       HA.ecu=false;
