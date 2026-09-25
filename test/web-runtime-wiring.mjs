@@ -37,3 +37,11 @@ test('raw terminal enforces read-only policy inside runtime path', async () => {
   assert.match(runtime, /if\(!isReadOnlyELMCommand\(c\)\)/);
   assert.doesNotMatch(runtime, /if\(c===['"]04['"]\)/);
 });
+
+test('legacy READ DTC path uses strict decoder and ATDPN-derived protocol', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /import\s*\{[^}]*decodeStoredDTCs[^}]*\}\s*from\s*['"]\.\/diagnostic-core\.js['"]/);
+  assert.match(runtime, /decodeStoredDTCs\(raw,protocol\)/);
+  assert.doesNotMatch(runtime, /const codes=parseDtc\(raw\)/);
+  assert.doesNotMatch(runtime, /Object\.assign\(HA,\{[^}]*parseDtc/);
+});
