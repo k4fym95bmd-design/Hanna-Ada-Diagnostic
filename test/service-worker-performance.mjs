@@ -213,3 +213,18 @@ test('transport runtime update rotates the static cache generation', () => {
   assert.match(sw, /'\/webusb-workbench-extension\.js'/);
   assert.match(sw, /name\.startsWith\(CACHE_PREFIX\) && name !== CACHE_NAME/);
 });
+
+
+test('critical GitHub workflows never bypass execution for draft pull requests', () => {
+  const workflows = [
+    '../.github/workflows/ci.yml',
+    '../.github/workflows/ios-native.yml',
+    '../.github/workflows/android-usb-probe.yml',
+    '../.github/workflows/desktop-pro-windows.yml',
+  ].map(path => readFileSync(new URL(path, import.meta.url), 'utf8'));
+
+  for (const workflow of workflows) {
+    assert.doesNotMatch(workflow, /pull_request\.draft/);
+    assert.doesNotMatch(workflow, /draft == false/);
+  }
+});
