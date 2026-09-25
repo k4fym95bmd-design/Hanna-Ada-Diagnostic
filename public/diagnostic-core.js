@@ -63,7 +63,14 @@ export function classifyVehicleProtocol(raw) {
  * @returns {ProtocolContract}
  */
 export function resolveProtocolAuthority(atdpnRaw, atdpRaw = null) {
-  const lines = cleanELM(atdpnRaw)
+  const rawInput = String(atdpnRaw ?? '');
+  const rawUpper = rawInput.toUpperCase();
+  if (/SEARCHING\.\.\.|\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(rawUpper)) {
+    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
+      'ATDPN reported an unresolved protocol state', rawInput);
+  }
+
+  const lines = cleanELM(rawInput)
     .filter(line => !/^AT\s*DPN$/i.test(line));
 
   const evidence = lines.join('\n');
@@ -73,10 +80,6 @@ export function resolveProtocolAuthority(atdpnRaw, atdpRaw = null) {
   }
 
   const rawAtdpn = lines[0].trim().toUpperCase();
-  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?|SEARCHING/.test(rawAtdpn)) {
-    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
-      'ATDPN reported an unresolved protocol state', evidence);
-  }
 
   const match = rawAtdpn.match(/^(A)?([1-9])$/);
   if (!match) {
@@ -154,8 +157,9 @@ function codeFromPair(a, b) {
     (a & 15).toString(16).toUpperCase() + b.toString(16).padStart(2, '0').toUpperCase();
 }
 
-// A response must carry protocol evidence: ATDP/ATDPN, or an explicit CAN
-// single-frame header. Unknown unframed data must never become a guessed DTC.
+// Unframed DTC decoding requires previously verified ATDPN authority.
+// An explicit CAN single-frame header is self-describing CAN evidence.
+// Unknown unframed data must never become a guessed DTC.
 export function decodeStoredDTCs(raw, protocol = 'unknown') {
   const lines = cleanELM(raw);
   const evidence = lines.join('\n');
