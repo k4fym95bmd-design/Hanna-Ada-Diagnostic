@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { diagnoseConnection } from '../public/connection-doctor.js';
+import { diagnoseConnection, isUsableAdapterIdentity } from '../public/connection-doctor.js';
 
 const base = {
   bluetoothPowered: true, adapterSeen: true, bleConnected: true,
@@ -22,6 +22,14 @@ test('triage finds the first unverified stage without inventing connection succe
   assert.equal(diagnoseConnection({ ...base, pid0100Reply: null }).code, 'ECU_NOT_PROBED');
   assert.equal(diagnoseConnection({ ...base, pid0100Reply: 'NO DATA\r>' }).code, 'ECU_RESPONSE_INVALID');
   assert.equal(diagnoseConnection({ ...base, transportError: 'timeout' }).code, 'TRANSPORT_ERROR');
+});
+
+test('adapter identity validator rejects echoes and failure markers before runtime promotion', () => {
+  for (const raw of [null, '', 'ATI\r>', 'OK\r>', 'ERROR\r>', 'ATI\rERROR\r>', 'UNABLE TO CONNECT\r>', '?\r>']) {
+    assert.equal(isUsableAdapterIdentity(raw), false, String(raw));
+  }
+  assert.equal(isUsableAdapterIdentity('ATI\rELM327 v2.2\r>'), true);
+  assert.equal(isUsableAdapterIdentity('ATI\rOBDLink MX+\r>'), true);
 });
 
 test('standalone ATI ERROR never verifies the adapter despite valid later replies', () => {
