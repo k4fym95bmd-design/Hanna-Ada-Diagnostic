@@ -7,7 +7,8 @@ const base = {
   gattDiscovered: true, notificationsActive: true,
   adapterReply: 'ATI\rELM327 v2.2\r>',
   pid0100Reply: '41 00 80 00 00 00\r>',
-  protocolReply: 'ATDPN\rA3\r>',
+  atdpnReply: 'ATDPN\rA3\r>',
+  atdpReply: 'ATDP\rAUTO, ISO 9141-2\r>',
 };
 
 test('triage finds the first unverified stage without inventing connection success', () => {
@@ -44,15 +45,38 @@ test('ATI ERROR alongside an identity rejects the whole response in either order
 });
 
 test('only real, parsed 0100 and identified protocol verify generic ECU', () => {
-  const unknown = diagnoseConnection({ ...base, protocolReply: null });
+  const unknown = diagnoseConnection({ ...base, atdpnReply: null });
   assert.equal(unknown.code, 'PROTOCOL_UNVERIFIED');
   assert.equal(unknown.evidence.genericECUVerified, true);
   const verified = diagnoseConnection(base);
   assert.equal(verified.code, 'GENERIC_OBD_VERIFIED');
   assert.equal(verified.evidence.protocol, 'legacy');
+  assert.equal(verified.evidence.protocolId, '3');
+  assert.equal(verified.evidence.isAutoDetected, true);
+  assert.equal(verified.evidence.sourceAuthority, 'ATDPN');
   assert.equal(verified.evidence.pidCount, 1);
   assert.equal(verified.bmwModulesVerified, false);
   assert.equal(verified.writesEnabled, false);
+});
+
+test('ATDP never overrides ATDPN authority and protocol A is not AUTO prefix', () => {
+  const misleading = diagnoseConnection({
+    ...base,
+    atdpnReply: 'ATDPN\r3\r>',
+    atdpReply: 'ATDP\rISO 15765-4 CAN\r>',
+  });
+  assert.equal(misleading.code, 'GENERIC_OBD_VERIFIED');
+  assert.equal(misleading.evidence.protocol, 'legacy');
+  assert.equal(misleading.evidence.protocolId, '3');
+
+  const j1939 = diagnoseConnection({
+    ...base,
+    atdpnReply: 'ATDPN\rA\r>',
+    atdpReply: 'ATDP\rSAE J1939 CAN\r>',
+  });
+  assert.equal(j1939.code, 'PROTOCOL_UNSUPPORTED_FOR_GENERIC_OBD');
+  assert.equal(j1939.evidence.protocolId, 'A');
+  assert.equal(j1939.evidence.isAutoDetected, false);
 });
 
 test('conflicting and incomplete multiple ECU replies never create online status', () => {
