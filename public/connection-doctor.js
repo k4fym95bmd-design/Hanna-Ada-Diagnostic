@@ -1,7 +1,10 @@
 // Portable, read-only connection triage for Hanna & Ada Diagnostics.
 // Accepts observed transport data ONLY. It neither connects to Bluetooth nor
 // implies that generic OBD access verifies BMW-specific modules.
-import { classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError, cleanELM } from './diagnostic-core.js';
+import {
+  resolveProtocolAuthority, protocolKindFromAuthority,
+  decodeSupportedPIDs, DiagnosticError, cleanELM,
+} from './diagnostic-core.js';
 
 const result = (stage, code, explanation, nextStep, evidence = {}) => Object.freeze({
   stage, code, explanation, nextStep, evidence: Object.freeze(evidence),
@@ -27,7 +30,8 @@ export function diagnoseConnection(observation = {}) {
   const {
     bluetoothPowered = false, adapterSeen = false, bleConnected = false,
     gattDiscovered = false, notificationsActive = false, adapterReply = null,
-    pid0100Reply = null, protocolReply = null, transportError = null,
+    pid0100Reply = null, protocolReply = null, protocolDescriptionReply = null,
+    transportError = null,
   } = observation;
 
   if (!bluetoothPowered) return result('BLUETOOTH', 'BT_UNAVAILABLE',
@@ -72,13 +76,22 @@ export function diagnoseConnection(observation = {}) {
       'Capture the raw PID 0100 response and verify the vehicle-side connector and protocol.',
       { adapterIdentified: true, parserError: cause });
   }
-  const protocol = typeof protocolReply === 'string' ? classifyVehicleProtocol(protocolReply) : 'unknown';
-  if (protocol === 'unknown') return result('PROTOCOL', 'PROTOCOL_UNVERIFIED',
-    'Generic ECU communication is confirmed, but the selected bus protocol is unknown.',
-    'Capture ATDPN or ATDP before interpreting unframed fault-code replies.',
+  let authority;
+  let protocol = 'unknown';
+  try {
+    authority = resolveProtocolAuthority(protocolReply, protocolDescriptionReply);
+    protocol = protocolKindFromAuthority(authority);
+  } catch {
+    authority = null;
+  }
+  if (!authority || protocol === 'unknown') return result('PROTOCOL', 'PROTOCOL_UNVERIFIED',
+    'Generic ECU communication is confirmed, but ATDPN did not establish a supported generic OBD protocol.',
+    'Capture ATDPN from the current session. ATDP may be recorded only as a display label and cannot establish protocol authority.',
     { genericECUVerified: true, responderCount: pids.responderCount, pidCount: pids.pids.length });
   return result('GENERIC_OBD', 'GENERIC_OBD_VERIFIED',
-    'A generic vehicle ECU replied and the bus protocol was identified.',
+    'A generic vehicle ECU replied and ATDPN identified the bus protocol.',
     'Generic read-only DTC and live-PID tests can be run; BMW module access remains unverified.',
-    { genericECUVerified: true, protocol, responderCount: pids.responderCount, pidCount: pids.pids.length });
+    { genericECUVerified: true, protocol, protocolId: authority.protocolId,
+      isAutoDetected: authority.isAutoDetected, sourceAuthority: authority.sourceAuthority,
+      responderCount: pids.responderCount, pidCount: pids.pids.length });
 }
