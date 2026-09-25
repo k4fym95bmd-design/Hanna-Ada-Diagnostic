@@ -151,6 +151,50 @@ export function decodeSupportedPIDs(raw) {
   return Object.freeze({ status: 'verified', responderCount: responders, pids: Object.freeze(pids) });
 }
 
+export function decodeMode01PidData(raw, pid, expectedDataLength) {
+  if (!Number.isInteger(pid) || pid < 0 || pid > 0xFF) {
+    throw new TypeError('Mode 01 PID must be an integer from 0x00 to 0xFF');
+  }
+  if (!Number.isInteger(expectedDataLength) || expectedDataLength < 1 || expectedDataLength > 8) {
+    throw new TypeError('Expected Mode 01 data length must be an integer from 1 to 8');
+  }
+
+  const lines = cleanELM(raw);
+  const evidence = lines.join('\n');
+  assertAdapterOK(evidence);
+
+  const responses = [];
+  for (const line of lines) {
+    const frame = extractLine(line, evidence);
+    if (!frame) continue;
+    const bytes = frame.bytes;
+    if (bytes[0] !== 0x41 || bytes[1] !== pid) continue;
+
+    const data = bytes.slice(2);
+    if (data.length < expectedDataLength) {
+      throw new DiagnosticError('TRUNCATED', 'Incomplete Mode 01 PID response', evidence);
+    }
+    if (data.length > expectedDataLength) {
+      throw new DiagnosticError('INVALID_LENGTH', 'Mode 01 PID response contains unexpected trailing payload bytes', evidence);
+    }
+    responses.push(Object.freeze([...data]));
+  }
+
+  if (!responses.length) {
+    throw new DiagnosticError('NO_ECU_RESPONSE', 'No verified Mode 01 PID response', evidence);
+  }
+  if (responses.length !== 1) {
+    throw new DiagnosticError('AMBIGUOUS_RESPONDERS', 'Multiple ECUs replied to a scalar Mode 01 PID request', evidence);
+  }
+
+  return Object.freeze({
+    status: 'verified',
+    pid,
+    responderCount: 1,
+    data: responses[0],
+  });
+}
+
 export function createDiagnosticSession() {
   return Object.freeze({ epoch: 0, stage: 'DISCONNECTED', protocol: 'unknown',
     protocolContract: null, adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
