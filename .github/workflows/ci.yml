@@ -1,24 +1,45 @@
-name: CI
+name: Mission-Critical CI
 
 on:
   push:
-    branches: [main, "hardening/**", "feature/**"]
+    branches:
+      - main
+      - "hardening/**"
+      - "feature/**"
   pull_request:
-    branches: [main]
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
+  invariants:
+    name: Protocol, FSM and regression invariants
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Checkout
+      - name: Checkout exact commit
         uses: actions/checkout@v4
+
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Smoke test
+          cache: npm
+
+      - name: Syntax gates
+        run: |
+          node --check public/protocol-authority.js
+          node --check public/connection-doctor.js
+          node --check public/diagnostic-core.js
+          node --check public/obd-runtime.js
+          node --check public/diagnostic-core-v2.js
+
+      - name: Full invariant and regression suite
         run: npm test
