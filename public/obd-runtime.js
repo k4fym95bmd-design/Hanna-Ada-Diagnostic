@@ -3,7 +3,7 @@ import { isUsableAdapterIdentity } from './connection-doctor.js';
 import { decodeMode01PidData, decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
-const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
+const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,connecting:false,connectGeneration:0,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
 const UUID={carista:{service:'0000fff0-0000-1000-8000-00805f9b34fb',notify:'0000fff1-0000-1000-8000-00805f9b34fb',write:'0000fff2-0000-1000-8000-00805f9b34fb'},ffe0:{service:'0000ffe0-0000-1000-8000-00805f9b34fb',notify:'0000ffe1-0000-1000-8000-00805f9b34fb',write:'0000ffe1-0000-1000-8000-00805f9b34fb'},nus:{service:'6e400001-b5a3-f393-e0a9-e50e24dcca9e',notify:'6e400003-b5a3-f393-e0a9-e50e24dcca9e',write:'6e400002-b5a3-f393-e0a9-e50e24dcca9e'}};
 const enc=new TextEncoder(),dec=new TextDecoder();
 function log(kind,msg){const box=document.querySelector('#haRealConsole');if(box){const d=document.createElement('div');d.className='rt-'+kind.toLowerCase();d.textContent=`${kind}  ${msg}`;box.appendChild(d);while(box.children.length>250)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}console.log('[H&A OBD]',kind,msg)}
@@ -195,9 +195,74 @@ async function initElm(){
     log('ERR',e.message);
   }
 }
-async function connect(){if(!navigator.bluetooth){status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);return}try{status('Wybierz adapter BLE…');const services=Object.values(UUID).map(x=>x.service);HA.device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});HA.device.addEventListener('gattserverdisconnected',disconnect);status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);HA.server=await HA.device.gatt.connect();const d=await discover(HA.server);HA.notify=d.n;HA.write=d.w;await HA.notify.startNotifications();HA.notify.addEventListener('characteristicvaluechanged',onNotify);HA.transportEpoch++;HA.desynchronized=false;HA.buffer='';HA.pending=null;HA.connected=true;setChip('#haBle',true,'BLE ON');log('SYS',`BLE connected: ${HA.device.name||'unknown'} · ${d.name}`);await initElm()}catch(e){status(e.message||String(e),true);log('ERR',e.message||String(e));disconnect()}}
+async function connect(){
+  if(!navigator.bluetooth){
+    status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);
+    return false;
+  }
+  if(HA.connecting||HA.connected){
+    status(HA.connected?'Adapter już połączony':'Łączenie już trwa');
+    return false;
+  }
+
+  const generation=++HA.connectGeneration;
+  HA.connecting=true;
+
+  try{
+    status('Wybierz adapter BLE…');
+    const services=Object.values(UUID).map(profile=>profile.service);
+    const device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});
+    if(generation!==HA.connectGeneration)return false;
+
+    HA.device=device;
+    HA.device.addEventListener('gattserverdisconnected',disconnect);
+    status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);
+
+    const server=await HA.device.gatt.connect();
+    if(generation!==HA.connectGeneration){
+      try{HA.device?.gatt?.disconnect();}catch{}
+      return false;
+    }
+    HA.server=server;
+
+    const d=await discover(HA.server);
+    if(generation!==HA.connectGeneration)return false;
+
+    HA.notify=d.n;
+    HA.write=d.w;
+    await HA.notify.startNotifications();
+    if(generation!==HA.connectGeneration){
+      try{await HA.notify.stopNotifications?.();}catch{}
+      return false;
+    }
+
+    HA.notify.addEventListener('characteristicvaluechanged',onNotify);
+    HA.transportEpoch++;
+    HA.desynchronized=false;
+    HA.buffer='';
+    HA.pending=null;
+    HA.connected=true;
+    setChip('#haBle',true,'BLE ON');
+    log('SYS',`BLE connected: ${HA.device.name||'unknown'} · ${d.name}`);
+
+    await initElm();
+    if(generation!==HA.connectGeneration)return false;
+    return HA.connected;
+  }catch(error){
+    if(generation===HA.connectGeneration){
+      status(error.message||String(error),true);
+      log('ERR',error.message||String(error));
+      disconnect();
+    }
+    return false;
+  }finally{
+    if(generation===HA.connectGeneration)HA.connecting=false;
+  }
+}
 function stopLive(){if(HA.poll){clearInterval(HA.poll);HA.poll=null}const b=document.querySelector('#haLiveToggle');if(b)b.textContent='START LIVE'}
 function disconnect(){
+  HA.connectGeneration++;
+  HA.connecting=false;
   stopLive();
   const notify=HA.notify;
   if(notify?.removeEventListener)notify.removeEventListener('characteristicvaluechanged',onNotify);
