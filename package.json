@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "npm run test:smoke && npm run test:http && npm run test:gateway && npm run test:protocol-authority && npm run test:transport-invariants && npm run test:diagnostic-core && npm run test:connection-doctor && npm run test:terminal-policy && npm run test:web-runtime && npm run test:tablet-usb",
+    "test": "npm run test:smoke && npm run test:http && npm run test:gateway && npm run test:protocol-authority && npm run test:transport-invariants && npm run test:live-pid && npm run test:diagnostic-core && npm run test:connection-doctor && npm run test:terminal-policy && npm run test:web-runtime && npm run test:tablet-usb",
     "test:smoke": "node test/smoke.mjs",
     "test:http": "node --test test/http-server.mjs",
     "test:gateway": "node --test test/gateway-port.mjs",
@@ -15,7 +15,8 @@
     "test:web-runtime": "node --check public/protocol-authority.js && node --check public/connection-doctor.js && node --check public/diagnostic-core.js && node --check public/obd-runtime.js && node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
     "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs",
     "test:protocol-authority": "node --test test/protocol-authority.mjs",
-    "test:transport-invariants": "node --test test/elm-transport-invariants.mjs"
+    "test:transport-invariants": "node --test test/elm-transport-invariants.mjs",
+    "test:live-pid": "node --test test/live-pid-invariants.mjs"
   },
   "engines": {
     "node": ">=20"
