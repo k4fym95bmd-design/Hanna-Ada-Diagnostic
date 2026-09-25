@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DiagnosticError, classifyVehicleProtocol, decodeStoredDTCs,
-  decodeSupportedPIDs, isValidAdapterIdentity, createDiagnosticSession, reduceDiagnosticSession
+  decodeSupportedPIDs, isValidAdapterIdentity, resolveProtocolAuthority,
+  createDiagnosticSession, reduceDiagnosticSession
 } from '../public/diagnostic-core.js';
 
 function rejectsCode(fn, code) {
@@ -115,6 +116,12 @@ test('session unknown protocol rejects raw DTC without inventing zero faults', (
   state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A6\r>', epoch: 0 });
   assert.equal(state.protocol, 'can');
   assert.equal(state.protocolSource, 'ATDPN');
+  assert.deepEqual(state.protocolContract, {
+    protocolId: '6',
+    rawAtdpn: 'A6',
+    isAutoDetected: true,
+    sourceAuthority: 'ATDPN',
+  });
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.deepEqual(state.dtcs.codes, []);
   assert.equal(state.lastErrorCode, null);
@@ -168,4 +175,48 @@ test('protocol reducer requires explicit ATDPN source even when descriptive text
   });
   assert.equal(atdpn.protocol, 'legacy');
   assert.equal(atdpn.protocolSource, 'ATDPN');
+});
+
+
+test('ATDPN authority contract normalizes protocol ID and keeps ATDP display-only', () => {
+  const auto = resolveProtocolAuthority(
+    'ATDPN\rA6\r>',
+    'ATDP\rAUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)\r>'
+  );
+  assert.deepEqual(auto, {
+    protocolId: '6',
+    rawAtdpn: 'A6',
+    isAutoDetected: true,
+    descriptionFallback: 'AUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)',
+    sourceAuthority: 'ATDPN',
+  });
+  assert.equal(Object.isFrozen(auto), true);
+
+  const fixed = resolveProtocolAuthority('6\r>');
+  assert.deepEqual(fixed, {
+    protocolId: '6',
+    rawAtdpn: '6',
+    isAutoDetected: false,
+    sourceAuthority: 'ATDPN',
+  });
+});
+
+test('ATDPN authority contract rejects unresolved ambiguous and unsupported identifiers', () => {
+  for (const raw of [
+    '', '?', 'SEARCHING...\rA6\r>', 'ATDPN\rSEARCHING...\rA6\r>',
+    'ATDPN\rERROR\r>', 'ATDPN\rNO DATA\r>', 'ATDPN\r0\r>',
+    'ATDPN\rA\r>', 'ATDPN\rB\r>', 'ATDPN\rC\r>',
+    'ATDPN\rA6\rA7\r>', 'ATDPN\rAUTO\r>',
+  ]) {
+    rejectsCode(() => resolveProtocolAuthority(raw), 'PROTOCOL_UNVERIFIED');
+  }
+});
+
+test('ATDP description errors never contaminate a valid ATDPN authority contract', () => {
+  for (const description of ['ATDP\rERROR\r>', 'ATDP\r?\r>', 'ATDP\rCAN ERROR\r>']) {
+    const contract = resolveProtocolAuthority('ATDPN\rA3\r>', description);
+    assert.equal(contract.protocolId, '3');
+    assert.equal(contract.sourceAuthority, 'ATDPN');
+    assert.equal(contract.descriptionFallback, undefined);
+  }
 });
