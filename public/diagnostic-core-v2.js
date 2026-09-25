@@ -1,4 +1,6 @@
-import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js';
+import {
+  resolveProtocolAuthority, protocolKindFromAuthority, decodeStoredDTCs,
+} from './diagnostic-core.js';
 
 // Compatibility extension for the existing browser runtime. This only reads
 // generic OBD-II and never claims manufacturer-level BMW ECU functionality.
@@ -29,16 +31,21 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   }
 
   async function detectProtocol() {
-    let raw = '';
-    try { raw = await send('ATDPN', 5000); } catch { /* Older adapters may not implement ATDPN. */ }
-    let kind = classifyVehicleProtocol(raw);
-    if (kind === 'unknown') {
-      raw = await send('ATDP', 5000);
-      kind = classifyVehicleProtocol(raw);
-    }
+    const atdpnRaw = await send('ATDPN', 5000);
+    let atdpRaw = '';
+    try { atdpRaw = await send('ATDP', 5000); } catch { /* Optional label only. */ }
+    const authority = resolveProtocolAuthority(atdpnRaw, atdpRaw);
+    const kind = protocolKindFromAuthority(authority);
     latestProtocol = kind;
     const el = document.querySelector('#haProtocolValue');
-    if (el) el.textContent = kind === 'unknown' ? 'Unverified' : `${kind.toUpperCase()} · read-only`;
+    if (el) {
+      if (kind === 'unknown') {
+        el.textContent = `ATDPN ${authority.rawAtdpn} · unsupported generic framing`;
+      } else {
+        const auto = authority.isAutoDetected ? 'AUTO · ' : '';
+        el.textContent = `${kind.toUpperCase()} · ${auto}ID ${authority.protocolId} · ATDPN`;
+      }
+    }
     return kind;
   }
 
@@ -105,7 +112,8 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     if (button) button.disabled = true;
     showDTCResult('Odczyt i weryfikacja odpowiedzi ECU…', 'v2-empty');
     try {
-      // Never infer CAN/legacy layout from byte-count parity or adapter ATI.
+      // Never infer CAN/legacy layout from ATDP text, byte-count parity or adapter ATI.
+      // ATDPN is the only authority; failure leaves the decoder in unknown state.
       const protocol = await detectProtocol().catch(() => 'unknown');
       const raw = await send('03', 10000);
       const parsed = decodeStoredDTCs(raw, protocol);
