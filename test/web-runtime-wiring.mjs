@@ -30,3 +30,10 @@ test('browser runtime uses strict ECU and shared adapter identity authorities', 
   assert.match(runtime, /HA\.adapter\s*=\s*isUsableAdapterIdentity\(ati\)/);
   assert.doesNotMatch(runtime, /ati\.length\s*>\s*1/);
 });
+
+test('raw terminal enforces read-only policy inside runtime path', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /import\s*\{[^}]*isReadOnlyELMCommand[^}]*\}\s*from\s*['"]\.\/terminal-readonly-guard\.js['"]/);
+  assert.match(runtime, /if\(!isReadOnlyELMCommand\(c\)\)/);
+  assert.doesNotMatch(runtime, /if\(c===['"]04['"]\)/);
+});
