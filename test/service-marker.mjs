@@ -15,7 +15,7 @@ test('a Mode 01 payload containing 41 00 inside an unrelated service never confi
     gattDiscovered: true, notificationsActive: true,
     adapterReply: 'ATI\rELM327 v2.2\r>',
     pid0100Reply: '41 0C 00 41 00 80 00 00 00\r>',
-    protocolReply: 'ATDPN\rA3\r>',
+    atdpnReply: 'ATDPN\rA3\r>',
   });
   assert.equal(diagnosis.code, 'ECU_RESPONSE_INVALID');
   assert.equal(diagnosis.evidence.parserError, 'NO_ECU_RESPONSE');

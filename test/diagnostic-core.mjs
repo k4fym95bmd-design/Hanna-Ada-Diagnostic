@@ -9,15 +9,14 @@ function rejectsCode(fn, code) {
   assert.throws(fn, error => error instanceof DiagnosticError && error.code === code);
 }
 
-test('ATDP and ATDPN classify the vehicle protocol instead of ATI adapter identity', () => {
-  assert.equal(classifyVehicleProtocol('ATDP\rAUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)\r>'), 'can');
+test('only ATDPN classifies the vehicle protocol; ATDP is presentation-only', () => {
   assert.equal(classifyVehicleProtocol('ATDPN\rA6\r>'), 'can');
   assert.equal(classifyVehicleProtocol('ATDPN\r8\r>'), 'can');
-  assert.equal(classifyVehicleProtocol('ATDP\rISO 9141-2\r>'), 'legacy');
-  assert.equal(classifyVehicleProtocol('ATDP\rISO 14230-4 KWP (5 baud init)\r>'), 'legacy');
   assert.equal(classifyVehicleProtocol('ATDPN\rA3\r>'), 'legacy');
+  assert.equal(classifyVehicleProtocol('ATDPN\rA\r>'), 'unknown');
+  assert.equal(classifyVehicleProtocol('ATDP\rAUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)\r>'), 'unknown');
+  assert.equal(classifyVehicleProtocol('ATDP\rISO 9141-2\r>'), 'unknown');
   assert.equal(classifyVehicleProtocol('ATI\rELM327 v1.5\r>'), 'unknown');
-  assert.equal(classifyVehicleProtocol('ATDP\rAUTO\r>'), 'unknown');
 });
 
 test('CAN headers-on count, PCI length and padding decode P0308 correctly', () => {
@@ -28,7 +27,7 @@ test('CAN headers-on count, PCI length and padding decode P0308 correctly', () =
   assert.equal(result.status, 'verified');
 });
 
-test('a valid CAN frame is sufficient evidence even when ATDP is unknown', () => {
+test('a valid CAN frame is sufficient evidence even when ATDPN is unknown', () => {
   assert.deepEqual(decodeStoredDTCs('7E8 04 43 01 03 08 00 00 00\r>').codes, ['P0308']);
 });
 
@@ -106,8 +105,10 @@ test('session unknown protocol rejects raw DTC without inventing zero faults', (
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.equal(state.dtcs, null);
   assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
-  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', raw: 'ATDP\rISO 15765-4 CAN\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', atdpnRaw: 'ATDPN\rA6\r>', atdpRaw: 'ATDP\rISO 9141-2\r>', epoch: 0 });
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
+  assert.equal(state.protocolContract.protocolId, '6');
+  assert.equal(state.protocolContract.sourceAuthority, 'ATDPN');
   assert.deepEqual(state.dtcs.codes, []);
   assert.equal(state.lastErrorCode, null);
 });

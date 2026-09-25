@@ -1,4 +1,5 @@
-import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js';
+import { decodeStoredDTCs } from './diagnostic-core.js';
+import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
 // Compatibility extension for the existing browser runtime. This only reads
 // generic OBD-II and never claims manufacturer-level BMW ECU functionality.
@@ -29,16 +30,19 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   }
 
   async function detectProtocol() {
-    let raw = '';
-    try { raw = await send('ATDPN', 5000); } catch { /* Older adapters may not implement ATDPN. */ }
-    let kind = classifyVehicleProtocol(raw);
-    if (kind === 'unknown') {
-      raw = await send('ATDP', 5000);
-      kind = classifyVehicleProtocol(raw);
-    }
+    const atdpnRaw = await send('ATDPN', 5000);
+    let atdpRaw;
+    try { atdpRaw = await send('ATDP', 5000); } catch {}
+    const contract = resolveProtocolAuthority(atdpnRaw, atdpRaw);
+    const kind = classifyProtocolContract(contract);
     latestProtocol = kind;
     const el = document.querySelector('#haProtocolValue');
-    if (el) el.textContent = kind === 'unknown' ? 'Unverified' : `${kind.toUpperCase()} · read-only`;
+    if (el) {
+      const label = contract.descriptionFallback ? ` · ${contract.descriptionFallback}` : '';
+      el.textContent = kind === 'unknown'
+        ? `ATDPN ${contract.rawAtdpn} · unsupported${label}`
+        : `${kind.toUpperCase()} · ATDPN ${contract.rawAtdpn} · read-only${label}`;
+    }
     return kind;
   }
 
@@ -105,7 +109,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     if (button) button.disabled = true;
     showDTCResult('Odczyt i weryfikacja odpowiedzi ECU…', 'v2-empty');
     try {
-      // Never infer CAN/legacy layout from byte-count parity or adapter ATI.
+      // Never infer CAN/legacy layout from ATDP text, byte-count parity, or adapter ATI.
       const protocol = await detectProtocol().catch(() => 'unknown');
       const raw = await send('03', 10000);
       const parsed = decodeStoredDTCs(raw, protocol);
