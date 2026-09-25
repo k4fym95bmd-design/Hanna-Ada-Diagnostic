@@ -20,9 +20,53 @@ export function cleanELM(raw) {
     .split('\n').map(line => line.trim()).filter(Boolean);
 }
 
-// ATDP is the detected VEHICLE protocol, not the adapter's ATI identity.
-// ATDPN identifiers 1-5 are legacy, 6-9 are ISO 15765-4 CAN; 0/A/B/C
-// are not accepted as verified generic OBD transport identifiers here.
+const PROTOCOL_FAILURE = /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR|SEARCHING)\b|\?/i;
+
+function singleElmReply(raw, command) {
+  const lines = cleanELM(raw).filter(line => line.toUpperCase() !== command);
+  if (lines.length !== 1 || PROTOCOL_FAILURE.test(String(raw ?? '')) || PROTOCOL_FAILURE.test(lines[0])) {
+    throw new DiagnosticError('PROTOCOL_UNRESOLVED', `${command} did not return one clean protocol reply`, String(raw ?? ''));
+  }
+  return lines[0].trim();
+}
+
+// ATDPN is the sole protocol-identity authority. ATDP may supply a human label
+// only; it must never rescue, override or contradict a missing/invalid ATDPN.
+export function resolveProtocolAuthority(atdpnRaw, atdpRaw = '') {
+  const rawAtdpn = singleElmReply(atdpnRaw, 'ATDPN').toUpperCase().replace(/\s+/g, '');
+  const isAutoDetected = rawAtdpn.length === 2 && rawAtdpn.startsWith('A');
+  const protocolId = isAutoDetected ? rawAtdpn.slice(1) : rawAtdpn;
+  if (!/^[1-9A-C]$/.test(protocolId)) {
+    throw new DiagnosticError('PROTOCOL_ID_UNKNOWN', `Unknown protocol ID parsed from ATDPN: ${protocolId || '(empty)'}`, String(atdpnRaw ?? ''));
+  }
+
+  let descriptionFallback;
+  if (typeof atdpRaw === 'string' && atdpRaw.trim()) {
+    try { descriptionFallback = singleElmReply(atdpRaw, 'ATDP'); }
+    catch { descriptionFallback = undefined; }
+  }
+
+  return Object.freeze({
+    protocolId,
+    rawAtdpn,
+    isAutoDetected,
+    ...(descriptionFallback ? { descriptionFallback } : {}),
+    sourceAuthority: 'ATDPN',
+  });
+}
+
+export function protocolKindFromAuthority(contract) {
+  if (!contract || contract.sourceAuthority !== 'ATDPN' || !/^[1-9A-C]$/.test(contract.protocolId || '')) return 'unknown';
+  if ('12345'.includes(contract.protocolId)) return 'legacy';
+  if ('6789'.includes(contract.protocolId)) return 'can';
+  // A/B/C are valid ELM327 protocol IDs, but are not accepted here as verified
+  // generic emissions-OBD framing without a dedicated decoder contract.
+  return 'unknown';
+}
+
+// Broad descriptive classifier retained for compatibility and display helpers.
+// It is NOT a protocol-authority contract; use resolveProtocolAuthority() for
+// decisions that gate parsing or connection state.
 export function classifyVehicleProtocol(raw) {
   const lines = cleanELM(raw).filter(line => !/^ATDPN?$/i.test(line));
   // A reply with multiple/conflicting observations or an ELM failure cannot
@@ -160,7 +204,7 @@ export function decodeSupportedPIDs(raw) {
 
 export function createDiagnosticSession() {
   return Object.freeze({ epoch: 0, stage: 'DISCONNECTED', protocol: 'unknown',
-    adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
+    protocolAuthority: null, adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
 }
 
 // Pure, epoch-guarded state machine suitable for a Floot React state reducer.
@@ -185,14 +229,22 @@ export function reduceDiagnosticSession(session, event) {
       // A fresh ECU probe invalidates protocol/DTC evidence from any earlier
       // probe even when the BLE link and epoch have not changed.
       return Object.freeze({ ...session, stage: 'ECU', pids: result.pids,
-        protocol: 'unknown', dtcs: null, lastErrorCode: null });
+        protocol: 'unknown', protocolAuthority: null, dtcs: null, lastErrorCode: null });
     } catch (error) {
       return Object.freeze({ ...session, stage: 'ADAPTER', pids: null, dtcs: null,
-        protocol: 'unknown', lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
+        protocol: 'unknown', protocolAuthority: null,
+        lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
     }
   }
   if (event.type === 'PROTOCOL_RESPONSE' && session.stage === 'ECU') {
-    return Object.freeze({ ...session, protocol: classifyVehicleProtocol(event.raw), dtcs: null });
+    try {
+      const authority = resolveProtocolAuthority(event.atdpnRaw ?? event.raw, event.atdpRaw);
+      return Object.freeze({ ...session, protocol: protocolKindFromAuthority(authority),
+        protocolAuthority: authority, dtcs: null, lastErrorCode: null });
+    } catch (error) {
+      return Object.freeze({ ...session, protocol: 'unknown', protocolAuthority: null, dtcs: null,
+        lastErrorCode: error instanceof DiagnosticError ? error.code : 'PROTOCOL_UNRESOLVED' });
+    }
   }
   if (event.type === 'DTC_RESPONSE' && session.stage === 'ECU') {
     try {
