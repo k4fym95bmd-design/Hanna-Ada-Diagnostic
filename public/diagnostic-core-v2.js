@@ -26,8 +26,8 @@ import {
   async function send(cmd, timeout = 8000) {
     const h = H();
     if (!h?.ecu) throw new Error('ECU offline');
-    if (typeof h.command !== 'function') throw new Error('Runtime command bridge unavailable');
-    return h.command(cmd, timeout);
+    if (typeof h.readOnlyCommand !== 'function') throw new Error('Read-only runtime command bridge unavailable');
+    return h.readOnlyCommand(cmd, timeout);
   }
 
   async function detectProtocol() {
