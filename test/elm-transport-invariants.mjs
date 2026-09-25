@@ -5,6 +5,7 @@ globalThis.window = {};
 globalThis.document = {
   querySelector() { return null; },
   querySelectorAll() { return []; },
+  addEventListener() {},
   documentElement: {},
 };
 globalThis.MutationObserver = class { observe() {} };
