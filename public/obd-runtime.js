@@ -1,6 +1,6 @@
 import { isReadOnlyELMCommand } from './terminal-readonly-guard.js';
 import { isUsableAdapterIdentity } from './connection-doctor.js';
-import { decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
+import { decodeMode01PidData, decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
 const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
@@ -107,12 +107,41 @@ async function command(cmd,timeout=6000){
       });
   });
 }
-function hexLines(raw){return clean(raw).toUpperCase().split(/(?=7E[0-9A-F]|41|43)/).map(x=>x.replace(/[^0-9A-F ]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean)}
-function bytesFrom(s){const h=s.replace(/[^0-9A-F]/gi,'');const out=[];for(let i=0;i+1<h.length;i+=2)out.push(parseInt(h.slice(i,i+2),16));return out}
-function findPid(raw,pid){const p=parseInt(pid,16);for(const line of hexLines(raw)){const b=bytesFrom(line);for(let i=0;i<b.length-2;i++)if(b[i]===0x41&&b[i+1]===p)return b.slice(i+2)}return null}
-const PIDS={load:{cmd:'0104',unit:'%',parse:a=>a?.length?a[0]*100/255:null},coolant:{cmd:'0105',unit:'°C',parse:a=>a?.length?a[0]-40:null},stft1:{cmd:'0106',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft1:{cmd:'0107',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},stft2:{cmd:'0108',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft2:{cmd:'0109',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},rpm:{cmd:'010C',unit:'rpm',parse:a=>a?.length>1?((a[0]*256+a[1])/4):null},speed:{cmd:'010D',unit:'km/h',parse:a=>a?.length?a[0]:null},iat:{cmd:'010F',unit:'°C',parse:a=>a?.length?a[0]-40:null},maf:{cmd:'0110',unit:'g/s',parse:a=>a?.length>1?((a[0]*256+a[1])/100):null},throttle:{cmd:'0111',unit:'%',parse:a=>a?.length?a[0]*100/255:null},voltage:{cmd:'ATRV',unit:'V',parse:null}};
+const PIDS={load:{cmd:'0104',bytes:1,unit:'%',parse:a=>a[0]*100/255},coolant:{cmd:'0105',bytes:1,unit:'°C',parse:a=>a[0]-40},stft1:{cmd:'0106',bytes:1,unit:'%',parse:a=>(a[0]-128)*100/128},ltft1:{cmd:'0107',bytes:1,unit:'%',parse:a=>(a[0]-128)*100/128},stft2:{cmd:'0108',bytes:1,unit:'%',parse:a=>(a[0]-128)*100/128},ltft2:{cmd:'0109',bytes:1,unit:'%',parse:a=>(a[0]-128)*100/128},rpm:{cmd:'010C',bytes:2,unit:'rpm',parse:a=>(a[0]*256+a[1])/4},speed:{cmd:'010D',bytes:1,unit:'km/h',parse:a=>a[0]},iat:{cmd:'010F',bytes:1,unit:'°C',parse:a=>a[0]-40},maf:{cmd:'0110',bytes:2,unit:'g/s',parse:a=>(a[0]*256+a[1])/100},throttle:{cmd:'0111',bytes:1,unit:'%',parse:a=>a[0]*100/255},voltage:{cmd:'ATRV',bytes:null,unit:'V',parse:null}};
 function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||HA.supported.size===0)return true;return HA.supported.has(parseInt(cmd.slice(2),16))}
-async function readPid(key){const p=PIDS[key];if(!p||!HA.ecu)throw new Error('ECU offline');if(!isPidSupported(p.cmd)){HA.values[key]=null;updateValue(key,null,p.unit,'N/S');return null}const raw=await command(p.cmd);if(classify(raw)==='no-data'){updateValue(key,null,p.unit,'NO DATA');return null}let v;if(key==='voltage'){const m=clean(raw).match(/(\d+(?:\.\d+)?)\s*V/i);v=m?Number(m[1]):null}else v=p.parse(findPid(raw,p.cmd.slice(2)));HA.values[key]=v;updateValue(key,v,p.unit);return v}
+async function readPid(key){
+  const p=PIDS[key];
+  if(!p||!HA.ecu)throw new Error('ECU offline');
+  if(!isPidSupported(p.cmd)){
+    HA.values[key]=null;
+    updateValue(key,null,p.unit,'N/S');
+    return null;
+  }
+  const raw=await command(p.cmd);
+  if(classify(raw)==='no-data'){
+    updateValue(key,null,p.unit,'NO DATA');
+    return null;
+  }
+
+  let value;
+  if(key==='voltage'){
+    const text=clean(raw);
+    if(classify(raw)!=='ok')throw new Error('Invalid ATRV response');
+    const match=text.match(/^(?:ATRV\s+)?(\d+(?:\.\d+)?)\s*V\s*>?$/i);
+    if(!match)throw new Error('Invalid ATRV response');
+    value=Number(match[1]);
+    if(!Number.isFinite(value)||value<0||value>30)throw new Error('Invalid ATRV voltage range');
+  }else{
+    const pid=parseInt(p.cmd.slice(2),16);
+    const decoded=decodeMode01PidData(raw,pid,p.bytes);
+    value=p.parse(decoded.data);
+  }
+
+  if(!Number.isFinite(value))throw new Error('Invalid decoded PID value');
+  HA.values[key]=value;
+  updateValue(key,value,p.unit);
+  return value;
+}
 function updateValue(key,v,unit,note=''){const e=document.querySelector(`[data-ha-value="${key}"]`);if(e)e.textContent=v==null?(note||'—'):`${Number(v).toFixed(key==='rpm'||key==='speed'?0:1)} ${unit}`}
 async function probeSupported(){
   const raw=await command('0100',15000);
