@@ -9,9 +9,101 @@ function status(msg,bad=false){const e=document.querySelector('#haRuntimeStatus'
 function clean(s){return String(s||'').replace(/\0/g,'').replace(/SEARCHING\.\.\./gi,'').replace(/BUS INIT[^\r\n>]*/gi,'').replace(/STOPPED/gi,'').replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim()}
 function classify(raw){const s=clean(raw).toUpperCase();if(!s)return'empty';if(s.includes('NO DATA'))return'no-data';if(s.includes('UNABLE TO CONNECT'))return'unable-to-connect';if(s.includes('BUS INIT')&&s.includes('ERROR'))return'bus-init-error';if(s.includes('ERROR')||s.includes('?'))return'error';return'ok'}
 function refreshStats(){const e=document.querySelector('#haSessionStats');if(!e)return;e.textContent=`TX ${HA.stats.tx} · RX ${HA.stats.rx} · TIMEOUT ${HA.stats.timeouts} · ${HA.stats.lastLatency==null?'—':HA.stats.lastLatency+' ms'}`}
-function onNotify(ev){const s=dec.decode(ev.target.value);HA.buffer+=s;HA.stats.rx++;refreshStats();log('RX',clean(s)||JSON.stringify(s));if(HA.buffer.includes('>')&&HA.pending){const p=HA.pending;HA.pending=null;clearTimeout(p.timer);const out=HA.buffer;HA.buffer='';HA.stats.lastLatency=Math.max(0,Math.round(performance.now()-p.started));refreshStats();p.resolve(out)}}
+const MAX_ELM_REPLY_BYTES=65536;
+function invalidateTransport(reason='ELM transport closed; reconnect required'){
+  HA.transportEpoch++;
+  HA.desynchronized=true;
+  HA.buffer='';
+  const pending=HA.pending;
+  HA.pending=null;
+  if(pending){
+    clearTimeout(pending.timer);
+    pending.reject(new Error(reason));
+  }
+}
+function onNotify(ev){
+  if(ev?.target!==HA.notify)return;
+  const s=dec.decode(ev.target.value);
+  HA.stats.rx++;
+  refreshStats();
+  log('RX',clean(s)||JSON.stringify(s));
+  const p=HA.pending;
+  if(!p){
+    HA.buffer='';
+    log('WARN','Unsolicited ELM data discarded.');
+    return;
+  }
+  if(p.epoch!==HA.transportEpoch){
+    HA.buffer='';
+    return;
+  }
+  HA.buffer+=s;
+  if(HA.buffer.length>MAX_ELM_REPLY_BYTES){
+    invalidateTransport('ELM reply exceeded safe buffer limit; reconnect required');
+    return;
+  }
+  const promptIndex=HA.buffer.indexOf('>');
+  if(promptIndex<0)return;
+  const out=HA.buffer.slice(0,promptIndex+1);
+  const trailing=HA.buffer.slice(promptIndex+1);
+  HA.pending=null;
+  HA.buffer='';
+  clearTimeout(p.timer);
+  if(trailing.trim()){
+    HA.desynchronized=true;
+    p.reject(new Error('ELM response framing ambiguous; reconnect required'));
+    return;
+  }
+  HA.stats.lastLatency=Math.max(0,Math.round(performance.now()-p.started));
+  refreshStats();
+  p.resolve(out);
+}
 async function discover(server){for(const [name,profile] of Object.entries(UUID)){try{const svc=await server.getPrimaryService(profile.service);const n=await svc.getCharacteristic(profile.notify);const w=profile.write===profile.notify?n:await svc.getCharacteristic(profile.write);log('SYS',`BLE UART profile: ${name}`);return {n,w,profile,name}}catch{}}throw new Error('Nie znaleziono obsługiwanego profilu BLE UART (FFF0/FFE0/NUS).')}
-async function command(cmd,timeout=6000){if(!HA.write)throw new Error('Adapter niepołączony');if(HA.desynchronized)throw new Error('ELM channel desynchronized; reconnect required');if(HA.pending)throw new Error('Poprzednie polecenie nadal oczekuje');HA.buffer='';HA.stats.tx++;HA.stats.lastCommand=cmd;refreshStats();log('TX',cmd);return new Promise(async(resolve,reject)=>{const started=performance.now();const timer=setTimeout(()=>{HA.pending=null;HA.desynchronized=true;HA.buffer='';HA.stats.timeouts++;refreshStats();reject(new Error(`Timeout: ${cmd}`))},timeout);HA.pending={resolve,reject,timer,started};try{const bytes=enc.encode(cmd+'\r');if(HA.write.properties.writeWithoutResponse)await HA.write.writeValueWithoutResponse(bytes);else await HA.write.writeValue(bytes)}catch(e){clearTimeout(timer);HA.pending=null;reject(e)}})}
+async function command(cmd,timeout=6000){
+  if(!HA.write)throw new Error('Adapter niepołączony');
+  if(HA.desynchronized)throw new Error('ELM channel desynchronized; reconnect required');
+  if(HA.pending)throw new Error('Poprzednie polecenie nadal oczekuje');
+  if(typeof cmd!=='string'||!cmd.trim()||cmd.length>64||/[\r\n\0]/.test(cmd))throw new Error('Nieprawidłowe polecenie ELM');
+  if(!Number.isInteger(timeout)||timeout<1||timeout>30000)throw new Error('Nieprawidłowy timeout ELM');
+
+  HA.buffer='';
+  HA.stats.tx++;
+  HA.stats.lastCommand=cmd;
+  refreshStats();
+  log('TX',cmd);
+
+  const epoch=HA.transportEpoch;
+  return new Promise((resolve,reject)=>{
+    const pending={resolve,reject,timer:null,started:performance.now(),epoch,cmd};
+    pending.timer=setTimeout(()=>{
+      if(HA.pending!==pending)return;
+      HA.pending=null;
+      HA.desynchronized=true;
+      HA.buffer='';
+      HA.stats.timeouts++;
+      refreshStats();
+      reject(new Error(`Timeout: ${cmd}`));
+    },timeout);
+    HA.pending=pending;
+
+    const bytes=enc.encode(cmd+'\r');
+    Promise.resolve()
+      .then(()=>{
+        if(epoch!==HA.transportEpoch)throw new Error('ELM transport epoch changed; reconnect required');
+        if(HA.write.properties.writeWithoutResponse)return HA.write.writeValueWithoutResponse(bytes);
+        return HA.write.writeValue(bytes);
+      })
+      .catch(error=>{
+        if(HA.pending===pending){
+          clearTimeout(pending.timer);
+          HA.pending=null;
+          HA.buffer='';
+          HA.desynchronized=true;
+        }
+        reject(error instanceof Error?error:new Error(String(error)));
+      });
+  });
+}
 function hexLines(raw){return clean(raw).toUpperCase().split(/(?=7E[0-9A-F]|41|43)/).map(x=>x.replace(/[^0-9A-F ]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean)}
 function bytesFrom(s){const h=s.replace(/[^0-9A-F]/gi,'');const out=[];for(let i=0;i+1<h.length;i+=2)out.push(parseInt(h.slice(i,i+2),16));return out}
 function findPid(raw,pid){const p=parseInt(pid,16);for(const line of hexLines(raw)){const b=bytesFrom(line);for(let i=0;i<b.length-2;i++)if(b[i]===0x41&&b[i+1]===p)return b.slice(i+2)}return null}
@@ -74,13 +166,23 @@ async function initElm(){
     log('ERR',e.message);
   }
 }
-async function connect(){if(!navigator.bluetooth){status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);return}try{status('Wybierz adapter BLE…');const services=Object.values(UUID).map(x=>x.service);HA.device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});HA.device.addEventListener('gattserverdisconnected',disconnect);status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);HA.server=await HA.device.gatt.connect();const d=await discover(HA.server);HA.notify=d.n;HA.write=d.w;await HA.notify.startNotifications();HA.notify.addEventListener('characteristicvaluechanged',onNotify);HA.connected=true;setChip('#haBle',true,'BLE ON');log('SYS',`BLE connected: ${HA.device.name||'unknown'} · ${d.name}`);await initElm()}catch(e){status(e.message||String(e),true);log('ERR',e.message||String(e));disconnect()}}
+async function connect(){if(!navigator.bluetooth){status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);return}try{status('Wybierz adapter BLE…');const services=Object.values(UUID).map(x=>x.service);HA.device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});HA.device.addEventListener('gattserverdisconnected',disconnect);status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);HA.server=await HA.device.gatt.connect();const d=await discover(HA.server);HA.notify=d.n;HA.write=d.w;await HA.notify.startNotifications();HA.notify.addEventListener('characteristicvaluechanged',onNotify);HA.transportEpoch++;HA.desynchronized=false;HA.buffer='';HA.pending=null;HA.connected=true;setChip('#haBle',true,'BLE ON');log('SYS',`BLE connected: ${HA.device.name||'unknown'} · ${d.name}`);await initElm()}catch(e){status(e.message||String(e),true);log('ERR',e.message||String(e));disconnect()}}
 function stopLive(){if(HA.poll){clearInterval(HA.poll);HA.poll=null}const b=document.querySelector('#haLiveToggle');if(b)b.textContent='START LIVE'}
 function disconnect(){
   stopLive();
+  const notify=HA.notify;
+  if(notify?.removeEventListener)notify.removeEventListener('characteristicvaluechanged',onNotify);
+  if(notify?.stopNotifications){
+    try{Promise.resolve(notify.stopNotifications()).catch(()=>{});}catch{}
+  }
+  invalidateTransport('ELM transport disconnected; pending command cancelled');
   HA.connected=HA.adapter=HA.ecu=false;
   HA.protocolContract=null;
   HA.supported.clear();
+  HA.write=null;
+  HA.notify=null;
+  HA.server=null;
+  HA.device=null;
   setChip('#haBle',false,'BLE —');
   setChip('#haAdapter',false,'ADAPTER —');
   setChip('#haEcu',false,'ECU —');
