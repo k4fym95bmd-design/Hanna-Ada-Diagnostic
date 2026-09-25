@@ -13,7 +13,7 @@ const result = (stage, code, explanation, nextStep, evidence = {}) => Object.fre
   bmwModulesVerified: false, writesEnabled: false,
 });
 
-function hasAdapterIdentity(raw) {
+export function isUsableAdapterIdentity(raw) {
   if (typeof raw !== 'string' ||
       /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(raw.toUpperCase())) return false;
   const lines = cleanELM(raw);
@@ -78,7 +78,7 @@ export function diagnoseConnection(observation = {}) {
     'The transport reported an error; later replies may be stale.',
     'Disconnect, re-establish a clean session and capture the first failing command.',
     { notificationsActive: true });
-  if (!hasAdapterIdentity(adapterReply)) return result('ELM', 'ADAPTER_UNVERIFIED',
+  if (!isUsableAdapterIdentity(adapterReply)) return result('ELM', 'ADAPTER_UNVERIFIED',
     'No usable adapter identity was observed; an open BLE channel alone is insufficient.',
     'Capture the ATI response after notifications are enabled.',
     { notificationsActive: true });
