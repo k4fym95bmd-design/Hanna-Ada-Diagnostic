@@ -1,3 +1,4 @@
+import { isReadOnlyELMCommand } from './terminal-readonly-guard.js';
 import { isUsableAdapterIdentity } from './connection-doctor.js';
 import { decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
@@ -193,7 +194,21 @@ function disconnect(){
 async function readAll(){if(!HA.ecu)return status('ECU offline',true);const keys=['rpm','coolant','maf','throttle','stft1','ltft1','stft2','ltft2','iat','speed','load','voltage'];for(const k of keys){try{await readPid(k)}catch(e){log('WARN',`${k}: ${e.message}`)}}}
 function toggleLive(){if(HA.poll){stopLive();status('Live polling zatrzymany');return}if(!HA.ecu)return status('Najpierw połącz ECU',true);const b=document.querySelector('#haLiveToggle');if(b)b.textContent='STOP LIVE';status('Live polling aktywny');let busy=false;const tick=async()=>{if(busy||!HA.ecu)return;busy=true;try{await readAll()}finally{busy=false}};tick();HA.poll=setInterval(tick,2500)}
 async function readDtc(){if(!HA.ecu)return status('Najpierw połącz ECU',true);try{const raw=await command('03',10000);const codes=parseDtc(raw);const box=document.querySelector('#haDtcResult');if(box)box.innerHTML=codes.length?codes.map(c=>`<span class="rt-dtc">${c}</span>`).join(''):'<span class="rt-none">Brak kodów Mode 03 w odpowiedzi</span>';log('SYS','Mode 03: '+clean(raw));status(codes.length?`DTC: ${codes.join(', ')}`:'DTC odczytane · brak kodów Mode 03')}catch(e){status(e.message,true)}}
-async function rawSend(){const input=document.querySelector('#haRawInput');const c=(input?.value||'').trim().toUpperCase();if(!c)return;if(c==='04')return status('Mode 04 celowo zablokowany w terminalu bezpieczeństwa',true);try{const r=await command(c,10000);status(`${c}: ${classify(r)}`)}catch(e){status(e.message,true)}}
+async function rawSend(){
+  const input=document.querySelector('#haRawInput');
+  const c=(input?.value||'').trim().toUpperCase();
+  if(!c)return;
+  if(!isReadOnlyELMCommand(c)){
+    status('Terminal: polecenie zablokowane przez politykę read-only',true);
+    return;
+  }
+  try{
+    const r=await command(c,10000);
+    status(`${c}: ${classify(r)}`);
+  }catch(e){
+    status(e.message,true);
+  }
+}
 function inject(){if(!document.querySelector('#view'))return;const isVci=[...document.querySelectorAll('.hero h1')].some(x=>/VCI \/ Connection/i.test(x.textContent));if(!isVci)return;if(document.querySelector('#haRuntime'))return;const view=document.querySelector('#view');const old=document.querySelector('#demoBle');if(old){old.textContent='POŁĄCZ REALNY ADAPTER';old.removeAttribute('id');old.onclick=connect;old.classList.add('connect-real')}
 const el=document.createElement('section');el.id='haRuntime';el.className='ha-runtime';el.innerHTML=`<div class="rt-head"><div><span class="rt-kicker">REAL OBD RUNTIME</span><h2>BLE → ELM → ECU</h2></div><div><div id="haRuntimeStatus" class="rt-status">Gotowy do połączenia</div><small id="haSessionStats" class="rt-stats">TX 0 · RX 0 · TIMEOUT 0 · —</small></div></div><div class="rt-chips"><span id="haBle" class="rt-chip bad"><i></i><b>BLE —</b></span><span id="haAdapter" class="rt-chip bad"><i></i><b>ADAPTER —</b></span><span id="haEcu" class="rt-chip bad"><i></i><b>ECU —</b></span></div><div class="rt-actions"><button id="haConnect" class="rt-primary">CONNECT BLE</button><button id="haReadAll">READ LIVE</button><button id="haLiveToggle">START LIVE</button><button id="haDtc">READ DTC</button><button id="haDisconnect">DISCONNECT</button></div><div class="rt-live"><div><small>RPM</small><strong data-ha-value="rpm">—</strong></div><div><small>COOLANT</small><strong data-ha-value="coolant">—</strong></div><div><small>MAF</small><strong data-ha-value="maf">—</strong></div><div><small>THROTTLE</small><strong data-ha-value="throttle">—</strong></div><div><small>STFT B1</small><strong data-ha-value="stft1">—</strong></div><div><small>LTFT B1</small><strong data-ha-value="ltft1">—</strong></div><div><small>STFT B2</small><strong data-ha-value="stft2">—</strong></div><div><small>LTFT B2</small><strong data-ha-value="ltft2">—</strong></div><div><small>IAT</small><strong data-ha-value="iat">—</strong></div><div><small>SPEED</small><strong data-ha-value="speed">—</strong></div><div><small>LOAD</small><strong data-ha-value="load">—</strong></div><div><small>VOLTAGE</small><strong data-ha-value="voltage">—</strong></div></div><div class="rt-dtcbox"><b>MODE 03 DTC</b><div id="haDtcResult"><span class="rt-none">Nie odczytano</span></div></div><div class="rt-raw"><div class="rt-rawbar"><b>RAW ELM TERMINAL</b><div><input id="haRawInput" placeholder="np. ATI / 010C / 03"><button id="haRawSend">SEND</button></div></div><div id="haRealConsole" class="rt-console"><div>SYS  Real runtime loaded. No fake live values.</div></div></div>`;view.appendChild(el);el.querySelector('#haConnect').onclick=connect;el.querySelector('#haReadAll').onclick=readAll;el.querySelector('#haLiveToggle').onclick=toggleLive;el.querySelector('#haDtc').onclick=readDtc;el.querySelector('#haDisconnect').onclick=()=>{try{HA.device?.gatt?.disconnect()}catch{}disconnect()};el.querySelector('#haRawSend').onclick=rawSend;el.querySelector('#haRawInput').onkeydown=e=>{if(e.key==='Enter')rawSend()}}
 Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,parseDtc,classify,probeSupported,establishProtocolAuthority});
