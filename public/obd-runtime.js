@@ -1,6 +1,6 @@
 import { isReadOnlyELMCommand } from './terminal-readonly-guard.js';
 import { isUsableAdapterIdentity } from './connection-doctor.js';
-import { decodeMode01PidData, decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
+import { cleanELM, decodeMode01PidData, decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
 const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,connecting:false,connectGeneration:0,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
@@ -11,6 +11,16 @@ function setChip(id,on,text){const e=document.querySelector(id);if(!e)return;e.c
 function status(msg,bad=false){const e=document.querySelector('#haRuntimeStatus');if(e){e.textContent=msg;e.classList.toggle('bad',bad)}}
 function clean(s){return String(s||'').replace(/\0/g,'').replace(/SEARCHING\.\.\./gi,'').replace(/BUS INIT[^\r\n>]*/gi,'').replace(/STOPPED/gi,'').replace(/[\r\n]+/g,' ').replace(/\s+/g,' ').trim()}
 function classify(raw){const s=clean(raw).toUpperCase();if(!s)return'empty';if(s.includes('NO DATA'))return'no-data';if(s.includes('UNABLE TO CONNECT'))return'unable-to-connect';if(s.includes('BUS INIT')&&s.includes('ERROR'))return'bus-init-error';if(s.includes('ERROR')||s.includes('?'))return'error';return'ok'}
+function assertInitAck(command,raw){
+  if(command==='ATZ'){
+    if(classify(raw)!=='ok'||!clean(raw))throw new Error('ELM init failed: ATZ');
+    return;
+  }
+  const lines=cleanELM(raw).filter(line=>line.toUpperCase()!==command);
+  if(lines.length!==1||lines[0].toUpperCase()!=='OK'){
+    throw new Error(`ELM init failed: ${command}`);
+  }
+}
 function refreshStats(){const e=document.querySelector('#haSessionStats');if(!e)return;e.textContent=`TX ${HA.stats.tx} · RX ${HA.stats.rx} · TIMEOUT ${HA.stats.timeouts} · ${HA.stats.lastLatency==null?'—':HA.stats.lastLatency+' ms'}`}
 const MAX_ELM_REPLY_BYTES=65536;
 function invalidateTransport(reason='ELM transport closed; reconnect required'){
@@ -170,8 +180,7 @@ async function initElm(){
   HA.protocolContract=null;
   for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSTFF','ATSP0']){
     const r=await command(c,c==='ATZ'?9000:5000);
-    const cls=classify(r);
-    if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`);
+    assertInitAck(c,r);
   }
   const ati=clean(await command('ATI'));
   HA.adapter=isUsableAdapterIdentity(ati);
