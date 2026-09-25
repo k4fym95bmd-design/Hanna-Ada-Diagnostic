@@ -20,3 +20,13 @@ test('browser terminal only exposes the read-only allowlist', async () => {
   assert.match(guard, /isReadOnlyELMCommand\(command\)/);
   assert.match(guard, /stopImmediatePropagation/);
 });
+
+test('browser runtime uses strict ECU and shared adapter identity authorities', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  assert.match(runtime, /import\s*\{[^}]*decodeSupportedPIDs[^}]*\}\s*from\s*['"]\.\/diagnostic-core\.js['"]/);
+  assert.match(runtime, /decodeSupportedPIDs\(raw\)/);
+  assert.doesNotMatch(runtime, /HA\.ecu\s*=\s*\/41\\s\*00\|4100/);
+  assert.match(runtime, /import\s*\{[^}]*isUsableAdapterIdentity[^}]*\}\s*from\s*['"]\.\/connection-doctor\.js['"]/);
+  assert.match(runtime, /HA\.adapter\s*=\s*isUsableAdapterIdentity\(ati\)/);
+  assert.doesNotMatch(runtime, /ati\.length\s*>\s*1/);
+});
