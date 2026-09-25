@@ -1,6 +1,6 @@
 import { isReadOnlyELMCommand } from './terminal-readonly-guard.js';
 import { isUsableAdapterIdentity } from './connection-doctor.js';
-import { decodeSupportedPIDs } from './diagnostic-core.js';
+import { decodeStoredDTCs, decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
 const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,protocolContract:null,transportEpoch:0,desynchronized:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
@@ -110,9 +110,6 @@ async function command(cmd,timeout=6000){
 function hexLines(raw){return clean(raw).toUpperCase().split(/(?=7E[0-9A-F]|41|43)/).map(x=>x.replace(/[^0-9A-F ]/g,' ').replace(/\s+/g,' ').trim()).filter(Boolean)}
 function bytesFrom(s){const h=s.replace(/[^0-9A-F]/gi,'');const out=[];for(let i=0;i+1<h.length;i+=2)out.push(parseInt(h.slice(i,i+2),16));return out}
 function findPid(raw,pid){const p=parseInt(pid,16);for(const line of hexLines(raw)){const b=bytesFrom(line);for(let i=0;i<b.length-2;i++)if(b[i]===0x41&&b[i+1]===p)return b.slice(i+2)}return null}
-function decodeSupported(raw,base=0){const a=findPid(raw,base.toString(16).padStart(2,'0'));if(!a||a.length<4)return[];const bits=(a[0]<<24)|(a[1]<<16)|(a[2]<<8)|a[3];const out=[];for(let i=1;i<=32;i++)if(bits&(1<<(32-i)))out.push(base+i);return out}
-function dtcFromPair(a,b){if(a===0&&b===0)return null;const fam=['P','C','B','U'][(a>>6)&3];return `${fam}${((a>>4)&3).toString(16).toUpperCase()}${(a&15).toString(16).toUpperCase()}${(b>>4).toString(16).toUpperCase()}${(b&15).toString(16).toUpperCase()}`}
-function parseDtc(raw){const codes=[];for(const line of hexLines(raw)){const b=bytesFrom(line);let i=b.indexOf(0x43);if(i<0)continue;for(i=i+1;i+1<b.length;i+=2){const c=dtcFromPair(b[i],b[i+1]);if(c&&!codes.includes(c))codes.push(c)}}return codes}
 const PIDS={load:{cmd:'0104',unit:'%',parse:a=>a?.length?a[0]*100/255:null},coolant:{cmd:'0105',unit:'°C',parse:a=>a?.length?a[0]-40:null},stft1:{cmd:'0106',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft1:{cmd:'0107',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},stft2:{cmd:'0108',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},ltft2:{cmd:'0109',unit:'%',parse:a=>a?.length?(a[0]-128)*100/128:null},rpm:{cmd:'010C',unit:'rpm',parse:a=>a?.length>1?((a[0]*256+a[1])/4):null},speed:{cmd:'010D',unit:'km/h',parse:a=>a?.length?a[0]:null},iat:{cmd:'010F',unit:'°C',parse:a=>a?.length?a[0]-40:null},maf:{cmd:'0110',unit:'g/s',parse:a=>a?.length>1?((a[0]*256+a[1])/100):null},throttle:{cmd:'0111',unit:'%',parse:a=>a?.length?a[0]*100/255:null},voltage:{cmd:'ATRV',unit:'V',parse:null}};
 function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||HA.supported.size===0)return true;return HA.supported.has(parseInt(cmd.slice(2),16))}
 async function readPid(key){const p=PIDS[key];if(!p||!HA.ecu)throw new Error('ECU offline');if(!isPidSupported(p.cmd)){HA.values[key]=null;updateValue(key,null,p.unit,'N/S');return null}const raw=await command(p.cmd);if(classify(raw)==='no-data'){updateValue(key,null,p.unit,'NO DATA');return null}let v;if(key==='voltage'){const m=clean(raw).match(/(\d+(?:\.\d+)?)\s*V/i);v=m?Number(m[1]):null}else v=p.parse(findPid(raw,p.cmd.slice(2)));HA.values[key]=v;updateValue(key,v,p.unit);return v}
@@ -193,7 +190,26 @@ function disconnect(){
 }
 async function readAll(){if(!HA.ecu)return status('ECU offline',true);const keys=['rpm','coolant','maf','throttle','stft1','ltft1','stft2','ltft2','iat','speed','load','voltage'];for(const k of keys){try{await readPid(k)}catch(e){log('WARN',`${k}: ${e.message}`)}}}
 function toggleLive(){if(HA.poll){stopLive();status('Live polling zatrzymany');return}if(!HA.ecu)return status('Najpierw połącz ECU',true);const b=document.querySelector('#haLiveToggle');if(b)b.textContent='STOP LIVE';status('Live polling aktywny');let busy=false;const tick=async()=>{if(busy||!HA.ecu)return;busy=true;try{await readAll()}finally{busy=false}};tick();HA.poll=setInterval(tick,2500)}
-async function readDtc(){if(!HA.ecu)return status('Najpierw połącz ECU',true);try{const raw=await command('03',10000);const codes=parseDtc(raw);const box=document.querySelector('#haDtcResult');if(box)box.innerHTML=codes.length?codes.map(c=>`<span class="rt-dtc">${c}</span>`).join(''):'<span class="rt-none">Brak kodów Mode 03 w odpowiedzi</span>';log('SYS','Mode 03: '+clean(raw));status(codes.length?`DTC: ${codes.join(', ')}`:'DTC odczytane · brak kodów Mode 03')}catch(e){status(e.message,true)}}
+async function readDtc(){
+  if(!HA.ecu||!HA.protocolContract)return status('Najpierw połącz i zweryfikuj ECU + ATDPN',true);
+  try{
+    const protocol=classifyProtocolContract(HA.protocolContract);
+    if(protocol!=='can'&&protocol!=='legacy')throw new Error('PROTOCOL_UNSUPPORTED_FOR_GENERIC_OBD');
+    const raw=await command('03',10000);
+    const parsed=decodeStoredDTCs(raw,protocol);
+    const codes=parsed.codes;
+    const box=document.querySelector('#haDtcResult');
+    if(box)box.innerHTML=codes.length
+      ?codes.map(code=>`<span class="rt-dtc">${code}</span>`).join('')
+      :'<span class="rt-none">Brak potwierdzonych kodów Mode 03</span>';
+    log('SYS','Mode 03 verified: '+clean(raw));
+    status(codes.length?`DTC: ${codes.join(', ')}`:`DTC zweryfikowane · brak kodów · ECU ${parsed.responderCount}`);
+  }catch(error){
+    const code=error?.code||error?.message||'READ_ERROR';
+    status(`Niezweryfikowany odczyt DTC: ${code}`,true);
+    log('ERR',`Mode 03 rejected: ${code}`);
+  }
+}
 async function rawSend(){
   const input=document.querySelector('#haRawInput');
   const c=(input?.value||'').trim().toUpperCase();
@@ -211,5 +227,5 @@ async function rawSend(){
 }
 function inject(){if(!document.querySelector('#view'))return;const isVci=[...document.querySelectorAll('.hero h1')].some(x=>/VCI \/ Connection/i.test(x.textContent));if(!isVci)return;if(document.querySelector('#haRuntime'))return;const view=document.querySelector('#view');const old=document.querySelector('#demoBle');if(old){old.textContent='POŁĄCZ REALNY ADAPTER';old.removeAttribute('id');old.onclick=connect;old.classList.add('connect-real')}
 const el=document.createElement('section');el.id='haRuntime';el.className='ha-runtime';el.innerHTML=`<div class="rt-head"><div><span class="rt-kicker">REAL OBD RUNTIME</span><h2>BLE → ELM → ECU</h2></div><div><div id="haRuntimeStatus" class="rt-status">Gotowy do połączenia</div><small id="haSessionStats" class="rt-stats">TX 0 · RX 0 · TIMEOUT 0 · —</small></div></div><div class="rt-chips"><span id="haBle" class="rt-chip bad"><i></i><b>BLE —</b></span><span id="haAdapter" class="rt-chip bad"><i></i><b>ADAPTER —</b></span><span id="haEcu" class="rt-chip bad"><i></i><b>ECU —</b></span></div><div class="rt-actions"><button id="haConnect" class="rt-primary">CONNECT BLE</button><button id="haReadAll">READ LIVE</button><button id="haLiveToggle">START LIVE</button><button id="haDtc">READ DTC</button><button id="haDisconnect">DISCONNECT</button></div><div class="rt-live"><div><small>RPM</small><strong data-ha-value="rpm">—</strong></div><div><small>COOLANT</small><strong data-ha-value="coolant">—</strong></div><div><small>MAF</small><strong data-ha-value="maf">—</strong></div><div><small>THROTTLE</small><strong data-ha-value="throttle">—</strong></div><div><small>STFT B1</small><strong data-ha-value="stft1">—</strong></div><div><small>LTFT B1</small><strong data-ha-value="ltft1">—</strong></div><div><small>STFT B2</small><strong data-ha-value="stft2">—</strong></div><div><small>LTFT B2</small><strong data-ha-value="ltft2">—</strong></div><div><small>IAT</small><strong data-ha-value="iat">—</strong></div><div><small>SPEED</small><strong data-ha-value="speed">—</strong></div><div><small>LOAD</small><strong data-ha-value="load">—</strong></div><div><small>VOLTAGE</small><strong data-ha-value="voltage">—</strong></div></div><div class="rt-dtcbox"><b>MODE 03 DTC</b><div id="haDtcResult"><span class="rt-none">Nie odczytano</span></div></div><div class="rt-raw"><div class="rt-rawbar"><b>RAW ELM TERMINAL</b><div><input id="haRawInput" placeholder="np. ATI / 010C / 03"><button id="haRawSend">SEND</button></div></div><div id="haRealConsole" class="rt-console"><div>SYS  Real runtime loaded. No fake live values.</div></div></div>`;view.appendChild(el);el.querySelector('#haConnect').onclick=connect;el.querySelector('#haReadAll').onclick=readAll;el.querySelector('#haLiveToggle').onclick=toggleLive;el.querySelector('#haDtc').onclick=readDtc;el.querySelector('#haDisconnect').onclick=()=>{try{HA.device?.gatt?.disconnect()}catch{}disconnect()};el.querySelector('#haRawSend').onclick=rawSend;el.querySelector('#haRawInput').onkeydown=e=>{if(e.key==='Enter')rawSend()}}
-Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,parseDtc,classify,probeSupported,establishProtocolAuthority});
+Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,classify,probeSupported,establishProtocolAuthority});
 new MutationObserver(()=>inject()).observe(document.querySelector('#view'),{childList:true,subtree:true});setTimeout(inject,200);
