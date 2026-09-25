@@ -1,3 +1,4 @@
+import { isUsableAdapterIdentity } from './connection-doctor.js';
 import { decodeSupportedPIDs } from './diagnostic-core.js';
 import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
 
@@ -142,7 +143,7 @@ async function initElm(){
     if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`);
   }
   const ati=clean(await command('ATI'));
-  HA.adapter=/ELM|OBD|CARISTA|VLINK|VEEPEAK/i.test(ati)||ati.length>1;
+  HA.adapter=isUsableAdapterIdentity(ati);
   setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');
   log('SYS','Adapter ID: '+ati);
   status('Adapter online · sprawdzam ECU…');
