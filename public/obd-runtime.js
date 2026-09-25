@@ -177,6 +177,7 @@ async function initElm(){
   HA.adapter=isUsableAdapterIdentity(ati);
   setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');
   log('SYS','Adapter ID: '+ati);
+  if(!HA.adapter)throw new Error('Adapter identity unverified via ATI');
   status('Adapter online · sprawdzam ECU…');
   try{
     await probeSupported();
