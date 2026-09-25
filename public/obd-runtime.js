@@ -61,6 +61,10 @@ function onNotify(ev){
   refreshStats();
   p.resolve(out);
 }
+function onGattDisconnected(event){
+  if(event?.target!==HA.device)return;
+  disconnect();
+}
 async function discover(server){for(const [name,profile] of Object.entries(UUID)){try{const svc=await server.getPrimaryService(profile.service);const n=await svc.getCharacteristic(profile.notify);const w=profile.write===profile.notify?n:await svc.getCharacteristic(profile.write);log('SYS',`BLE UART profile: ${name}`);return {n,w,profile,name}}catch{}}throw new Error('Nie znaleziono obsługiwanego profilu BLE UART (FFF0/FFE0/NUS).')}
 async function command(cmd,timeout=6000){
   if(!HA.write)throw new Error('Adapter niepołączony');
@@ -215,7 +219,7 @@ async function connect(){
     if(generation!==HA.connectGeneration)return false;
 
     HA.device=device;
-    HA.device.addEventListener('gattserverdisconnected',disconnect);
+    HA.device.addEventListener('gattserverdisconnected',onGattDisconnected);
     status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);
 
     const server=await HA.device.gatt.connect();
@@ -264,12 +268,18 @@ function disconnect(){
   HA.connectGeneration++;
   HA.connecting=false;
   stopLive();
+
+  const device=HA.device;
   const notify=HA.notify;
+
+  if(device?.removeEventListener)device.removeEventListener('gattserverdisconnected',onGattDisconnected);
   if(notify?.removeEventListener)notify.removeEventListener('characteristicvaluechanged',onNotify);
   if(notify?.stopNotifications){
     try{Promise.resolve(notify.stopNotifications()).catch(()=>{});}catch{}
   }
+
   invalidateTransport('ELM transport disconnected; pending command cancelled');
+
   HA.connected=HA.adapter=HA.ecu=false;
   HA.protocolContract=null;
   HA.supported.clear();
@@ -277,6 +287,9 @@ function disconnect(){
   HA.notify=null;
   HA.server=null;
   HA.device=null;
+
+  try{device?.gatt?.disconnect();}catch{}
+
   setChip('#haBle',false,'BLE —');
   setChip('#haAdapter',false,'ADAPTER —');
   setChip('#haEcu',false,'ECU —');
@@ -320,6 +333,6 @@ async function rawSend(){
   }
 }
 function inject(){if(!document.querySelector('#view'))return;const isVci=[...document.querySelectorAll('.hero h1')].some(x=>/VCI \/ Connection/i.test(x.textContent));if(!isVci)return;if(document.querySelector('#haRuntime'))return;const view=document.querySelector('#view');const old=document.querySelector('#demoBle');if(old){old.textContent='POŁĄCZ REALNY ADAPTER';old.removeAttribute('id');old.onclick=connect;old.classList.add('connect-real')}
-const el=document.createElement('section');el.id='haRuntime';el.className='ha-runtime';el.innerHTML=`<div class="rt-head"><div><span class="rt-kicker">REAL OBD RUNTIME</span><h2>BLE → ELM → ECU</h2></div><div><div id="haRuntimeStatus" class="rt-status">Gotowy do połączenia</div><small id="haSessionStats" class="rt-stats">TX 0 · RX 0 · TIMEOUT 0 · —</small></div></div><div class="rt-chips"><span id="haBle" class="rt-chip bad"><i></i><b>BLE —</b></span><span id="haAdapter" class="rt-chip bad"><i></i><b>ADAPTER —</b></span><span id="haEcu" class="rt-chip bad"><i></i><b>ECU —</b></span></div><div class="rt-actions"><button id="haConnect" class="rt-primary">CONNECT BLE</button><button id="haReadAll">READ LIVE</button><button id="haLiveToggle">START LIVE</button><button id="haDtc">READ DTC</button><button id="haDisconnect">DISCONNECT</button></div><div class="rt-live"><div><small>RPM</small><strong data-ha-value="rpm">—</strong></div><div><small>COOLANT</small><strong data-ha-value="coolant">—</strong></div><div><small>MAF</small><strong data-ha-value="maf">—</strong></div><div><small>THROTTLE</small><strong data-ha-value="throttle">—</strong></div><div><small>STFT B1</small><strong data-ha-value="stft1">—</strong></div><div><small>LTFT B1</small><strong data-ha-value="ltft1">—</strong></div><div><small>STFT B2</small><strong data-ha-value="stft2">—</strong></div><div><small>LTFT B2</small><strong data-ha-value="ltft2">—</strong></div><div><small>IAT</small><strong data-ha-value="iat">—</strong></div><div><small>SPEED</small><strong data-ha-value="speed">—</strong></div><div><small>LOAD</small><strong data-ha-value="load">—</strong></div><div><small>VOLTAGE</small><strong data-ha-value="voltage">—</strong></div></div><div class="rt-dtcbox"><b>MODE 03 DTC</b><div id="haDtcResult"><span class="rt-none">Nie odczytano</span></div></div><div class="rt-raw"><div class="rt-rawbar"><b>RAW ELM TERMINAL</b><div><input id="haRawInput" placeholder="np. ATI / 010C / 03"><button id="haRawSend">SEND</button></div></div><div id="haRealConsole" class="rt-console"><div>SYS  Real runtime loaded. No fake live values.</div></div></div>`;view.appendChild(el);el.querySelector('#haConnect').onclick=connect;el.querySelector('#haReadAll').onclick=readAll;el.querySelector('#haLiveToggle').onclick=toggleLive;el.querySelector('#haDtc').onclick=readDtc;el.querySelector('#haDisconnect').onclick=()=>{try{HA.device?.gatt?.disconnect()}catch{}disconnect()};el.querySelector('#haRawSend').onclick=rawSend;el.querySelector('#haRawInput').onkeydown=e=>{if(e.key==='Enter')rawSend()}}
+const el=document.createElement('section');el.id='haRuntime';el.className='ha-runtime';el.innerHTML=`<div class="rt-head"><div><span class="rt-kicker">REAL OBD RUNTIME</span><h2>BLE → ELM → ECU</h2></div><div><div id="haRuntimeStatus" class="rt-status">Gotowy do połączenia</div><small id="haSessionStats" class="rt-stats">TX 0 · RX 0 · TIMEOUT 0 · —</small></div></div><div class="rt-chips"><span id="haBle" class="rt-chip bad"><i></i><b>BLE —</b></span><span id="haAdapter" class="rt-chip bad"><i></i><b>ADAPTER —</b></span><span id="haEcu" class="rt-chip bad"><i></i><b>ECU —</b></span></div><div class="rt-actions"><button id="haConnect" class="rt-primary">CONNECT BLE</button><button id="haReadAll">READ LIVE</button><button id="haLiveToggle">START LIVE</button><button id="haDtc">READ DTC</button><button id="haDisconnect">DISCONNECT</button></div><div class="rt-live"><div><small>RPM</small><strong data-ha-value="rpm">—</strong></div><div><small>COOLANT</small><strong data-ha-value="coolant">—</strong></div><div><small>MAF</small><strong data-ha-value="maf">—</strong></div><div><small>THROTTLE</small><strong data-ha-value="throttle">—</strong></div><div><small>STFT B1</small><strong data-ha-value="stft1">—</strong></div><div><small>LTFT B1</small><strong data-ha-value="ltft1">—</strong></div><div><small>STFT B2</small><strong data-ha-value="stft2">—</strong></div><div><small>LTFT B2</small><strong data-ha-value="ltft2">—</strong></div><div><small>IAT</small><strong data-ha-value="iat">—</strong></div><div><small>SPEED</small><strong data-ha-value="speed">—</strong></div><div><small>LOAD</small><strong data-ha-value="load">—</strong></div><div><small>VOLTAGE</small><strong data-ha-value="voltage">—</strong></div></div><div class="rt-dtcbox"><b>MODE 03 DTC</b><div id="haDtcResult"><span class="rt-none">Nie odczytano</span></div></div><div class="rt-raw"><div class="rt-rawbar"><b>RAW ELM TERMINAL</b><div><input id="haRawInput" placeholder="np. ATI / 010C / 03"><button id="haRawSend">SEND</button></div></div><div id="haRealConsole" class="rt-console"><div>SYS  Real runtime loaded. No fake live values.</div></div></div>`;view.appendChild(el);el.querySelector('#haConnect').onclick=connect;el.querySelector('#haReadAll').onclick=readAll;el.querySelector('#haLiveToggle').onclick=toggleLive;el.querySelector('#haDtc').onclick=readDtc;el.querySelector('#haDisconnect').onclick=disconnect;el.querySelector('#haRawSend').onclick=rawSend;el.querySelector('#haRawInput').onkeydown=e=>{if(e.key==='Enter')rawSend()}}
 Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,classify,probeSupported,establishProtocolAuthority});
 new MutationObserver(()=>inject()).observe(document.querySelector('#view'),{childList:true,subtree:true});setTimeout(inject,200);
