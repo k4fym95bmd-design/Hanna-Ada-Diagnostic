@@ -1,11 +1,26 @@
-# Connection Doctor — real evidence, no simulated success
+# Connection Doctor — deterministic read-only evidence contract
 
-Portable implementation: `public/connection-doctor.js`, tested by `test/connection-doctor.mjs` in the standard `npm test` suite. This code currently diagnoses *observations supplied by a transport*; it does not establish BLE or ECU access and is not yet wired into Floot.
+Portable implementation: `public/connection-doctor.js`. Protocol authority and parser state live in `public/diagnostic-core.js`; browser wiring lives in `public/diagnostic-core-v2.js` and `public/obd-runtime.js`.
+
+## Protocol authority invariant
+
+`ATDPN` is the single source of truth for the active ELM327 protocol identifier. A valid reply is exactly one protocol token after optional command echo: `1`–`9`, `A`, `B`, `C`, or the auto-search form `A<id>` such as `A6`. The normalized immutable authority contract contains:
+
+- `protocolId`
+- `rawAtdpn`
+- `isAutoDetected`
+- optional `descriptionFallback`
+- `sourceAuthority: 'ATDPN'`
+
+`ATDP` is presentation metadata only. It can provide a human-readable label but cannot establish, rescue, override, or contradict protocol authority. Missing, ambiguous, error-tainted, multi-line, or unknown `ATDPN` replies fail closed.
+
+IDs `1`–`5` map to the generic legacy framing used by this decoder; `6`–`9` map to ISO 15765-4 CAN. IDs `A`, `B`, and `C` are retained in the authority contract but remain `unknown` for generic emissions-OBD decoding until a dedicated framing contract exists.
 
 ## Observation contract
 
 ```js
 import { diagnoseConnection } from './connection-doctor.js';
+
 const diagnosis = diagnoseConnection({
   bluetoothPowered: true,
   adapterSeen: true,
@@ -15,20 +30,23 @@ const diagnosis = diagnoseConnection({
   adapterReply: actualATIResponse,
   pid0100Reply: actualPID0100Response,
   protocolReply: actualATDPNResponse,
+  protocolDescriptionReply: optionalATDPResponse,
   transportError: null,
 });
 ```
 
-Supply only actual responses from the CURRENT session. Never set a true stage from a button click, a selected device name, an adapter marketing claim, a saved screenshot, or demonstration fixtures. Clear observations on disconnect and increment the session epoch. When a command times out, disconnect and clear the command channel before accepting subsequent responses: otherwise a delayed old response can be misattributed to a new command.
+Only observations from the current connection epoch are valid. Disconnect resets protocol authority, PID evidence, DTC evidence, command buffers, and any pending transaction. A new verified PID 0100 response also invalidates older protocol and DTC evidence.
 
-Triage stages: `BT_UNAVAILABLE`, `ADAPTER_NOT_FOUND`, `BLE_NOT_CONNECTED`, `GATT_NOT_FOUND`, `NOTIFY_NOT_READY`, `TRANSPORT_ERROR`, `ADAPTER_UNVERIFIED`, `ECU_NOT_PROBED`, `ECU_RESPONSE_INVALID`, `PROTOCOL_UNVERIFIED`, `GENERIC_OBD_VERIFIED`. A clean ATI string cannot establish ECU access. A valid `41 00` PID bitmap establishes only generic emissions OBD. ATDPN/ATDP helps prevent false DTC decoding for headers-off CAN versus older K-line protocols. Never automatically reuse a previous session's protocol, PIDs or DTCs.
+## Transport fail-safe rules
 
-The summary intentionally excludes RAW hex, VIN, device UUID and adapter identity; raw traces should only be exported after user review. `bmwModulesVerified` and `writesEnabled` always remain false. The actual 1999 E39 under-hood 20-pin connector, pin population and physical module transport must be verified separately.
+The browser runtime permits one ELM transaction at a time. Every transaction has a bounded timeout and session epoch. Timeout, write failure, oversized reply, unexpected trailing reply data, or stale-session data taints the channel; no further command is accepted until a disconnect/reconnect cycle clears the transport.
 
-## Existing web-runtime issue to resolve before release
+Unsolicited bytes without a live request are discarded instead of being appended to the next command. Reply accumulation is bounded to 64 KiB. The globally exposed bridge is `readOnlyCommand`; the unrestricted initialization transport is private to the module.
 
-`public/obd-runtime.js` currently checks the `0100` reply using a regular expression instead of strict `decodeSupportedPIDs`, and its generic raw terminal only blocks command `04` rather than using a read-only command allowlist. `public/diagnostic-core-v2.js` also falls back to a permissive DTC parser and may report no faults when parsing fails. **Do not label the current web-runtime path hardware-verified.** Replace those paths with the verified diagnostic core and explicit read-only command policy before any field release; integrate into Floot separately, without copying this standalone shell over the existing UI.
+The terminal allowlist is restricted to `ATI`, `ATDP`, `ATDPN`, `ATRV`, Mode 01 `01xx`, Mode 03, Mode 07, and Mode 0A. Vehicle coding, actuation, adaptation, DTC clearing, security access, flashing, header changes, and protocol changes are not exposed through the terminal bridge.
 
-## Validation gate
+## Verification gates
 
-CI green verifies parser logic, not physical Carista firmware, native CoreBluetooth characteristics or BMW wiring. Vehicle testing should capture discovery, selected GATT UUIDs, first handshake reply, PID 0100, ATDPN and the first failed command. Do not publish a raw transcript without reviewing sensitive identifiers.
+`test/protocol-evidence.mjs` proves the ATDPN authority contract, ATDP non-authority, stale-epoch rejection, invalidation on fresh ECU evidence, and fail-closed DTC behavior. `test/connection-doctor.mjs` covers the connection triage invariants. `test/terminal-readonly-guard.mjs` and `test/web-runtime-wiring.mjs` prove the read-only surface and wiring.
+
+CI runs these protocol invariants explicitly and then executes the entire `npm test` suite. Green CI verifies software invariants only; it does not certify physical adapter firmware, vehicle wiring, BMW-specific module access, or manufacturer-level diagnostics.
