@@ -1,4 +1,6 @@
-const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
+import { classifyProtocolContract, resolveProtocolAuthority } from './protocol-authority.js';
+
+const HA=window.HannaAdaOBD={device:null,server:null,write:null,notify:null,buffer:'',pending:null,connected:false,adapter:false,ecu:false,protocolContract:null,poll:null,values:{},supported:new Set(),stats:{tx:0,rx:0,timeouts:0,lastLatency:null,lastCommand:null}};
 const UUID={carista:{service:'0000fff0-0000-1000-8000-00805f9b34fb',notify:'0000fff1-0000-1000-8000-00805f9b34fb',write:'0000fff2-0000-1000-8000-00805f9b34fb'},ffe0:{service:'0000ffe0-0000-1000-8000-00805f9b34fb',notify:'0000ffe1-0000-1000-8000-00805f9b34fb',write:'0000ffe1-0000-1000-8000-00805f9b34fb'},nus:{service:'6e400001-b5a3-f393-e0a9-e50e24dcca9e',notify:'6e400003-b5a3-f393-e0a9-e50e24dcca9e',write:'6e400002-b5a3-f393-e0a9-e50e24dcca9e'}};
 const enc=new TextEncoder(),dec=new TextDecoder();
 function log(kind,msg){const box=document.querySelector('#haRealConsole');if(box){const d=document.createElement('div');d.className='rt-'+kind.toLowerCase();d.textContent=`${kind}  ${msg}`;box.appendChild(d);while(box.children.length>250)box.removeChild(box.firstChild);box.scrollTop=box.scrollHeight;}console.log('[H&A OBD]',kind,msg)}
@@ -21,15 +23,74 @@ function isPidSupported(cmd){if(!cmd.startsWith('01')||cmd==='0100'||HA.supporte
 async function readPid(key){const p=PIDS[key];if(!p||!HA.ecu)throw new Error('ECU offline');if(!isPidSupported(p.cmd)){HA.values[key]=null;updateValue(key,null,p.unit,'N/S');return null}const raw=await command(p.cmd);if(classify(raw)==='no-data'){updateValue(key,null,p.unit,'NO DATA');return null}let v;if(key==='voltage'){const m=clean(raw).match(/(\d+(?:\.\d+)?)\s*V/i);v=m?Number(m[1]):null}else v=p.parse(findPid(raw,p.cmd.slice(2)));HA.values[key]=v;updateValue(key,v,p.unit);return v}
 function updateValue(key,v,unit,note=''){const e=document.querySelector(`[data-ha-value="${key}"]`);if(e)e.textContent=v==null?(note||'—'):`${Number(v).toFixed(key==='rpm'||key==='speed'?0:1)} ${unit}`}
 async function probeSupported(){const raw=await command('0100',15000);const p=decodeSupported(raw,0);p.forEach(x=>HA.supported.add(x));log('SYS',`Supported PID 01-20: ${p.map(x=>'0x'+x.toString(16).padStart(2,'0').toUpperCase()).join(', ')||'none parsed'}`);return raw}
-async function initElm(){status('BLE połączone · inicjalizacja ELM…');for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSTFF','ATSP0']){const r=await command(c,c==='ATZ'?9000:5000);const cls=classify(r);if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`)}const ati=clean(await command('ATI'));HA.adapter=/ELM|OBD|CARISTA|VLINK|VEEPEAK/i.test(ati)||ati.length>1;setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');log('SYS','Adapter ID: '+ati);try{const proto=clean(await command('ATDP'));log('SYS','Protocol: '+proto)}catch{}status('Adapter online · sprawdzam ECU…');try{const p=await probeSupported();HA.ecu=/41\s*00|4100/i.test(clean(p));setChip('#haEcu',HA.ecu,HA.ecu?'ECU ONLINE':'ECU —');if(HA.ecu){status('ECU ONLINE · Generic OBD-II gotowy');try{await readPid('voltage')}catch{}}else status('Adapter online · brak poprawnej odpowiedzi ECU',true)}catch(e){HA.ecu=false;setChip('#haEcu',false,'ECU —');status('Adapter online · ECU nie odpowiedziało',true);log('ERR',e.message)}}
+async function establishProtocolAuthority(){
+  const atdpnRaw=await command('ATDPN',5000);
+  let atdpRaw;
+  try{atdpRaw=await command('ATDP',5000)}catch{}
+  const contract=resolveProtocolAuthority(atdpnRaw,atdpRaw);
+  const classification=classifyProtocolContract(contract);
+  HA.protocolContract=contract;
+  log('SYS',`Protocol authority ATDPN: ${contract.rawAtdpn} · ${classification}${contract.descriptionFallback?` · ${contract.descriptionFallback}`:''}`);
+  return {contract,classification};
+}
+async function initElm(){
+  status('BLE połączone · inicjalizacja ELM…');
+  HA.protocolContract=null;
+  for(const c of ['ATZ','ATE0','ATL0','ATS0','ATH0','ATAT1','ATSTFF','ATSP0']){
+    const r=await command(c,c==='ATZ'?9000:5000);
+    const cls=classify(r);
+    if(cls!=='ok')log('WARN',`${c}: ${clean(r)}`);
+  }
+  const ati=clean(await command('ATI'));
+  HA.adapter=/ELM|OBD|CARISTA|VLINK|VEEPEAK/i.test(ati)||ati.length>1;
+  setChip('#haAdapter',HA.adapter,HA.adapter?'ADAPTER ON':'ADAPTER ?');
+  log('SYS','Adapter ID: '+ati);
+  status('Adapter online · sprawdzam ECU…');
+  try{
+    const p=await probeSupported();
+    const ecuResponded=/41\s*00|4100/i.test(clean(p));
+    if(!ecuResponded){
+      HA.ecu=false;
+      setChip('#haEcu',false,'ECU —');
+      status('Adapter online · brak poprawnej odpowiedzi ECU',true);
+      return;
+    }
+    const {contract,classification}=await establishProtocolAuthority();
+    if(classification!=='can'&&classification!=='legacy'){
+      HA.ecu=false;
+      setChip('#haEcu',false,'ECU —');
+      status(`ECU odpowiedziało · protokół ${contract.protocolId} nie jest zatwierdzony dla generic OBD-II`,true);
+      return;
+    }
+    HA.ecu=true;
+    setChip('#haEcu',true,'ECU ONLINE');
+    status('ECU ONLINE · Generic OBD-II gotowy');
+    try{await readPid('voltage')}catch{}
+  }catch(e){
+    HA.ecu=false;
+    HA.protocolContract=null;
+    setChip('#haEcu',false,'ECU —');
+    status('Adapter online · ECU/protokół niezweryfikowany',true);
+    log('ERR',e.message);
+  }
+}
 async function connect(){if(!navigator.bluetooth){status('Ten browser nie udostępnia Web Bluetooth. Na iPhone użyj przeglądarki/rozszerzenia z Web Bluetooth.',true);return}try{status('Wybierz adapter BLE…');const services=Object.values(UUID).map(x=>x.service);HA.device=await navigator.bluetooth.requestDevice({acceptAllDevices:true,optionalServices:services});HA.device.addEventListener('gattserverdisconnected',disconnect);status(`Łączenie: ${HA.device.name||'BLE OBD'}…`);HA.server=await HA.device.gatt.connect();const d=await discover(HA.server);HA.notify=d.n;HA.write=d.w;await HA.notify.startNotifications();HA.notify.addEventListener('characteristicvaluechanged',onNotify);HA.connected=true;setChip('#haBle',true,'BLE ON');log('SYS',`BLE connected: ${HA.device.name||'unknown'} · ${d.name}`);await initElm()}catch(e){status(e.message||String(e),true);log('ERR',e.message||String(e));disconnect()}}
 function stopLive(){if(HA.poll){clearInterval(HA.poll);HA.poll=null}const b=document.querySelector('#haLiveToggle');if(b)b.textContent='START LIVE'}
-function disconnect(){stopLive();HA.connected=HA.adapter=HA.ecu=false;HA.supported.clear();setChip('#haBle',false,'BLE —');setChip('#haAdapter',false,'ADAPTER —');setChip('#haEcu',false,'ECU —');status('Rozłączono',true)}
+function disconnect(){
+  stopLive();
+  HA.connected=HA.adapter=HA.ecu=false;
+  HA.protocolContract=null;
+  HA.supported.clear();
+  setChip('#haBle',false,'BLE —');
+  setChip('#haAdapter',false,'ADAPTER —');
+  setChip('#haEcu',false,'ECU —');
+  status('Rozłączono',true);
+}
 async function readAll(){if(!HA.ecu)return status('ECU offline',true);const keys=['rpm','coolant','maf','throttle','stft1','ltft1','stft2','ltft2','iat','speed','load','voltage'];for(const k of keys){try{await readPid(k)}catch(e){log('WARN',`${k}: ${e.message}`)}}}
 function toggleLive(){if(HA.poll){stopLive();status('Live polling zatrzymany');return}if(!HA.ecu)return status('Najpierw połącz ECU',true);const b=document.querySelector('#haLiveToggle');if(b)b.textContent='STOP LIVE';status('Live polling aktywny');let busy=false;const tick=async()=>{if(busy||!HA.ecu)return;busy=true;try{await readAll()}finally{busy=false}};tick();HA.poll=setInterval(tick,2500)}
 async function readDtc(){if(!HA.ecu)return status('Najpierw połącz ECU',true);try{const raw=await command('03',10000);const codes=parseDtc(raw);const box=document.querySelector('#haDtcResult');if(box)box.innerHTML=codes.length?codes.map(c=>`<span class="rt-dtc">${c}</span>`).join(''):'<span class="rt-none">Brak kodów Mode 03 w odpowiedzi</span>';log('SYS','Mode 03: '+clean(raw));status(codes.length?`DTC: ${codes.join(', ')}`:'DTC odczytane · brak kodów Mode 03')}catch(e){status(e.message,true)}}
 async function rawSend(){const input=document.querySelector('#haRawInput');const c=(input?.value||'').trim().toUpperCase();if(!c)return;if(c==='04')return status('Mode 04 celowo zablokowany w terminalu bezpieczeństwa',true);try{const r=await command(c,10000);status(`${c}: ${classify(r)}`)}catch(e){status(e.message,true)}}
 function inject(){if(!document.querySelector('#view'))return;const isVci=[...document.querySelectorAll('.hero h1')].some(x=>/VCI \/ Connection/i.test(x.textContent));if(!isVci)return;if(document.querySelector('#haRuntime'))return;const view=document.querySelector('#view');const old=document.querySelector('#demoBle');if(old){old.textContent='POŁĄCZ REALNY ADAPTER';old.removeAttribute('id');old.onclick=connect;old.classList.add('connect-real')}
 const el=document.createElement('section');el.id='haRuntime';el.className='ha-runtime';el.innerHTML=`<div class="rt-head"><div><span class="rt-kicker">REAL OBD RUNTIME</span><h2>BLE → ELM → ECU</h2></div><div><div id="haRuntimeStatus" class="rt-status">Gotowy do połączenia</div><small id="haSessionStats" class="rt-stats">TX 0 · RX 0 · TIMEOUT 0 · —</small></div></div><div class="rt-chips"><span id="haBle" class="rt-chip bad"><i></i><b>BLE —</b></span><span id="haAdapter" class="rt-chip bad"><i></i><b>ADAPTER —</b></span><span id="haEcu" class="rt-chip bad"><i></i><b>ECU —</b></span></div><div class="rt-actions"><button id="haConnect" class="rt-primary">CONNECT BLE</button><button id="haReadAll">READ LIVE</button><button id="haLiveToggle">START LIVE</button><button id="haDtc">READ DTC</button><button id="haDisconnect">DISCONNECT</button></div><div class="rt-live"><div><small>RPM</small><strong data-ha-value="rpm">—</strong></div><div><small>COOLANT</small><strong data-ha-value="coolant">—</strong></div><div><small>MAF</small><strong data-ha-value="maf">—</strong></div><div><small>THROTTLE</small><strong data-ha-value="throttle">—</strong></div><div><small>STFT B1</small><strong data-ha-value="stft1">—</strong></div><div><small>LTFT B1</small><strong data-ha-value="ltft1">—</strong></div><div><small>STFT B2</small><strong data-ha-value="stft2">—</strong></div><div><small>LTFT B2</small><strong data-ha-value="ltft2">—</strong></div><div><small>IAT</small><strong data-ha-value="iat">—</strong></div><div><small>SPEED</small><strong data-ha-value="speed">—</strong></div><div><small>LOAD</small><strong data-ha-value="load">—</strong></div><div><small>VOLTAGE</small><strong data-ha-value="voltage">—</strong></div></div><div class="rt-dtcbox"><b>MODE 03 DTC</b><div id="haDtcResult"><span class="rt-none">Nie odczytano</span></div></div><div class="rt-raw"><div class="rt-rawbar"><b>RAW ELM TERMINAL</b><div><input id="haRawInput" placeholder="np. ATI / 010C / 03"><button id="haRawSend">SEND</button></div></div><div id="haRealConsole" class="rt-console"><div>SYS  Real runtime loaded. No fake live values.</div></div></div>`;view.appendChild(el);el.querySelector('#haConnect').onclick=connect;el.querySelector('#haReadAll').onclick=readAll;el.querySelector('#haLiveToggle').onclick=toggleLive;el.querySelector('#haDtc').onclick=readDtc;el.querySelector('#haDisconnect').onclick=()=>{try{HA.device?.gatt?.disconnect()}catch{}disconnect()};el.querySelector('#haRawSend').onclick=rawSend;el.querySelector('#haRawInput').onkeydown=e=>{if(e.key==='Enter')rawSend()}}
-Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,parseDtc,classify,probeSupported});
+Object.assign(HA,{connect,disconnect,command,readPid,readAll,readDtc,toggleLive,parseDtc,classify,probeSupported,establishProtocolAuthority});
 new MutationObserver(()=>inject()).observe(document.querySelector('#view'),{childList:true,subtree:true});setTimeout(inject,200);
