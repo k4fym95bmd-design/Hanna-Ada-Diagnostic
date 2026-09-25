@@ -2,23 +2,32 @@ name: CI
 
 on:
   push:
-    branches: [main, "hardening/**", "feature/**"]
+    branches: [main, "hardening/**", "feature/**", "fix/**"]
   pull_request:
     branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  smoke:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Checkout
+      - name: Checkout exact commit
         uses: actions/checkout@v4
+
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: 24
-      - name: Smoke test
+
+      - name: Protocol authority invariants
+        run: node --test test/protocol-evidence.mjs test/connection-doctor.mjs
+
+      - name: Full regression suite
         run: npm test
