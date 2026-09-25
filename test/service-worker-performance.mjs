@@ -208,7 +208,7 @@ test('tuning card renderer is split out of the critical app bundle', () => {
 
 
 test('transport runtime update rotates the static cache generation', () => {
-  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'ultra-v7'/);
+  assert.match(sw, /CACHE_NAME = CACHE_PREFIX \+ 'ultra-v8'/);
   assert.match(sw, /'\/obd-runtime\.js'/);
   assert.match(sw, /'\/webusb-workbench-extension\.js'/);
   assert.match(sw, /name\.startsWith\(CACHE_PREFIX\) && name !== CACHE_NAME/);
