@@ -17,6 +17,7 @@ export class ConnectionDoctor {
   }
 
   resolveProtocolAuthority(atdpnRaw, atdpRaw = null) {
+    this.activeProtocol = null;
     const contract = resolveProtocolAuthority(atdpnRaw, atdpRaw);
     this.activeProtocol = contract;
     return contract;
