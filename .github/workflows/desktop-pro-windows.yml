@@ -1,0 +1,63 @@
+name: Desktop PRO Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop-pro/**'
+      - 'public/desktop-*.js'
+      - 'public/passive-legacy-rx.js'
+      - 'public/read-only-request-registry.js'
+      - 'public/module-identity-evidence.js'
+      - 'public/identity-parser-profile.js'
+      - 'public/me72-*.js'
+      - 'public/read-only-identity-finalizer.js'
+      - 'public/trusted-*.js'
+      - 'public/evidence-contract.js'
+      - 'test/desktop-*.mjs'
+      - 'test/read-only-request-registry.mjs'
+      - 'test/module-identity-evidence.mjs'
+      - 'test/identity-parser-profile.mjs'
+      - 'test/me72-*.mjs'
+      - 'test/read-only-identity-finalizer.mjs'
+      - 'test/trusted-*.mjs'
+      - 'package.json'
+      - '.github/workflows/desktop-pro-windows.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-pro-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-pro:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test complete Desktop PRO JS contract
+        run: npm run test:desktop-pro
+      - name: Test native Rust transport policy
+        working-directory: desktop-pro/src-tauri
+        run: cargo test
+      - name: Install Tauri CLI
+        working-directory: desktop-pro
+        run: npm install --no-audit --no-fund
+      - name: Build Windows installers
+        working-directory: desktop-pro
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hanna-ada-desktop-pro-windows
+          path: |
+            desktop-pro/src-tauri/target/release/bundle/nsis/*
+            desktop-pro/src-tauri/target/release/bundle/msi/*
+          if-no-files-found: error
+          retention-days: 7

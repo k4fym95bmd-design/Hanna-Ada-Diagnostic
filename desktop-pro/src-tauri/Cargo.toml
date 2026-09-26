@@ -1,0 +1,26 @@
+[package]
+name = "hanna-ada-desktop-pro"
+version = "0.2.0"
+description = "Native desktop host for Hanna & Ada Diagnostics PRO"
+authors = ["Hanna & Ada Diagnostics"]
+edition = "2021"
+
+[lib]
+name = "hanna_ada_desktop_pro_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4.10.1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

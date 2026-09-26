@@ -1,10 +1,17 @@
-import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js';
+import {
+  classifyVehicleProtocol, decodeStoredDTCs, resolveProtocolAuthority
+} from './diagnostic-core.js';
 
 // Compatibility extension for the existing browser runtime. This only reads
 // generic OBD-II and never claims manufacturer-level BMW ECU functionality.
 (() => {
   const H = () => window.HannaAdaOBD;
   let latestProtocol = 'unknown';
+  let latestProtocolSource = 'none';
+  let latestProtocolContract = null;
+  let dtcReadSerial = 0;
+  let activeDtcRead = 0;
+  let lastDtcEvidence = null;
 
   function ensurePanel() {
     const rt = document.querySelector('#haRuntime');
@@ -28,24 +35,90 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     return h.command(cmd, timeout);
   }
 
-  async function detectProtocol() {
-    let raw = '';
-    try { raw = await send('ATDPN', 5000); } catch { /* Older adapters may not implement ATDPN. */ }
-    let kind = classifyVehicleProtocol(raw);
-    if (kind === 'unknown') {
-      raw = await send('ATDP', 5000);
-      kind = classifyVehicleProtocol(raw);
+  function staleSessionError() {
+    const error = new Error('Stale diagnostic session');
+    error.code = 'STALE_SESSION';
+    return error;
+  }
+
+  function assertSession(ownerEpoch) {
+    const h = H();
+    if (!h?.ecu || h.sessionEpoch !== ownerEpoch) throw staleSessionError();
+    return h;
+  }
+
+  function setDtcButtonsDisabled(disabled) {
+    for (const id of ['#haDecodeDtc', '#haDtc']) {
+      const button = document.querySelector(id);
+      if (button) button.disabled = disabled;
     }
-    latestProtocol = kind;
+  }
+
+  function getLastDtcEvidence() {
+    if (!lastDtcEvidence) return null;
+    return {
+      ...lastDtcEvidence,
+      protocolContract: lastDtcEvidence.protocolContract
+        ? { ...lastDtcEvidence.protocolContract }
+        : null,
+      codes: Array.isArray(lastDtcEvidence.codes) ? [...lastDtcEvidence.codes] : null,
+    };
+  }
+
+  async function detectProtocol(ownerEpoch = H()?.sessionEpoch) {
+    assertSession(ownerEpoch);
+
+    let rawNumber = '';
+    try {
+      rawNumber = await send('ATDPN', 5000);
+      assertSession(ownerEpoch);
+
+      const contract = resolveProtocolAuthority(rawNumber);
+      const verifiedKind = classifyVehicleProtocol(contract.rawAtdpn);
+      if (verifiedKind === 'unknown') throw new Error('ATDPN classification unavailable');
+
+      assertSession(ownerEpoch);
+      latestProtocol = verifiedKind;
+      latestProtocolSource = contract.sourceAuthority;
+      latestProtocolContract = contract;
+
+      const el = document.querySelector('#haProtocolValue');
+      if (el) el.textContent = `${verifiedKind.toUpperCase()} · ATDPN ${contract.protocolId}`;
+      return verifiedKind;
+    } catch (error) {
+      if (H()?.sessionEpoch !== ownerEpoch) throw staleSessionError();
+      // ATDPN authority was not established. ATDP remains display-only.
+    }
+
+    latestProtocol = 'unknown';
+    latestProtocolSource = 'none';
+    latestProtocolContract = null;
     const el = document.querySelector('#haProtocolValue');
-    if (el) el.textContent = kind === 'unknown' ? 'Unverified' : `${kind.toUpperCase()} · read-only`;
-    return kind;
+
+    try {
+      const rawDescription = await send('ATDP', 5000);
+      assertSession(ownerEpoch);
+      const describedKind = classifyVehicleProtocol(rawDescription);
+      if (el) el.textContent = describedKind === 'unknown'
+        ? 'Unverified'
+        : `${describedKind.toUpperCase()} · ATDP description only`;
+    } catch (error) {
+      if (H()?.sessionEpoch !== ownerEpoch) throw staleSessionError();
+      if (el) el.textContent = 'Unverified';
+    }
+
+    return 'unknown';
   }
 
   async function readProtocol() {
-    try { await detectProtocol(); }
-    catch {
+    const ownerEpoch = H()?.sessionEpoch;
+    try {
+      await detectProtocol(ownerEpoch);
+    } catch (error) {
+      if (error?.code === 'STALE_SESSION') return;
       latestProtocol = 'unknown';
+      latestProtocolSource = 'none';
+      latestProtocolContract = null;
       const el = document.querySelector('#haProtocolValue');
       if (el) el.textContent = 'Unverified';
     }
@@ -59,32 +132,26 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     } catch { /* Unknown reading stays blank, never a fabricated voltage. */ }
   }
 
-  async function cycle() {
-    const h = H();
-    if (!h?.ecu) return stopLive();
-    if (h._v2Busy) return;
-    h._v2Busy = true;
-    try {
-      if (typeof h.readAll === 'function') await h.readAll();
-      const el = document.querySelector('#haCycle');
-      if (el) el.textContent = new Date().toLocaleTimeString();
-    } finally { h._v2Busy = false; }
-  }
 
   function startLive() {
     const h = H();
     if (!h?.ecu) return;
-    stopLive();
     const el = document.querySelector('#haPollState');
-    if (el) el.textContent = 'LIVE';
-    void cycle();
-    h.poll = setInterval(cycle, 2500);
+    if (h.ultraControllerReady !== true || typeof h.startUltraLive !== 'function') {
+      if (el) el.textContent = 'ULTRA WAIT';
+      return;
+    }
+    h.startUltraLive();
+    if (el) el.textContent = 'ULTRA';
   }
 
   function stopLive() {
     const h = H();
     if (h?.poll) clearInterval(h.poll);
     if (h) h.poll = null;
+    if (h?.ultraControllerReady === true && typeof h.stopUltraLive === 'function') {
+      void h.stopUltraLive();
+    }
     const el = document.querySelector('#haPollState');
     if (el) el.textContent = 'IDLE';
     const button = document.querySelector('#haLiveToggle');
@@ -100,17 +167,69 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     list.replaceChildren(span);
   }
 
+  function resetEvidenceUi() {
+    latestProtocol = 'unknown';
+    latestProtocolSource = 'none';
+    latestProtocolContract = null;
+    lastDtcEvidence = null;
+    dtcReadSerial++;
+    activeDtcRead = 0;
+    setDtcButtonsDisabled(false);
+
+    const protocol = document.querySelector('#haProtocolValue');
+    if (protocol) protocol.textContent = '—';
+    const cycle = document.querySelector('#haCycle');
+    if (cycle) cycle.textContent = '—';
+    const poll = document.querySelector('#haPollState');
+    if (poll) poll.textContent = 'IDLE';
+    showDTCResult('No DTC read in this session.', 'v2-empty');
+  }
+
   async function readDecode() {
-    const button = document.querySelector('#haDecodeDtc');
-    if (button) button.disabled = true;
+    if (activeDtcRead) return;
+
+    const ownerEpoch = H()?.sessionEpoch;
+    try {
+      assertSession(ownerEpoch);
+    } catch {
+      return;
+    }
+
+    const token = ++dtcReadSerial;
+    activeDtcRead = token;
+    setDtcButtonsDisabled(true);
     showDTCResult('Odczyt i weryfikacja odpowiedzi ECU…', 'v2-empty');
+
+    let raw = null;
+    let protocol = 'unknown';
+
     try {
       // Never infer CAN/legacy layout from byte-count parity or adapter ATI.
-      const protocol = await detectProtocol().catch(() => 'unknown');
-      const raw = await send('03', 10000);
+      protocol = await detectProtocol(ownerEpoch);
+      assertSession(ownerEpoch);
+
+      raw = await send('03', 10000);
+      assertSession(ownerEpoch);
+
       const parsed = decodeStoredDTCs(raw, protocol);
+      if (activeDtcRead !== token) throw staleSessionError();
+
+      lastDtcEvidence = {
+        epoch: ownerEpoch,
+        capturedAt: new Date().toISOString(),
+        protocol,
+        protocolSource: latestProtocolSource,
+        protocolContract: latestProtocolContract,
+        raw: String(raw),
+        status: 'verified',
+        errorCode: null,
+        responderCount: parsed.responderCount,
+        codes: [...parsed.codes],
+      };
+
       const list = document.querySelector('#haDtcList');
       if (!list) return;
+
       if (!parsed.codes.length) {
         showDTCResult(`Brak potwierdzonych kodów Mode 03 (${parsed.responderCount} ECU).`, 'v2-ok');
       } else {
@@ -122,15 +241,42 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
         }));
       }
     } catch (error) {
+      if (error?.code === 'STALE_SESSION'
+          || H()?.sessionEpoch !== ownerEpoch
+          || activeDtcRead !== token) return;
+
+      lastDtcEvidence = {
+        epoch: ownerEpoch,
+        capturedAt: new Date().toISOString(),
+        protocol,
+        protocolSource: latestProtocolSource,
+        protocolContract: latestProtocolContract,
+        raw: raw == null ? null : String(raw),
+        status: 'error',
+        errorCode: error?.code || 'READ_ERROR',
+        responderCount: null,
+        codes: null,
+      };
+
       // Parsing failures are UNKNOWN, not a successful empty DTC read.
       showDTCResult(`Niezweryfikowany odczyt DTC: ${error?.code || 'READ_ERROR'}. Zachowaj RAW do diagnostyki.`, 'v2-error');
     } finally {
-      if (button) button.disabled = false;
+      if (activeDtcRead === token) {
+        activeDtcRead = 0;
+        setDtcButtonsDisabled(false);
+      }
     }
   }
 
-  new MutationObserver(ensurePanel).observe(document.documentElement, { childList: true, subtree: true });
-  setInterval(ensurePanel, 700);
+  window.addEventListener('hannaada:obd-runtime-mounted', ensurePanel);
+  window.addEventListener('hannaada:module-rendered', ensurePanel);
+  window.addEventListener('hannaada:obd-disconnected', resetEvidenceUi);
   ensurePanel();
-  window.HannaAdaDiagV2 = { startLive, stopLive, readProtocol };
+  window.HannaAdaDiagV2 = {
+    startLive,
+    stopLive,
+    readProtocol,
+    readDtc: readDecode,
+    getLastDtcEvidence,
+  };
 })();

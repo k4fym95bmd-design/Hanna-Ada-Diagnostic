@@ -28,6 +28,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * OFF-VEHICLE USB and USB-serial link test. No network, ECU traffic or car diagnosis.
@@ -36,9 +39,12 @@ import java.util.Map;
 public final class MainActivity extends Activity {
     private static final String ACTION_PERMISSION = "app.hannaada.usbprobe.USB_PERMISSION";
     private UsbManager usbManager;
+    private AndroidKdcanUsbBridge usbSessionBridge;
     private LinearLayout content;
     private boolean receiverRegistered;
     private volatile boolean portTestRunning;
+    private volatile long portUiEpoch;
+    private ExecutorService portExecutor;
     private String lastPortResult;
 
     private final BroadcastReceiver usbEvents = new BroadcastReceiver() {
@@ -48,7 +54,12 @@ public final class MainActivity extends Activity {
             if (ACTION_PERMISSION.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)
                     || UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) lastPortResult = null;
+                if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                    portUiEpoch++;
+                    portTestRunning = false;
+                    if (usbSessionBridge != null) usbSessionBridge.onUsbDetached();
+                    lastPortResult = "Kabel odłączony — sesja USB i wszystkie dowody unieważnione.";
+                }
                 render();
             }
         }
@@ -57,6 +68,12 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        usbSessionBridge = new AndroidKdcanUsbBridge(usbManager);
+        portExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread worker = new Thread(runnable, "hannaada-usb-port-worker");
+            worker.setDaemon(true);
+            return worker;
+        });
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(Color.rgb(17, 22, 31));
@@ -79,10 +96,26 @@ public final class MainActivity extends Activity {
         if (content != null) render();
     }
 
+    @Override protected void onPause() {
+        if (portTestRunning) cancelPortTest("Test portu przerwany po opuszczeniu ekranu.");
+        super.onPause();
+    }
+
     @Override protected void onDestroy() {
+        portUiEpoch++;
+        portTestRunning = false;
         if (receiverRegistered) unregisterReceiver(usbEvents);
         receiverRegistered = false;
+        if (usbSessionBridge != null) usbSessionBridge.invalidateOperationsAndClose();
+        if (portExecutor != null) portExecutor.shutdownNow();
         super.onDestroy();
+    }
+
+    private void cancelPortTest(String reason) {
+        portUiEpoch++;
+        portTestRunning = false;
+        if (usbSessionBridge != null) usbSessionBridge.invalidateOperationsAndClose();
+        if (reason != null) lastPortResult = reason;
     }
 
     private int dp(int value) {
@@ -132,8 +165,13 @@ public final class MainActivity extends Activity {
             for (String key : sortedKeys(devices)) {
                 UsbDevice device = devices.get(key);
                 if (device != null) {
+                    boolean permission = usbManager.hasPermission(device);
+                    UsbSerialDriver driver = permission ? UsbSerialLink.findDriver(usbManager, device) : null;
+                    String family = driver == null ? "UNKNOWN"
+                            : UsbSerialEvidence.family(driver.getClass().getSimpleName());
+                    int ports = driver == null ? 0 : driver.getPorts().size();
                     snapshot.add(new UsbReport.Device(device.getVendorId(), device.getProductId(),
-                            device.getInterfaceCount(), usbManager.hasPermission(device)));
+                            device.getInterfaceCount(), permission, family, ports));
                 }
             }
         }
@@ -153,7 +191,7 @@ public final class MainActivity extends Activity {
 
     private void render() {
         content.removeAllViews();
-        label("HANNA & ADA / FIRE USB-SERIAL v0.4", 22, Color.rgb(100, 168, 255));
+        label("HANNA & ADA / USB-SERIAL SESSION v0.6", 22, Color.rgb(100, 168, 255));
         label("TEST WYŁĄCZNIE POZA AUTEM · ZERO POLECEŃ DO ECU", 13,
                 Color.rgb(255, 145, 145));
         label("Tablet: " + Build.MANUFACTURER + " " + Build.MODEL + " · Android API "
@@ -173,7 +211,7 @@ public final class MainActivity extends Activity {
         } else if (devices.isEmpty()) {
             label("2. Urządzenia USB: 0 — podłącz adapter USB poza samochodem.", 16,
                     Color.rgb(255, 167, 122));
-            label("Przygotuj przejściówkę OTG zgodną z portem Fire HD 10 i podłącz kabel "
+            label("Przygotuj przejściówkę OTG zgodną z portem tego urządzenia i podłącz kabel "
                     + "bez samochodu. Odśwież wynik. Nie zmieniaj systemu i nie kupuj "
                     + "sprzętu na podstawie samego komunikatu.", 14, Color.LTGRAY);
         } else {
@@ -201,8 +239,12 @@ public final class MainActivity extends Activity {
                         label("Sterownik USB-serial: BRAK dla tego urządzenia.", 14,
                                 Color.rgb(255, 167, 122));
                     } else {
-                        label("Sterownik: " + driver.getClass().getSimpleName() + " · porty: "
-                                + driver.getPorts().size(), 14, Color.rgb(155, 227, 190));
+                        String family = UsbSerialEvidence.family(driver.getClass().getSimpleName());
+                        label("Sterownik USB-serial: " + family + " · porty: "
+                                + driver.getPorts().size()
+                                + (UsbSerialEvidence.isKdcAnReferenceCandidate(family)
+                                    ? " · K+DCAN FTDI: kandydat referencyjny" : ""),
+                                14, Color.rgb(155, 227, 190));
                         if (!portTestRunning) {
                             action("Sprawdź i zamknij port USB (TYLKO POZA AUTEM)",
                                     view -> testSerialPort(device));
@@ -217,8 +259,9 @@ public final class MainActivity extends Activity {
                 15, Color.rgb(155, 227, 190));
         action("Kopiuj bezpieczny raport USB do ChatGPT", view -> copyReport());
         label("Raport: tylko API Androida, USB Host, VID:PID, liczba interfejsów i zgoda. "
-                + "Test portu NIE komunikuje się z BMW i NIE uruchamia INPA/ISTA. "
-                + "Działanie z konkretnym Fire HD 10 i kablem pozostaje do sprawdzenia.",
+                + "Test portu tworzy krótką sesję transportową, ale NIE czyta, NIE zapisuje "
+                + "i NIE komunikuje się z BMW ani nie uruchamia INPA/ISTA. "
+                + "Działanie z konkretnym urządzeniem Android i tym kablem pozostaje do sprawdzenia.",
                 13, Color.LTGRAY);
     }
 
@@ -234,17 +277,35 @@ public final class MainActivity extends Activity {
         }
         portTestRunning = true;
         lastPortResult = null;
+        final long uiEpoch = ++portUiEpoch;
+        final long operationToken = usbSessionBridge.operationToken();
         render();
-        new Thread(() -> {
-            final String result = UsbSerialLink.testOpenAndClose(usbManager, device);
-            runOnUiThread(() -> {
-                portTestRunning = false;
-                if (!isFinishing()) {
-                    lastPortResult = result;
+        try {
+            portExecutor.execute(() -> {
+                if (uiEpoch != portUiEpoch) return;
+                final AndroidKdcanUsbBridge.Result opened =
+                        usbSessionBridge.openNoTraffic(device, operationToken);
+                final AndroidKdcanUsbBridge.Result closed = opened.opened
+                        ? usbSessionBridge.closeAndInvalidate() : opened;
+                final String result = opened.opened
+                        ? "SUKCES: fizyczny port USB-serial otwarty w sesji epoch " + opened.epoch
+                            + " · driver " + opened.driverFamily
+                            + " · następnie zamknięty i unieważniony. Zero transmisji do BMW."
+                        : "BLOKADA: " + opened.stage
+                            + ". Nie utworzono aktywnej sesji diagnostycznej.";
+                runOnUiThread(() -> {
+                    if (uiEpoch != portUiEpoch || isFinishing()
+                            || (Build.VERSION.SDK_INT >= 17 && isDestroyed())) return;
+                    portTestRunning = false;
+                    lastPortResult = result + " Stan końcowy: " + closed.stage + ".";
                     render();
-                }
+                });
             });
-        }, "hannaada-usb-port-test").start();
+        } catch (RejectedExecutionException rejected) {
+            portTestRunning = false;
+            lastPortResult = "Worker USB został zatrzymany; uruchom test ponownie.";
+            render();
+        }
     }
 
     private void requestUsbPermission(UsbDevice candidate) {

@@ -43,6 +43,78 @@ export function classifyVehicleProtocol(raw) {
   return 'unknown';
 }
 
+/**
+ * @typedef {Readonly<{
+ *   protocolId: string,
+ *   rawAtdpn: string,
+ *   isAutoDetected: boolean,
+ *   descriptionFallback?: string,
+ *   sourceAuthority: 'ATDPN'
+ * }>} ProtocolContract
+ */
+
+/**
+ * Build the only protocol authority contract accepted by the generic OBD core.
+ * ATDP is presentation-only and can never create protocol authority.
+ * Protocol IDs A/B/C and 0 remain intentionally unverified for this generic
+ * OBD gate; only 1-9 are accepted here.
+ * @param {string} atdpnRaw
+ * @param {string|null|undefined} atdpRaw
+ * @returns {ProtocolContract}
+ */
+export function resolveProtocolAuthority(atdpnRaw, atdpRaw = null) {
+  const rawInput = String(atdpnRaw ?? '');
+  const rawUpper = rawInput.toUpperCase();
+  if (/SEARCHING\.\.\.|\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(rawUpper)) {
+    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
+      'ATDPN reported an unresolved protocol state', rawInput);
+  }
+
+  const lines = cleanELM(rawInput)
+    .filter(line => !/^AT\s*DPN$/i.test(line));
+
+  const evidence = lines.join('\n');
+  if (lines.length !== 1) {
+    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
+      'ATDPN did not provide one unambiguous protocol identifier', evidence);
+  }
+
+  const rawAtdpn = lines[0].trim().toUpperCase();
+
+  const match = rawAtdpn.match(/^(A)?([1-9])$/);
+  if (!match) {
+    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
+      'ATDPN protocol identifier is outside the verified generic OBD set', evidence);
+  }
+
+  const protocolId = match[2];
+  if (classifyVehicleProtocol(rawAtdpn) === 'unknown') {
+    throw new DiagnosticError('PROTOCOL_UNVERIFIED',
+      'ATDPN protocol identifier cannot be classified', evidence);
+  }
+
+  let descriptionFallback;
+  if (typeof atdpRaw === 'string' && atdpRaw.trim()) {
+    const descriptionLines = cleanELM(atdpRaw)
+      .filter(line => !/^AT\s*DP$/i.test(line));
+    if (descriptionLines.length === 1) {
+      const candidate = descriptionLines[0].trim();
+      if (candidate &&
+          !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(candidate.toUpperCase())) {
+        descriptionFallback = candidate;
+      }
+    }
+  }
+
+  return Object.freeze({
+    protocolId,
+    rawAtdpn,
+    isAutoDetected: Boolean(match[1]),
+    ...(descriptionFallback ? { descriptionFallback } : {}),
+    sourceAuthority: 'ATDPN',
+  });
+}
+
 function assertAdapterOK(raw) {
   if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(raw.toUpperCase())) {
     throw new DiagnosticError('ADAPTER_ERROR', 'Adapter or ECU reported an error', raw);
@@ -85,8 +157,9 @@ function codeFromPair(a, b) {
     (a & 15).toString(16).toUpperCase() + b.toString(16).padStart(2, '0').toUpperCase();
 }
 
-// A response must carry protocol evidence: ATDP/ATDPN, or an explicit CAN
-// single-frame header. Unknown unframed data must never become a guessed DTC.
+// Unframed DTC decoding requires previously verified ATDPN authority.
+// An explicit CAN single-frame header is self-describing CAN evidence.
+// Unknown unframed data must never become a guessed DTC.
 export function decodeStoredDTCs(raw, protocol = 'unknown') {
   const lines = cleanELM(raw);
   const evidence = lines.join('\n');
@@ -105,7 +178,7 @@ export function decodeStoredDTCs(raw, protocol = 'unknown') {
     // DTC response. Require 43 at the start of the actual frame payload.
     if (bytes[0] !== 0x43) continue;
     if (framed && protocol === 'legacy') throw new DiagnosticError('PROTOCOL_MISMATCH', 'CAN frame conflicts with detected legacy vehicle protocol', evidence);
-    if (!framed && protocol === 'unknown') throw new DiagnosticError('PROTOCOL_REQUIRED', 'Unframed DTC data requires verified ATDP or ATDPN protocol', evidence);
+    if (!framed && protocol === 'unknown') throw new DiagnosticError('PROTOCOL_REQUIRED', 'Unframed DTC data requires verified protocol evidence', evidence);
     responders++;
     usedCANFrame ||= framed;
     const payload = bytes.slice(1);
@@ -158,8 +231,35 @@ export function decodeSupportedPIDs(raw) {
   return Object.freeze({ status: 'verified', responderCount: responders, pids: Object.freeze(pids) });
 }
 
+export function isValidAdapterIdentity(identity) {
+  if (typeof identity !== 'string') return false;
+
+  const raw = identity.trim();
+  if (!raw) return false;
+  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(raw.toUpperCase())) {
+    return false;
+  }
+
+  const lines = cleanELM(raw);
+  if (!lines.length) return false;
+
+  // Command echo and generic acknowledgements are not identity evidence.
+  const identityLines = lines.filter(line =>
+    !/^ATI$/i.test(line) &&
+    !/^OK$/i.test(line) &&
+    !/^SEARCHING\.{0,3}$/i.test(line)
+  );
+
+  return identityLines.some(line =>
+    line.length >= 3 &&
+    /[A-Z0-9]/i.test(line) &&
+    !/^AT[A-Z0-9]*$/i.test(line)
+  );
+}
+
 export function createDiagnosticSession() {
   return Object.freeze({ epoch: 0, stage: 'DISCONNECTED', protocol: 'unknown',
+    protocolSource: null, protocolContract: null,
     adapterIdentity: null, pids: null, dtcs: null, lastErrorCode: null });
 }
 
@@ -174,9 +274,7 @@ export function reduceDiagnosticSession(session, event) {
     return Object.freeze({ ...session, stage: 'BLE' });
   }
   if (event.type === 'ADAPTER_IDENTIFIED' && session.stage === 'BLE' &&
-      typeof event.identity === 'string' && event.identity.trim() &&
-      !/^(?:ATI|OK|SEARCHING\.{0,3})$/i.test(event.identity.trim()) &&
-      !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(event.identity.toUpperCase())) {
+      isValidAdapterIdentity(event.identity)) {
     return Object.freeze({ ...session, stage: 'ADAPTER', adapterIdentity: event.identity.trim() });
   }
   if (event.type === 'PID_RESPONSE' && ['ADAPTER', 'ECU'].includes(session.stage)) {
@@ -185,14 +283,47 @@ export function reduceDiagnosticSession(session, event) {
       // A fresh ECU probe invalidates protocol/DTC evidence from any earlier
       // probe even when the BLE link and epoch have not changed.
       return Object.freeze({ ...session, stage: 'ECU', pids: result.pids,
-        protocol: 'unknown', dtcs: null, lastErrorCode: null });
+        protocol: 'unknown', protocolSource: null, protocolContract: null,
+        dtcs: null, lastErrorCode: null });
     } catch (error) {
       return Object.freeze({ ...session, stage: 'ADAPTER', pids: null, dtcs: null,
-        protocol: 'unknown', lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
+        protocol: 'unknown', protocolSource: null, protocolContract: null,
+        lastErrorCode: error instanceof DiagnosticError ? error.code : 'UNKNOWN_ERROR' });
     }
   }
   if (event.type === 'PROTOCOL_RESPONSE' && session.stage === 'ECU') {
-    return Object.freeze({ ...session, protocol: classifyVehicleProtocol(event.raw), dtcs: null });
+    if (event.source !== 'ATDPN') {
+      return Object.freeze({
+        ...session,
+        protocol: 'unknown',
+        protocolSource: null,
+        protocolContract: null,
+        dtcs: null,
+        lastErrorCode: 'PROTOCOL_UNVERIFIED',
+      });
+    }
+
+    try {
+      const protocolContract = resolveProtocolAuthority(event.raw, event.descriptionRaw);
+      const protocol = classifyVehicleProtocol(protocolContract.rawAtdpn);
+      return Object.freeze({
+        ...session,
+        protocol,
+        protocolSource: protocolContract.sourceAuthority,
+        protocolContract,
+        dtcs: null,
+        lastErrorCode: null,
+      });
+    } catch (error) {
+      return Object.freeze({
+        ...session,
+        protocol: 'unknown',
+        protocolSource: null,
+        protocolContract: null,
+        dtcs: null,
+        lastErrorCode: error instanceof DiagnosticError ? error.code : 'PROTOCOL_UNVERIFIED',
+      });
+    }
   }
   if (event.type === 'DTC_RESPONSE' && session.stage === 'ECU') {
     try {

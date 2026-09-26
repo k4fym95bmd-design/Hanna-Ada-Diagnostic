@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DiagnosticError, classifyVehicleProtocol, decodeStoredDTCs,
-  decodeSupportedPIDs, createDiagnosticSession, reduceDiagnosticSession
+  decodeSupportedPIDs, isValidAdapterIdentity, resolveProtocolAuthority,
+  createDiagnosticSession, reduceDiagnosticSession
 } from '../public/diagnostic-core.js';
 
 function rejectsCode(fn, code) {
@@ -106,7 +107,21 @@ test('session unknown protocol rejects raw DTC without inventing zero faults', (
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.equal(state.dtcs, null);
   assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
-  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', raw: 'ATDP\rISO 15765-4 CAN\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDP', raw: 'ISO 15765-4 CAN\r>', epoch: 0 });
+  assert.equal(state.protocol, 'unknown');
+  assert.equal(state.protocolSource, null);
+  state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
+  assert.equal(state.dtcs, null);
+  assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A6\r>', epoch: 0 });
+  assert.equal(state.protocol, 'can');
+  assert.equal(state.protocolSource, 'ATDPN');
+  assert.deepEqual(state.protocolContract, {
+    protocolId: '6',
+    rawAtdpn: 'A6',
+    isAutoDetected: true,
+    sourceAuthority: 'ATDPN',
+  });
   state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00', epoch: 0 });
   assert.deepEqual(state.dtcs.codes, []);
   assert.equal(state.lastErrorCode, null);
@@ -125,4 +140,144 @@ test('disconnect invalidates delayed responses and clears sensitive session data
   assert.equal(state.dtcs, null);
   const stale = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00', epoch: 0 });
   assert.equal(stale, state);
+});
+
+
+test('adapter identity helper rejects echoes acknowledgements and adapter errors', () => {
+  for (const value of [
+    'ATI', 'OK', 'SEARCHING...', 'ERROR', 'CAN ERROR', 'NO DATA', '?', '',
+    'ATI\r>', 'ATI\rOK\r>', 'OK\r>', 'ATI\rSEARCHING...\r>',
+  ]) {
+    assert.equal(isValidAdapterIdentity(value), false, value);
+  }
+
+  for (const value of [
+    'ELM327 v2.2',
+    'Carista EVO',
+    'vLink BLE',
+    'ATI\rELM327 v2.2\r>',
+    'ATI\rCarista EVO\rOK\r>',
+  ]) {
+    assert.equal(isValidAdapterIdentity(value), true, value);
+  }
+});
+
+
+test('protocol reducer requires explicit ATDPN source even when descriptive text is recognizable', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+
+  const atdp = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', source: 'ATDP', raw: 'ISO 9141-2\r>', epoch: 0,
+  });
+  assert.equal(atdp.protocol, 'unknown');
+  assert.equal(atdp.protocolSource, null);
+
+  const missingSource = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', raw: 'A3\r>', epoch: 0,
+  });
+  assert.equal(missingSource.protocol, 'unknown');
+
+  const atdpn = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A3\r>', epoch: 0,
+  });
+  assert.equal(atdpn.protocol, 'legacy');
+  assert.equal(atdpn.protocolSource, 'ATDPN');
+});
+
+
+test('ATDPN authority contract normalizes protocol ID and keeps ATDP display-only', () => {
+  const auto = resolveProtocolAuthority(
+    'ATDPN\rA6\r>',
+    'ATDP\rAUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)\r>'
+  );
+  assert.deepEqual(auto, {
+    protocolId: '6',
+    rawAtdpn: 'A6',
+    isAutoDetected: true,
+    descriptionFallback: 'AUTO, ISO 15765-4 CAN (11 bit ID, 500 kbaud)',
+    sourceAuthority: 'ATDPN',
+  });
+  assert.equal(Object.isFrozen(auto), true);
+
+  const fixed = resolveProtocolAuthority('6\r>');
+  assert.deepEqual(fixed, {
+    protocolId: '6',
+    rawAtdpn: '6',
+    isAutoDetected: false,
+    sourceAuthority: 'ATDPN',
+  });
+});
+
+test('ATDPN authority contract rejects unresolved ambiguous and unsupported identifiers', () => {
+  for (const raw of [
+    '', '?', 'SEARCHING...\rA6\r>', 'ATDPN\rSEARCHING...\rA6\r>',
+    'ATDPN\rERROR\r>', 'ATDPN\rNO DATA\r>', 'ATDPN\r0\r>',
+    'ATDPN\rA\r>', 'ATDPN\rB\r>', 'ATDPN\rC\r>',
+    'ATDPN\rA6\rA7\r>', 'ATDPN\rAUTO\r>',
+    'A0', 'AA', '10',
+  ]) {
+    rejectsCode(() => resolveProtocolAuthority(raw), 'PROTOCOL_UNVERIFIED');
+  }
+});
+
+test('ATDP description errors never contaminate a valid ATDPN authority contract', () => {
+  for (const description of ['ATDP\rERROR\r>', 'ATDP\r?\r>', 'ATDP\rCAN ERROR\r>']) {
+    const contract = resolveProtocolAuthority('ATDPN\rA3\r>', description);
+    assert.equal(contract.protocolId, '3');
+    assert.equal(contract.sourceAuthority, 'ATDPN');
+    assert.equal(contract.descriptionFallback, undefined);
+  }
+});
+
+
+
+
+test('fresh PID0100 reprobe invalidates prior protocol contract and DTC evidence', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE',
+    source: 'ATDPN',
+    raw: 'ATDPN\rA6\r>',
+    descriptionRaw: 'ATDP\rAUTO, ISO 15765-4 CAN\r>',
+    epoch: 0,
+  });
+  state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00\r>', epoch: 0 });
+
+  assert.equal(state.protocol, 'can');
+  assert.equal(state.protocolSource, 'ATDPN');
+  assert.equal(state.protocolContract?.protocolId, '6');
+  assert.deepEqual(state.dtcs.codes, []);
+
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+
+  assert.equal(state.stage, 'ECU');
+  assert.equal(state.protocol, 'unknown');
+  assert.equal(state.protocolSource, null);
+  assert.equal(state.protocolContract, null);
+  assert.equal(state.dtcs, null);
+});
+
+test('disconnect and reset always clear protocol authority contract', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A3\r>', epoch: 0 });
+  assert.equal(state.protocolContract?.sourceAuthority, 'ATDPN');
+
+  const disconnected = reduceDiagnosticSession(state, { type: 'DISCONNECTED' });
+  assert.equal(disconnected.protocol, 'unknown');
+  assert.equal(disconnected.protocolSource, null);
+  assert.equal(disconnected.protocolContract, null);
+
+  const reset = reduceDiagnosticSession(disconnected, { type: 'RESET' });
+  assert.equal(reset.protocol, 'unknown');
+  assert.equal(reset.protocolSource, null);
+  assert.equal(reset.protocolContract, null);
 });

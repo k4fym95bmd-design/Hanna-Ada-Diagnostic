@@ -1,21 +1,41 @@
 // Portable, read-only connection triage for Hanna & Ada Diagnostics.
 // Accepts observed transport data ONLY. It neither connects to Bluetooth nor
 // implies that generic OBD access verifies BMW-specific modules.
-import { classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError, cleanELM } from './diagnostic-core.js';
+import {
+  classifyVehicleProtocol, decodeSupportedPIDs, DiagnosticError,
+  isValidAdapterIdentity, resolveProtocolAuthority,
+} from './diagnostic-core.js';
 
 const result = (stage, code, explanation, nextStep, evidence = {}) => Object.freeze({
   stage, code, explanation, nextStep, evidence: Object.freeze(evidence),
   bmwModulesVerified: false, writesEnabled: false,
 });
 
-function hasAdapterIdentity(raw) {
-  if (typeof raw !== 'string' ||
-      /\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED)\b|\?/.test(raw.toUpperCase())) return false;
-  const lines = cleanELM(raw);
-  // A failure anywhere in this reply invalidates even a plausible ATI identity.
-  if (lines.some(line => /^ERROR$/i.test(line))) return false;
-  return lines.some(line => !/^ATI$/i.test(line) && !/^OK$/i.test(line) &&
-    line.length >= 3 && /[a-z0-9]/i.test(line));
+export class ConnectionDoctor {
+  constructor() {
+    this.activeProtocol = null;
+  }
+
+  resolveProtocolAuthority(atdpnRaw, atdpRaw = null) {
+    this.activeProtocol = null;
+    const contract = resolveProtocolAuthority(atdpnRaw, atdpRaw);
+    this.activeProtocol = contract;
+    return contract;
+  }
+
+  getActiveProtocol() {
+    if (!this.activeProtocol) {
+      throw new DiagnosticError(
+        'PROTOCOL_REQUIRED',
+        'Protocol has not been established via ATDPN authority contract.'
+      );
+    }
+    return this.activeProtocol;
+  }
+
+  resetProtocol() {
+    this.activeProtocol = null;
+  }
 }
 
 // Observations should be supplied by the real native/Floot transport. Never
@@ -27,7 +47,8 @@ export function diagnoseConnection(observation = {}) {
   const {
     bluetoothPowered = false, adapterSeen = false, bleConnected = false,
     gattDiscovered = false, notificationsActive = false, adapterReply = null,
-    pid0100Reply = null, protocolReply = null, transportError = null,
+    pid0100Reply = null, protocolNumberReply = null,
+    protocolDescriptionReply = null, transportError = null,
   } = observation;
 
   if (!bluetoothPowered) return result('BLUETOOTH', 'BT_UNAVAILABLE',
@@ -52,7 +73,7 @@ export function diagnoseConnection(observation = {}) {
     'The transport reported an error; later replies may be stale.',
     'Disconnect, re-establish a clean session and capture the first failing command.',
     { notificationsActive: true });
-  if (!hasAdapterIdentity(adapterReply)) return result('ELM', 'ADAPTER_UNVERIFIED',
+  if (!isValidAdapterIdentity(adapterReply)) return result('ELM', 'ADAPTER_UNVERIFIED',
     'No usable adapter identity was observed; an open BLE channel alone is insufficient.',
     'Capture the ATI response after notifications are enabled.',
     { notificationsActive: true });
@@ -72,13 +93,49 @@ export function diagnoseConnection(observation = {}) {
       'Capture the raw PID 0100 response and verify the vehicle-side connector and protocol.',
       { adapterIdentified: true, parserError: cause });
   }
-  const protocol = typeof protocolReply === 'string' ? classifyVehicleProtocol(protocolReply) : 'unknown';
+  const explicitAtdpn = typeof protocolNumberReply === 'string'
+    ? protocolNumberReply
+    : null;
+
+  const descriptiveAtdp = typeof protocolDescriptionReply === 'string'
+    ? protocolDescriptionReply
+    : null;
+
+  let protocolContract;
+  try {
+    protocolContract = resolveProtocolAuthority(explicitAtdpn, descriptiveAtdp);
+  } catch (error) {
+    const cause = error instanceof DiagnosticError ? error.code : 'PROTOCOL_UNVERIFIED';
+    return result('PROTOCOL', 'PROTOCOL_UNVERIFIED',
+      'Generic ECU communication is confirmed, but protocol authority has not been established by ATDPN.',
+      'Capture ATDPN. ATDP may be shown as a description but cannot authorize unframed DTC decoding.',
+      {
+        genericECUVerified: true,
+        responderCount: pids.responderCount,
+        pidCount: pids.pids.length,
+        parserError: cause,
+      });
+  }
+
+  const protocol = classifyVehicleProtocol(protocolContract.rawAtdpn);
   if (protocol === 'unknown') return result('PROTOCOL', 'PROTOCOL_UNVERIFIED',
-    'Generic ECU communication is confirmed, but the selected bus protocol is unknown.',
-    'Capture ATDPN or ATDP before interpreting unframed fault-code replies.',
-    { genericECUVerified: true, responderCount: pids.responderCount, pidCount: pids.pids.length });
+    'ATDPN was captured but did not map to a verified generic OBD bus protocol.',
+    'Capture the exact ATDPN reply again before interpreting unframed fault-code replies.',
+    {
+      genericECUVerified: true,
+      responderCount: pids.responderCount,
+      pidCount: pids.pids.length,
+      protocolContract,
+    });
+
   return result('GENERIC_OBD', 'GENERIC_OBD_VERIFIED',
-    'A generic vehicle ECU replied and the bus protocol was identified.',
+    'A generic vehicle ECU replied and ATDPN established protocol authority.',
     'Generic read-only DTC and live-PID tests can be run; BMW module access remains unverified.',
-    { genericECUVerified: true, protocol, responderCount: pids.responderCount, pidCount: pids.pids.length });
+    {
+      genericECUVerified: true,
+      protocol,
+      protocolContract,
+      responderCount: pids.responderCount,
+      pidCount: pids.pids.length,
+    });
 }

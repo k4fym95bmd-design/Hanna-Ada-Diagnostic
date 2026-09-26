@@ -80,8 +80,14 @@ try {
   const html = await homeRes.text();
   assert.match(html, /Hanna\s*&\s*Ada/i);
   assert.match(html, /app\.js/i);
-  assert.match(html, /tuning-stage-extension\.js/i);
   assert.match(html, /app\.css/i);
+
+  const bootstrapRes = await fetch(`${base}/ultra-bootstrap.js`);
+  assert.equal(bootstrapRes.status, 200);
+  const bootstrap = await bootstrapRes.text();
+  assert.match(bootstrap, /tuning-stage-extension\.js/i);
+  assert.match(bootstrap, /cable-workbench\.js/i);
+  assert.match(bootstrap, /live-performance-runtime\.js/i);
 
   const appRes = await fetch(`${base}/app.js`);
   assert.equal(appRes.status, 200);
@@ -93,6 +99,12 @@ try {
   ]) assert.match(app, new RegExp(moduleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
   assert.match(app, /M5 Character \/ Booster is a separate premium product/i);
   assert.match(app, /Write\/flash remains locked|Flash is intentionally blocked|WRITE SAFETY/i);
+
+  const tuningViewRes = await fetch(`${base}/tuning-view.js`);
+  assert.equal(tuningViewRes.status, 200);
+  const tuningView = await tuningViewRes.text();
+  assert.match(tuningView, /renderTuningBody/);
+  assert.match(tuningView, /IDENTIFY ECU FIRST/);
 
   const extensionRes = await fetch(`${base}/tuning-stage-extension.js`);
   assert.equal(extensionRes.status, 200);

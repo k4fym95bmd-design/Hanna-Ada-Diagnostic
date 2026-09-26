@@ -1,0 +1,120 @@
+version: 2.1
+
+# External fallback CI for PR #35.
+# Manual-only by default: select exactly which fallback target should run.
+parameters:
+  fallback_target:
+    type: enum
+    default: none
+    enum:
+      - none
+      - core
+      - windows
+      - android
+      - all
+
+orbs:
+  win: circleci/windows@5.0.0
+
+jobs:
+  core-js:
+    docker:
+      - image: cimg/node:lts
+    resource_class: small
+    steps:
+      - checkout
+      - run:
+          name: Runtime
+          command: |
+            echo "SHA=$CIRCLE_SHA1"
+            node --version
+            npm --version
+      - run:
+          name: Full read-only JavaScript regression suite
+          command: npm test
+
+  windows-desktop-pro:
+    executor:
+      name: win/default
+      size: medium
+    steps:
+      - checkout
+      - run:
+          name: Install Node LTS and run Desktop PRO JavaScript tests
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            choco install nodejs-lts -y --no-progress
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            node --version
+            npm --version
+            npm run test:desktop-pro
+      - run:
+          name: Native Rust transport policy tests
+          shell: powershell.exe -ExecutionPolicy Bypass
+          command: |
+            if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+              Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+              .\rustup-init.exe -y --profile minimal --default-toolchain stable
+            }
+            $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
+            cargo --version
+            Push-Location desktop-pro/src-tauri
+            cargo test
+            Pop-Location
+
+  android-usb-probe:
+    docker:
+      - image: cimg/android:2026.08
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Runtime
+          command: |
+            java -version
+            sdkmanager --version
+      - run:
+          name: Install pinned Gradle 7.6.4
+          command: |
+            curl -fsSL https://services.gradle.org/distributions/gradle-7.6.4-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            /tmp/gradle-7.6.4/bin/gradle --version
+      - run:
+          name: Android unit tests and debug APK
+          command: |
+            cd android-usb-probe
+            /tmp/gradle-7.6.4/bin/gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - store_artifacts:
+          path: android-usb-probe/app/build/outputs/apk/debug/app-debug.apk
+          destination: hanna-ada-android5-usb-probe-debug.apk
+
+workflows:
+  fallback-core:
+    when: pipeline.parameters.fallback_target == "core" or pipeline.parameters.fallback_target == "all"
+    jobs:
+      - core-js:
+          filters:
+            branches:
+              only:
+                - main
+                - feat/read-only-workshop-fusion-20260922
+
+  fallback-windows:
+    when: pipeline.parameters.fallback_target == "windows" or pipeline.parameters.fallback_target == "all"
+    jobs:
+      - windows-desktop-pro:
+          filters:
+            branches:
+              only:
+                - main
+                - feat/read-only-workshop-fusion-20260922
+
+  fallback-android:
+    when: pipeline.parameters.fallback_target == "android" or pipeline.parameters.fallback_target == "all"
+    jobs:
+      - android-usb-probe:
+          filters:
+            branches:
+              only:
+                - main
+                - feat/read-only-workshop-fusion-20260922

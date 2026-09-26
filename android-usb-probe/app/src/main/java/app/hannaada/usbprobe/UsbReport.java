@@ -12,12 +12,21 @@ public final class UsbReport {
         public final int productId;
         public final int interfaceCount;
         public final boolean permissionGranted;
+        public final String driverFamily;
+        public final int serialPortCount;
 
         public Device(int vendorId, int productId, int interfaceCount, boolean permissionGranted) {
+            this(vendorId, productId, interfaceCount, permissionGranted, "UNKNOWN", 0);
+        }
+
+        public Device(int vendorId, int productId, int interfaceCount, boolean permissionGranted,
+                      String driverFamily, int serialPortCount) {
             this.vendorId = vendorId;
             this.productId = productId;
             this.interfaceCount = interfaceCount;
             this.permissionGranted = permissionGranted;
+            this.driverFamily = driverFamily == null ? "UNKNOWN" : driverFamily;
+            this.serialPortCount = UsbSerialEvidence.safePortCount(serialPortCount);
         }
     }
 
@@ -47,12 +56,20 @@ public final class UsbReport {
                         .append(String.format(Locale.US, "%04X:%04X", device.vendorId, device.productId))
                         .append(", interfejsy ").append(device.interfaceCount)
                         .append(", zgoda Androida ")
-                        .append(device.permissionGranted ? "TAK" : "NIE").append('\n');
+                        .append(device.permissionGranted ? "TAK" : "NIE");
+                if (device.permissionGranted && !"UNKNOWN".equals(device.driverFamily)) {
+                    out.append(", sterownik ").append(device.driverFamily)
+                            .append(", porty ").append(device.serialPortCount);
+                    if (UsbSerialEvidence.isKdcAnReferenceCandidate(device.driverFamily)) {
+                        out.append(", profil K+DCAN: KANDYDAT FTDI");
+                    }
+                }
+                out.append('\n');
             }
         }
         out.append("\n").append(UsbReadiness.nextStep(hostFeature, enumerationAvailable, devices)).append('\n');
         out.append("USB Host/OTG sprzętowo: NIEPOTWIERDZONE NA PODSTAWIE SAMEJ DEKLARACJI\n");
-        out.append("Sterownik USB-Serial: NIEPOTWIERDZONY\n");
+        out.append("Sterownik USB-Serial: wymaga odczytu per urządzenie; brak rodziny = NIEPOTWIERDZONY\n");
         out.append("Połączenie z BMW: NIEPOTWIERDZONE\n");
         out.append("Komendy diagnostyczne: WYŁĄCZONE\n");
         out.append("Numer seryjny i ścieżki USB: NIEZBIERANE\n");
