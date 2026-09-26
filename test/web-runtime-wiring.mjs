@@ -12,7 +12,7 @@ test('browser lazy-loads read-only terminal gate and verified DTC extension', as
   assert.match(bootstrap, /importOnce\('\/diagnostic-core-v2\.js'\)/);
   assert.doesNotMatch(html, /src="\/(?:terminal-readonly-guard|diagnostic-core-v2)\.js"/);
   const extension = await source('public/diagnostic-core-v2.js');
-  assert.match(extension, /import\s*\{[^}]*decodeStoredDTCs[^}]*\}\s*from\s*['"]\.\/diagnostic-core\.js['"]/);
+  assert.match(extension, /import\s*\{[^}]*decodeStoredDTCs[^}]*resolveProtocolAuthority[^}]*\}\s*from\s*['"]\.\/diagnostic-core\.js['"]/);
   assert.match(extension, /decodeStoredDTCs\(raw, protocol\)/);
   assert.doesNotMatch(extension, /h\.parseDtc\(/);
   assert.match(extension, /Niezweryfikowany odczyt DTC/);
@@ -127,8 +127,10 @@ test('web DTC protocol handoff trusts ATDPN and keeps ATDP display-only', async 
   );
 
   assert.match(detect, /send\('ATDPN', 5000\)/);
-  assert.match(detect, /const verifiedKind = classifyVehicleProtocol\(rawNumber\)/);
-  assert.match(detect, /return verifiedKind/);
+  assert.match(detect, /resolveProtocolAuthority\(rawNumber\)/);
+  assert.match(detect, /classifyVehicleProtocol\(contract\.rawAtdpn\)/);
+  assert.match(detect, /latestProtocolSource = contract\.sourceAuthority/);
+  assert.match(detect, /latestProtocolContract = contract/);
   assert.match(detect, /ATDP description only/);
   assert.match(detect, /return 'unknown'/);
   assert.doesNotMatch(detect, /latestProtocol = describedKind/);
@@ -218,4 +220,17 @@ test('legacy browser ECU gate uses canonical ATI and PID0100 validators', async 
   assert.match(runtime, /supportedVerified:false/);
   assert.match(runtime, /HA\.supportedVerified=true/);
   assert.match(runtime, /!HA\.supportedVerified/);
+});
+
+
+test('browser runtime protocol verification uses the canonical ATDPN authority contract', async () => {
+  const runtime = await source('public/obd-runtime.js');
+  const extension = await source('public/diagnostic-core-v2.js');
+
+  assert.match(runtime, /core\.resolveProtocolAuthority\(rawNumber\)/);
+  assert.match(runtime, /core\.classifyVehicleProtocol\(contract\.rawAtdpn\)/);
+  assert.match(runtime, /contract\.sourceAuthority/);
+  assert.match(extension, /resolveProtocolAuthority\(rawNumber\)/);
+  assert.match(extension, /protocolContract: latestProtocolContract/);
+  assert.match(extension, /latestProtocolContract = null/);
 });
