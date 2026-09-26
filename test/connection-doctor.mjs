@@ -128,3 +128,27 @@ test('ConnectionDoctor returns the normalized ProtocolContract as evidence', () 
     sourceAuthority: 'ATDPN',
   });
 });
+
+
+test('Connection Doctor never infers ATDPN authority from untyped protocolReply text', () => {
+  const untyped = diagnoseConnection({
+    ...base,
+    protocolNumberReply: null,
+    protocolDescriptionReply: null,
+    protocolReply: 'ATDPN\rA6\r>',
+    protocolReplySource: null,
+  });
+  assert.equal(untyped.code, 'PROTOCOL_UNVERIFIED');
+  assert.equal(untyped.evidence.protocol, undefined);
+
+  const explicit = diagnoseConnection({
+    ...base,
+    protocolNumberReply: null,
+    protocolDescriptionReply: null,
+    protocolReply: 'ATDPN\rA6\r>',
+    protocolReplySource: 'ATDPN',
+  });
+  assert.equal(explicit.code, 'GENERIC_OBD_VERIFIED');
+  assert.equal(explicit.evidence.protocol, 'can');
+  assert.equal(explicit.evidence.protocolContract.sourceAuthority, 'ATDPN');
+});
