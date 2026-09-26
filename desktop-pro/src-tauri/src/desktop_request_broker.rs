@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 const MAX_ATTEMPTS: usize = 32;
+const READONLY_SAMPLE_LEASE_MS: u64 = 8_000;
 
 struct ActiveRequest {
     operation_id: &'static str,
@@ -62,6 +63,7 @@ pub struct DesktopReadOnlyRequestBroker {
     evidenced_attempt_count: usize,
     evidenced_attempts: Vec<DesktopEvidencedAttempt>,
     readonly_sample_active: bool,
+    readonly_sample_started_at: Option<Instant>,
 }
 
 fn canonical_operation(id: &str) -> Option<(&'static str, &'static str, u64, usize)> {
@@ -83,14 +85,24 @@ fn valid_request_id(value: &str) -> bool {
 
 impl DesktopReadOnlyRequestBroker {
     fn expire_if_needed(&mut self) {
-        let expired = self.active.as_ref().map(|active|
+        let request_expired = self.active.as_ref().map(|active|
             active.started_at.elapsed() >= Duration::from_millis(active.timeout_ms)
         ).unwrap_or(false);
-        if expired {
+        if request_expired {
             self.active = None;
         }
-    }
 
+        let sample_expired = self.readonly_sample_active
+            && self.readonly_sample_started_at
+                .map(|started_at|
+                    started_at.elapsed() >= Duration::from_millis(READONLY_SAMPLE_LEASE_MS)
+                )
+                .unwrap_or(true);
+        if sample_expired {
+            self.readonly_sample_active = false;
+            self.readonly_sample_started_at = None;
+        }
+    }
     pub fn reset(&mut self, epoch: u64) {
         self.epoch = epoch;
         self.active = None;
@@ -98,6 +110,7 @@ impl DesktopReadOnlyRequestBroker {
         self.evidenced_attempt_count = 0;
         self.evidenced_attempts.clear();
         self.readonly_sample_active = false;
+        self.readonly_sample_started_at = None;
     }
 
     pub fn prepare(
@@ -183,6 +196,7 @@ impl DesktopReadOnlyRequestBroker {
         }
         self.epoch = epoch;
         self.readonly_sample_active = true;
+        self.readonly_sample_started_at = Some(Instant::now());
         Ok(self.snapshot())
     }
 
@@ -190,6 +204,7 @@ impl DesktopReadOnlyRequestBroker {
         &mut self,
         epoch: u64,
     ) -> Result<DesktopRequestBrokerSnapshot, String> {
+        self.expire_if_needed();
         if self.epoch != epoch {
             return Err("stale_epoch".into());
         }
@@ -197,6 +212,7 @@ impl DesktopReadOnlyRequestBroker {
             return Err("no_readonly_sample_active".into());
         }
         self.readonly_sample_active = false;
+        self.readonly_sample_started_at = None;
         Ok(self.snapshot())
     }
 
@@ -706,4 +722,32 @@ mod tests {
         assert!(!snap.active_request);
         assert!(!snap.writes_enabled);
     }
+    #[test]
+    fn abandoned_readonly_sample_lease_expires_and_recovers_fail_closed() {
+        let mut broker = DesktopReadOnlyRequestBroker::default();
+        broker.reset(7);
+        let leased = broker.begin_readonly_sample(7).unwrap();
+        assert!(leased.readonly_sample_active);
+
+        broker.readonly_sample_started_at = Some(
+            std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_millis(READONLY_SAMPLE_LEASE_MS + 1))
+                .unwrap()
+        );
+
+        let expired = broker.snapshot();
+        assert_eq!(expired.stage, "BROKER_IDLE");
+        assert!(!expired.readonly_sample_active);
+        assert!(!expired.active_request);
+        assert_eq!(
+            broker.finish_readonly_sample(7).unwrap_err(),
+            "no_readonly_sample_active"
+        );
+
+        let recovered = broker.begin_readonly_sample(7).unwrap();
+        assert_eq!(recovered.stage, "READONLY_SAMPLE_ACTIVE");
+        broker.finish_readonly_sample(7).unwrap();
+        assert_eq!(broker.snapshot().stage, "BROKER_IDLE");
+    }
+
 }

@@ -1,5 +1,6 @@
 import { EVIDENCE_CONTRACT_VERSION } from './evidence-contract.js';
 import { validateReadOnlyRequestPlan } from './read-only-request-registry.js';
+import { createDesktopOperationGate } from './desktop-operation-gate.js';
 
 // Desktop host adapter for the existing Hanna & Ada frontend.
 // No package bundler is required because Tauri 2 injects window.__TAURI__ when
@@ -19,6 +20,35 @@ const SAFE_FALLBACK = Object.freeze({
   actuationEnabled: false,
   flashEnabled: false,
 });
+
+const DESKTOP_SERIAL_OPERATION_TIMEOUT_MS = 8_000;
+const desktopOperationGates = new WeakMap();
+
+function getDesktopOperationGate(globalObject = globalThis) {
+  const key = globalObject && (typeof globalObject === 'object' || typeof globalObject === 'function')
+    ? globalObject
+    : globalThis;
+  let gate = desktopOperationGates.get(key);
+  if (!gate) {
+    gate = createDesktopOperationGate();
+    desktopOperationGates.set(key, gate);
+  }
+  return gate;
+}
+
+function resetDesktopOperationGate(globalObject, epoch) {
+  return getDesktopOperationGate(globalObject).resetAfterTransportBoundary(epoch);
+}
+
+function runDesktopSerialOperation(
+  epoch,
+  operation,
+  globalObject,
+  task,
+  timeoutMs = DESKTOP_SERIAL_OPERATION_TIMEOUT_MS
+) {
+  return getDesktopOperationGate(globalObject).run({ epoch, operation, timeoutMs }, task);
+}
 
 function assertBoolean(value, name) {
   if (typeof value !== 'boolean') throw new TypeError(`Invalid desktop host field: ${name}`);
@@ -202,21 +232,26 @@ export function validateDesktopTransportSnapshot(value) {
   return Object.freeze({ ...value });
 }
 
+
 export async function bindDesktopSerialCandidate(portName, globalObject = globalThis) {
   if (typeof portName !== 'string' || portName.length < 1 || portName.length > 96) {
     throw new TypeError('Invalid port name');
   }
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
-  return validateDesktopTransportSnapshot(
+  const result = validateDesktopTransportSnapshot(
     await invoke('desktop_bind_serial_candidate', { portName })
   );
+  resetDesktopOperationGate(globalObject, result.epoch);
+  return result;
 }
 
 export async function clearDesktopSerialCandidate(globalObject = globalThis) {
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
-  return validateDesktopTransportSnapshot(await invoke('desktop_clear_serial_candidate'));
+  const result = validateDesktopTransportSnapshot(await invoke('desktop_clear_serial_candidate'));
+  resetDesktopOperationGate(globalObject, result.epoch);
+  return result;
 }
 
 export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globalObject = globalThis) {
@@ -227,11 +262,12 @@ export async function openDesktopConfiguredPort(epoch, protocol, baudRate, globa
   }
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
-  return validateDesktopTransportSnapshot(
+  const result = validateDesktopTransportSnapshot(
     await invoke('desktop_open_configured_port', { epoch, protocol, baudRate })
   );
+  resetDesktopOperationGate(globalObject, result.epoch);
+  return result;
 }
-
 const READONLY_SAMPLE_PROFILE_IDS = Object.freeze([
   'e39-me72-roughness-4003',
   'e39-me72-engine-snapshot-4000',
@@ -317,6 +353,7 @@ export function validateDesktopReadResult(value) {
   });
 }
 
+
 export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObject = globalThis) {
   if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
   if (!Number.isInteger(maxBytes) || maxBytes < 1 || maxBytes > 255) {
@@ -327,8 +364,18 @@ export async function readDesktopBounded(epoch, maxBytes, timeoutMs, globalObjec
   }
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
+  const operationTimeoutMs = Math.min(
+    DESKTOP_SERIAL_OPERATION_TIMEOUT_MS,
+    timeoutMs + 1500
+  );
   return validateDesktopReadResult(
-    await invoke('desktop_read_bounded', { epoch, maxBytes, timeoutMs })
+    await runDesktopSerialOperation(
+      epoch,
+      'bounded-read',
+      globalObject,
+      () => invoke('desktop_read_bounded', { epoch, maxBytes, timeoutMs }),
+      operationTimeoutMs
+    )
   );
 }
 
@@ -341,7 +388,12 @@ export async function executeDesktopMe72Identity(epoch, requestId, globalObject 
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_identity', { epoch, requestId })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-identity',
+      globalObject,
+      () => invoke('desktop_execute_me72_identity', { epoch, requestId })
+    )
   );
 }
 
@@ -350,7 +402,12 @@ export async function executeDesktopMe72Roughness(epoch, globalObject = globalTh
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_roughness', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-roughness',
+      globalObject,
+      () => invoke('desktop_execute_me72_roughness', { epoch })
+    )
   );
 }
 
@@ -359,7 +416,12 @@ export async function executeDesktopMe72EngineSnapshot(epoch, globalObject = glo
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_engine_snapshot', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-engine-snapshot',
+      globalObject,
+      () => invoke('desktop_execute_me72_engine_snapshot', { epoch })
+    )
   );
 }
 
@@ -368,7 +430,12 @@ export async function executeDesktopMe72FuelAdaptation(epoch, globalObject = glo
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_fuel_adaptation', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-fuel-adaptation',
+      globalObject,
+      () => invoke('desktop_execute_me72_fuel_adaptation', { epoch })
+    )
   );
 }
 
@@ -377,7 +444,12 @@ export async function executeDesktopMe72Readiness(epoch, globalObject = globalTh
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_readiness', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-readiness',
+      globalObject,
+      () => invoke('desktop_execute_me72_readiness', { epoch })
+    )
   );
 }
 
@@ -386,7 +458,12 @@ export async function executeDesktopMe72OutputStatus(epoch, globalObject = globa
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_output_status', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-output-status',
+      globalObject,
+      () => invoke('desktop_execute_me72_output_status', { epoch })
+    )
   );
 }
 
@@ -395,15 +472,19 @@ export async function executeDesktopMe72DtcCount(epoch, globalObject = globalThi
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
   return validateDesktopReadResult(
-    await invoke('desktop_execute_me72_dtc_count', { epoch })
+    await runDesktopSerialOperation(
+      epoch,
+      'me72-dtc-count',
+      globalObject,
+      () => invoke('desktop_execute_me72_dtc_count', { epoch })
+    )
   );
 }
-
 export function validateDesktopRequestBrokerSnapshot(value) {
   if (!value || typeof value !== 'object'
       || value.version !== 1
       || value.evidenceContractVersion !== EVIDENCE_CONTRACT_VERSION
-      || !['BROKER_IDLE','REQUEST_ACTIVE'].includes(value.stage)
+      || !['BROKER_IDLE','REQUEST_ACTIVE','READONLY_SAMPLE_ACTIVE'].includes(value.stage)
       || !Number.isInteger(value.epoch) || value.epoch < 0
       || typeof value.activeRequest !== 'boolean'
       || !Number.isInteger(value.attemptCount) || value.attemptCount < 0
@@ -449,8 +530,14 @@ export function validateDesktopRequestBrokerSnapshot(value) {
     throw new TypeError('Duplicate native evidence ledger item');
   }
 
+  const readonlySampleActive = value.readonlySampleActive ?? false;
+  if (typeof readonlySampleActive !== 'boolean') {
+    throw new TypeError('Invalid read-only sample lease flag');
+  }
+
   if (value.stage === 'REQUEST_ACTIVE') {
-    if (!value.activeRequest
+    if (readonlySampleActive
+        || !value.activeRequest
         || typeof value.activeRequestId !== 'string'
         || typeof value.operationId !== 'string'
         || !['DS2','KWP2000_BMW'].includes(value.protocol)
@@ -462,7 +549,20 @@ export function validateDesktopRequestBrokerSnapshot(value) {
         || (value.activeReceiveReceipt !== null && value.activeReceivedBytes < 1)) {
       throw new TypeError('Invalid active broker request');
     }
-  } else if (value.activeRequest
+  } else if (value.stage === 'READONLY_SAMPLE_ACTIVE') {
+    if (!readonlySampleActive
+        || value.activeRequest
+        || value.activeRequestId !== null
+        || value.operationId !== null
+        || value.protocol !== null
+        || value.timeoutMs !== null
+        || value.maxResponseBytes !== null
+        || value.activeReceiveReceipt !== null
+        || value.activeReceivedBytes !== 0) {
+      throw new TypeError('Invalid read-only sample lease state');
+    }
+  } else if (readonlySampleActive
+      || value.activeRequest
       || value.activeRequestId !== null
       || value.operationId !== null
       || value.protocol !== null
@@ -472,7 +572,7 @@ export function validateDesktopRequestBrokerSnapshot(value) {
       || value.activeReceivedBytes !== 0) {
     throw new TypeError('Idle broker carried stale request state');
   }
-  return Object.freeze({ ...value, evidencedAttempts });
+  return Object.freeze({ ...value, readonlySampleActive, evidencedAttempts });
 }
 
 export async function prepareDesktopReadOnlyRequest(plan, globalObject = globalThis) {
@@ -525,6 +625,7 @@ export async function cancelDesktopReadOnlyRequest(epoch, requestId, globalObjec
   );
 }
 
+
 export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis) {
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) return Object.freeze({
@@ -544,6 +645,7 @@ export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis)
     maxAttempts: 32,
     activeReceiveReceipt: null,
     activeReceivedBytes: 0,
+    readonlySampleActive: false,
     txBytesExposed: false,
     writeLike: false,
     ecuVerified: false,
@@ -552,7 +654,6 @@ export async function getDesktopRequestBrokerSnapshot(globalObject = globalThis)
   });
   return validateDesktopRequestBrokerSnapshot(await invoke('desktop_request_broker_snapshot'));
 }
-
 export function validateDesktopLocalIdentityAttestation(value) {
   if (!value || typeof value !== 'object'
       || value.version !== 1
@@ -631,13 +732,15 @@ export async function attestDesktopIdentityContext(epoch, protocol, globalObject
   );
 }
 
+
 export async function closeDesktopPort(epoch, globalObject = globalThis) {
   if (!Number.isInteger(epoch) || epoch < 1) throw new TypeError('Invalid epoch');
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) throw new Error('Desktop host unavailable');
-  return validateDesktopTransportSnapshot(await invoke('desktop_close_port', { epoch }));
+  const result = validateDesktopTransportSnapshot(await invoke('desktop_close_port', { epoch }));
+  resetDesktopOperationGate(globalObject, result.epoch);
+  return result;
 }
-
 export async function getDesktopTransportSnapshot(globalObject = globalThis) {
   const invoke = getTauriInvoke(globalObject);
   if (!invoke) return Object.freeze({
