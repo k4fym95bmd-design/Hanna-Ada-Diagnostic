@@ -130,27 +130,44 @@ test('ConnectionDoctor returns the normalized ProtocolContract as evidence', () 
 });
 
 
-test('Connection Doctor never infers ATDPN authority from untyped protocolReply text', () => {
-  const untyped = diagnoseConnection({
-    ...base,
-    protocolNumberReply: null,
-    protocolDescriptionReply: null,
-    protocolReply: 'ATDPN\rA6\r>',
-    protocolReplySource: null,
-  });
-  assert.equal(untyped.code, 'PROTOCOL_UNVERIFIED');
-  assert.equal(untyped.evidence.protocol, undefined);
-
-  const explicit = diagnoseConnection({
-    ...base,
-    protocolNumberReply: null,
-    protocolDescriptionReply: null,
-    protocolReply: 'ATDPN\rA6\r>',
-    protocolReplySource: 'ATDPN',
-  });
-  assert.equal(explicit.code, 'GENERIC_OBD_VERIFIED');
-  assert.equal(explicit.evidence.protocol, 'can');
-  assert.equal(explicit.evidence.protocolContract.sourceAuthority, 'ATDPN');
+test('Connection Doctor ignores legacy protocolReply fields even when tagged ATDPN', () => {
+  for (const protocolReplySource of [null, 'ATDPN', 'ATDP']) {
+    const diagnosis = diagnoseConnection({
+      ...base,
+      protocolNumberReply: null,
+      protocolDescriptionReply: null,
+      protocolReply: 'ATDPN\rA6\r>',
+      protocolReplySource,
+    });
+    assert.equal(diagnosis.code, 'PROTOCOL_UNVERIFIED');
+    assert.equal(diagnosis.evidence.protocol, undefined);
+  }
 });
 
 
+
+
+test('Connection Doctor accepts every verified generic ATDPN protocol id 1 through 9', () => {
+  for (const id of ['1','2','3','4','5','6','7','8','9']) {
+    const diagnosis = diagnoseConnection({
+      ...base,
+      protocolNumberReply: `ATDPN\rA${id}\r>`,
+      protocolDescriptionReply: null,
+    });
+    assert.equal(diagnosis.code, 'GENERIC_OBD_VERIFIED', id);
+    assert.equal(diagnosis.evidence.protocolContract.protocolId, id);
+    assert.equal(diagnosis.evidence.protocolContract.sourceAuthority, 'ATDPN');
+  }
+});
+
+test('Connection Doctor rejects protocol ids outside the verified generic OBD authority set', () => {
+  for (const raw of ['ATDPN\r0\r>', 'ATDPN\rA\r>', 'ATDPN\rB\r>', 'ATDPN\rC\r>', 'ATDPN\rAA\r>', 'ATDPN\r10\r>']) {
+    const diagnosis = diagnoseConnection({
+      ...base,
+      protocolNumberReply: raw,
+      protocolDescriptionReply: 'ATDP\rISO 15765-4 CAN\r>',
+    });
+    assert.equal(diagnosis.code, 'PROTOCOL_UNVERIFIED', raw);
+    assert.equal(diagnosis.evidence.protocol, undefined);
+  }
+});
