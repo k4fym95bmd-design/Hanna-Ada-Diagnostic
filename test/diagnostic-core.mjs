@@ -207,6 +207,7 @@ test('ATDPN authority contract rejects unresolved ambiguous and unsupported iden
     'ATDPN\rERROR\r>', 'ATDPN\rNO DATA\r>', 'ATDPN\r0\r>',
     'ATDPN\rA\r>', 'ATDPN\rB\r>', 'ATDPN\rC\r>',
     'ATDPN\rA6\rA7\r>', 'ATDPN\rAUTO\r>',
+    'A0', 'AA', '10',
   ]) {
     rejectsCode(() => resolveProtocolAuthority(raw), 'PROTOCOL_UNVERIFIED');
   }
@@ -222,42 +223,3 @@ test('ATDP description errors never contaminate a valid ATDPN authority contract
 });
 
 
-test('ATDPN protocol authority contract normalizes exact protocol identity', () => {
-  const automatic = resolveProtocolAuthority('ATDPN\rA6\r>', 'ATDP\rAUTO, ISO 15765-4 CAN\r>');
-  assert.deepEqual(automatic, {
-    protocolId: '6',
-    rawAtdpn: 'A6',
-    isAutoDetected: true,
-    descriptionFallback: 'AUTO, ISO 15765-4 CAN',
-    sourceAuthority: 'ATDPN',
-  });
-  assert.equal(Object.isFrozen(automatic), true);
-
-  const fixed = resolveProtocolAuthority('6');
-  assert.deepEqual(fixed, {
-    protocolId: '6',
-    rawAtdpn: '6',
-    isAutoDetected: false,
-    sourceAuthority: 'ATDPN',
-  });
-});
-
-test('ATDPN authority rejects unresolved ambiguous and unsupported identifiers', () => {
-  for (const raw of [
-    '', '?', 'SEARCHING...', 'NO DATA', 'ERROR',
-    '0', 'A', 'B', 'C', 'A0', 'AA', '10',
-    'ATDPN\rA6\rA7\r>',
-  ]) {
-    rejectsCode(() => resolveProtocolAuthority(raw), 'PROTOCOL_UNVERIFIED');
-  }
-});
-
-test('ATDP fallback is sanitized for presentation and never creates authority', () => {
-  const withDescription = resolveProtocolAuthority('A3', 'ATDP\rISO 9141-2\r>');
-  assert.equal(withDescription.protocolId, '3');
-  assert.equal(withDescription.descriptionFallback, 'ISO 9141-2');
-  assert.equal(withDescription.sourceAuthority, 'ATDPN');
-
-  const tainted = resolveProtocolAuthority('A3', 'ATDP\rCAN ERROR\r>');
-  assert.equal('descriptionFallback' in tainted, false);
-});
