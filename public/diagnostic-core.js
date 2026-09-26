@@ -233,9 +233,28 @@ export function decodeSupportedPIDs(raw) {
 
 export function isValidAdapterIdentity(identity) {
   if (typeof identity !== 'string') return false;
-  const value = identity.trim();
-  if (!value || /^(?:ATI|OK|SEARCHING\.{0,3})$/i.test(value)) return false;
-  return !/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(value.toUpperCase());
+
+  const raw = identity.trim();
+  if (!raw) return false;
+  if (/\b(NO DATA|UNABLE TO CONNECT|BUS ERROR|CAN ERROR|BUFFER FULL|STOPPED|ERROR)\b|\?/.test(raw.toUpperCase())) {
+    return false;
+  }
+
+  const lines = cleanELM(raw);
+  if (!lines.length) return false;
+
+  // Command echo and generic acknowledgements are not identity evidence.
+  const identityLines = lines.filter(line =>
+    !/^ATI$/i.test(line) &&
+    !/^OK$/i.test(line) &&
+    !/^SEARCHING\.{0,3}$/i.test(line)
+  );
+
+  return identityLines.some(line =>
+    line.length >= 3 &&
+    /[A-Z0-9]/i.test(line) &&
+    !/^AT[A-Z0-9]*$/i.test(line)
+  );
 }
 
 export function createDiagnosticSession() {
