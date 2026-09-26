@@ -143,11 +143,21 @@ test('disconnect invalidates delayed responses and clears sensitive session data
 });
 
 
-test('adapter identity helper rejects echoes and adapter errors but accepts observed identities', () => {
-  for (const value of ['ATI', 'OK', 'SEARCHING...', 'ERROR', 'CAN ERROR', 'NO DATA', '?', '']) {
+test('adapter identity helper rejects echoes acknowledgements and adapter errors', () => {
+  for (const value of [
+    'ATI', 'OK', 'SEARCHING...', 'ERROR', 'CAN ERROR', 'NO DATA', '?', '',
+    'ATI\r>', 'ATI\rOK\r>', 'OK\r>', 'ATI\rSEARCHING...\r>',
+  ]) {
     assert.equal(isValidAdapterIdentity(value), false, value);
   }
-  for (const value of ['ELM327 v2.2', 'Carista EVO', 'vLink BLE']) {
+
+  for (const value of [
+    'ELM327 v2.2',
+    'Carista EVO',
+    'vLink BLE',
+    'ATI\rELM327 v2.2\r>',
+    'ATI\rCarista EVO\rOK\r>',
+  ]) {
     assert.equal(isValidAdapterIdentity(value), true, value);
   }
 });
