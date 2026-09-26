@@ -1,4 +1,6 @@
-import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js';
+import {
+  classifyVehicleProtocol, decodeStoredDTCs, resolveProtocolAuthority
+} from './diagnostic-core.js';
 
 // Compatibility extension for the existing browser runtime. This only reads
 // generic OBD-II and never claims manufacturer-level BMW ECU functionality.
@@ -6,6 +8,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   const H = () => window.HannaAdaOBD;
   let latestProtocol = 'unknown';
   let latestProtocolSource = 'none';
+  let latestProtocolContract = null;
   let dtcReadSerial = 0;
   let activeDtcRead = 0;
   let lastDtcEvidence = null;
@@ -55,6 +58,9 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     if (!lastDtcEvidence) return null;
     return {
       ...lastDtcEvidence,
+      protocolContract: lastDtcEvidence.protocolContract
+        ? { ...lastDtcEvidence.protocolContract }
+        : null,
       codes: Array.isArray(lastDtcEvidence.codes) ? [...lastDtcEvidence.codes] : null,
     };
   }
@@ -66,25 +72,27 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
     try {
       rawNumber = await send('ATDPN', 5000);
       assertSession(ownerEpoch);
-    } catch (error) {
-      if (H()?.sessionEpoch !== ownerEpoch) throw staleSessionError();
-      // Older adapters may not implement ATDPN.
-    }
 
-    const verifiedKind = classifyVehicleProtocol(rawNumber);
-    if (verifiedKind !== 'unknown') {
+      const contract = resolveProtocolAuthority(rawNumber);
+      const verifiedKind = classifyVehicleProtocol(contract.rawAtdpn);
+      if (verifiedKind === 'unknown') throw new Error('ATDPN classification unavailable');
+
       assertSession(ownerEpoch);
       latestProtocol = verifiedKind;
-      latestProtocolSource = 'ATDPN';
+      latestProtocolSource = contract.sourceAuthority;
+      latestProtocolContract = contract;
+
       const el = document.querySelector('#haProtocolValue');
-      if (el) el.textContent = `${verifiedKind.toUpperCase()} · ATDPN verified`;
+      if (el) el.textContent = `${verifiedKind.toUpperCase()} · ATDPN ${contract.protocolId}`;
       return verifiedKind;
+    } catch (error) {
+      if (H()?.sessionEpoch !== ownerEpoch) throw staleSessionError();
+      // ATDPN authority was not established. ATDP remains display-only.
     }
 
-    // ATDP may provide useful display text, but it must never authorize
-    // protocol-aware unframed Mode 03 decoding.
     latestProtocol = 'unknown';
     latestProtocolSource = 'none';
+    latestProtocolContract = null;
     const el = document.querySelector('#haProtocolValue');
 
     try {
@@ -110,6 +118,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
       if (error?.code === 'STALE_SESSION') return;
       latestProtocol = 'unknown';
       latestProtocolSource = 'none';
+      latestProtocolContract = null;
       const el = document.querySelector('#haProtocolValue');
       if (el) el.textContent = 'Unverified';
     }
@@ -161,6 +170,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
   function resetEvidenceUi() {
     latestProtocol = 'unknown';
     latestProtocolSource = 'none';
+    latestProtocolContract = null;
     lastDtcEvidence = null;
     dtcReadSerial++;
     activeDtcRead = 0;
@@ -209,6 +219,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
         capturedAt: new Date().toISOString(),
         protocol,
         protocolSource: latestProtocolSource,
+        protocolContract: latestProtocolContract,
         raw: String(raw),
         status: 'verified',
         errorCode: null,
@@ -239,6 +250,7 @@ import { classifyVehicleProtocol, decodeStoredDTCs } from './diagnostic-core.js'
         capturedAt: new Date().toISOString(),
         protocol,
         protocolSource: latestProtocolSource,
+        protocolContract: latestProtocolContract,
         raw: raw == null ? null : String(raw),
         status: 'error',
         errorCode: error?.code || 'READ_ERROR',
