@@ -96,11 +96,7 @@ export function diagnoseConnection(observation = {}) {
   }
   const explicitAtdpn = typeof protocolNumberReply === 'string'
     ? protocolNumberReply
-    : (protocolReplySource === 'ATDPN'
-      ? protocolReply
-      : (typeof protocolReply === 'string' && /(^|[\r\n])\s*AT\s*DPN\s*([\r\n]|$)/i.test(protocolReply)
-        ? protocolReply
-        : null));
+    : (protocolReplySource === 'ATDPN' ? protocolReply : null);
 
   const descriptiveAtdp = typeof protocolDescriptionReply === 'string'
     ? protocolDescriptionReply
