@@ -69,3 +69,15 @@ test('session reducer refuses ELM ERROR identity and invalidates protocol-tainte
   assert.equal(state.dtcs, null);
   assert.equal(state.lastErrorCode, 'PROTOCOL_REQUIRED');
 });
+
+
+test('Connection Doctor does not infer authority from recognizable ATDP description', () => {
+  const diagnosis = diagnoseConnection({
+    ...observed,
+    protocolNumberReply: null,
+    protocolDescriptionReply: 'ATDP\rAUTO, ISO 15765-4 CAN\r>',
+  });
+  assert.equal(diagnosis.code, 'PROTOCOL_UNVERIFIED');
+  assert.equal(diagnosis.evidence.genericECUVerified, true);
+  assert.equal(diagnosis.writesEnabled, false);
+});
