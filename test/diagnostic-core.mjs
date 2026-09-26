@@ -223,3 +223,51 @@ test('ATDP description errors never contaminate a valid ATDPN authority contract
 });
 
 
+
+
+test('fresh PID0100 reprobe invalidates prior protocol contract and DTC evidence', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, {
+    type: 'PROTOCOL_RESPONSE',
+    source: 'ATDPN',
+    raw: 'ATDPN\rA6\r>',
+    descriptionRaw: 'ATDP\rAUTO, ISO 15765-4 CAN\r>',
+    epoch: 0,
+  });
+  state = reduceDiagnosticSession(state, { type: 'DTC_RESPONSE', raw: '43 00\r>', epoch: 0 });
+
+  assert.equal(state.protocol, 'can');
+  assert.equal(state.protocolSource, 'ATDPN');
+  assert.equal(state.protocolContract?.protocolId, '6');
+  assert.deepEqual(state.dtcs.codes, []);
+
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+
+  assert.equal(state.stage, 'ECU');
+  assert.equal(state.protocol, 'unknown');
+  assert.equal(state.protocolSource, null);
+  assert.equal(state.protocolContract, null);
+  assert.equal(state.dtcs, null);
+});
+
+test('disconnect and reset always clear protocol authority contract', () => {
+  let state = createDiagnosticSession();
+  state = reduceDiagnosticSession(state, { type: 'BLE_CONNECTED', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'ADAPTER_IDENTIFIED', identity: 'ELM327 v2.2', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PID_RESPONSE', raw: '41 00 80 00 00 00\r>', epoch: 0 });
+  state = reduceDiagnosticSession(state, { type: 'PROTOCOL_RESPONSE', source: 'ATDPN', raw: 'A3\r>', epoch: 0 });
+  assert.equal(state.protocolContract?.sourceAuthority, 'ATDPN');
+
+  const disconnected = reduceDiagnosticSession(state, { type: 'DISCONNECTED' });
+  assert.equal(disconnected.protocol, 'unknown');
+  assert.equal(disconnected.protocolSource, null);
+  assert.equal(disconnected.protocolContract, null);
+
+  const reset = reduceDiagnosticSession(disconnected, { type: 'RESET' });
+  assert.equal(reset.protocol, 'unknown');
+  assert.equal(reset.protocolSource, null);
+  assert.equal(reset.protocolContract, null);
+});
