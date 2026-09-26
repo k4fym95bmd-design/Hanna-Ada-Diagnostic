@@ -122,8 +122,8 @@ test('BLE disconnect invalidates session and detaches old listeners before recon
 test('web DTC protocol handoff trusts ATDPN and keeps ATDP display-only', async () => {
   const extension = await source('public/diagnostic-core-v2.js');
   const detect = extension.slice(
-    extension.indexOf('async function detectProtocol()'),
-    extension.indexOf('async function readProtocol()')
+    extension.indexOf('async function detectProtocol('),
+    extension.indexOf('async function readProtocol(')
   );
 
   assert.match(detect, /send\('ATDPN', 5000\)/);
