@@ -59,10 +59,12 @@ async function initElm(){
 
     try{
       const rawNumber=await command('ATDPN',5000);
-      const kind=core.classifyVehicleProtocol(rawNumber);
-      if(kind!=='unknown'){
-        log('SYS',`Protocol verified by ATDPN: ${kind}`);
-      }else{
+      try{
+        const contract=core.resolveProtocolAuthority(rawNumber);
+        const kind=core.classifyVehicleProtocol(contract.rawAtdpn);
+        if(kind==='unknown')throw new Error('ATDPN classification unavailable');
+        log('SYS',`Protocol verified by ${contract.sourceAuthority}: ${kind} · ID ${contract.protocolId}`);
+      }catch{
         const description=clean(await command('ATDP',5000));
         log('SYS','Protocol description only: '+description);
       }
