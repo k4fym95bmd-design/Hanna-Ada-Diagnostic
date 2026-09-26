@@ -48,8 +48,7 @@ export function diagnoseConnection(observation = {}) {
     bluetoothPowered = false, adapterSeen = false, bleConnected = false,
     gattDiscovered = false, notificationsActive = false, adapterReply = null,
     pid0100Reply = null, protocolNumberReply = null,
-    protocolDescriptionReply = null, protocolReply = null,
-    protocolReplySource = null, transportError = null,
+    protocolDescriptionReply = null, transportError = null,
   } = observation;
 
   if (!bluetoothPowered) return result('BLUETOOTH', 'BT_UNAVAILABLE',
@@ -96,11 +95,11 @@ export function diagnoseConnection(observation = {}) {
   }
   const explicitAtdpn = typeof protocolNumberReply === 'string'
     ? protocolNumberReply
-    : (protocolReplySource === 'ATDPN' ? protocolReply : null);
+    : null;
 
   const descriptiveAtdp = typeof protocolDescriptionReply === 'string'
     ? protocolDescriptionReply
-    : (protocolReplySource === 'ATDP' ? protocolReply : null);
+    : null;
 
   let protocolContract;
   try {
