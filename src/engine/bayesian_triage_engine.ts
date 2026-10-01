@@ -1,0 +1,10 @@
+export interface Posterior{readonly [hypothesis:string]:number}
+export interface OutcomeModel{readonly id:string;readonly verified:boolean;readonly outcomes:readonly string[];readonly p:Readonly<Record<string,Readonly<Record<string,number>>>>;readonly monetary:number;readonly time:number;readonly invasiveness:number;readonly risk:number;}
+export type TriageDecision={readonly status:"READY";readonly actionId:string;readonly informationGain:number;readonly utility:number}|{readonly status:"INSUFFICIENT_MODEL_EVIDENCE"};
+const entropy=(p:Posterior):number=>Object.values(p).reduce((s,x)=>x>0?s-x*Math.log(x):s,0);
+export function nextBmw540iTest(post:Posterior,actions:readonly OutcomeModel[],w:{readonly a:number;readonly b:number;readonly g:number;readonly d:number}):TriageDecision{
+ const hs=Object.keys(post);const valid=actions.filter(a=>a.verified&&a.outcomes.length>0&&hs.every(h=>a.p[h]&&Math.abs(a.outcomes.reduce((s,o)=>s+(a.p[h]?.[o]??Number.NaN),0)-1)<1e-9));
+ if(valid.length===0)return{status:"INSUFFICIENT_MODEL_EVIDENCE"};const base=entropy(post);const scored=valid.map(a=>{let after=0;for(const o of a.outcomes){const po=hs.reduce((s,h)=>s+post[h]*(a.p[h]?.[o]??0),0);if(po<=0)continue;const q=Object.fromEntries(hs.map(h=>[h,post[h]*(a.p[h]?.[o]??0)/po]));after+=po*entropy(q);}const ig=Math.max(0,base-after);const denom=w.a*a.monetary+w.b*a.time+w.g*a.invasiveness+w.d*a.risk;if(!(denom>0))throw new Error("INVALID_UTILITY_DENOMINATOR");return{actionId:a.id,informationGain:ig,utility:ig/denom};}).sort((x,y)=>y.utility-x.utility||x.actionId.localeCompare(y.actionId));const x=scored[0];if(!x)return{status:"INSUFFICIENT_MODEL_EVIDENCE"};return{status:"READY",...x};}
+export function camDeviationDeg(target:number|null,actual:number|null):number|null{return target===null||actual===null?null:Math.abs(target-actual);}
+export function railDroopBar(target:number|null,actual:number|null):number|null{return target===null||actual===null?null:Math.max(0,target-actual);}
+export function chargeDeltaC(charge:number|null,ambient:number|null):number|null{return charge===null||ambient===null?null:charge-ambient;}
