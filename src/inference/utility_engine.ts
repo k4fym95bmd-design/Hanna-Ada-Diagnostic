@@ -84,3 +84,47 @@ export function nextBestTest<H extends string>(
   ranked.sort((a,b) => b.utility - a.utility || a.testId.localeCompare(b.testId));
   return { status: "READY", test: ranked[0] };
 }
+
+export type TestActionClass =
+  | "PASSIVE_READ" | "ACTIVE_TEST" | "CALIBRATION" | "CODING" | "PROGRAMMING" | "SECURITY_AUTH" | "MECHANICAL_DISASSEMBLY";
+
+export interface TestBurden {
+  readonly monetaryCost: number;
+  readonly timeCost: number;
+  readonly invasiveness: number;
+  readonly operationalRisk: number;
+}
+export interface DiagnosticGraphAction {
+  readonly actionId: string;
+  readonly actionClass: TestActionClass;
+  readonly hypotheses: readonly string[];
+  readonly burden: TestBurden;
+  readonly requiredCapabilities: readonly string[];
+  readonly requiredSafetyPredicates: readonly string[];
+  readonly conditionalModelVerified: boolean;
+}
+
+export interface ExtendedUtilityWeights {
+  readonly informationGain: number;
+  readonly monetaryCost: number;
+  readonly timeCost: number;
+  readonly invasiveness: number;
+  readonly operationalRisk: number;
+}
+
+export function actionUtility(
+  expectedInformationGain: number | null,
+  action: DiagnosticGraphAction,
+  weights: ExtendedUtilityWeights,
+): number | "INSUFFICIENT_MODEL_EVIDENCE" {
+  if (!action.conditionalModelVerified || expectedInformationGain === null) return "INSUFFICIENT_MODEL_EVIDENCE";
+  const b=action.burden;
+  if ([expectedInformationGain,b.monetaryCost,b.timeCost,b.invasiveness,b.operationalRisk].some(v=>!Number.isFinite(v)||v<0)) {
+    return "INSUFFICIENT_MODEL_EVIDENCE";
+  }
+  return weights.informationGain*expectedInformationGain
+    -weights.monetaryCost*b.monetaryCost
+    -weights.timeCost*b.timeCost
+    -weights.invasiveness*b.invasiveness
+    -weights.operationalRisk*b.operationalRisk;
+}
