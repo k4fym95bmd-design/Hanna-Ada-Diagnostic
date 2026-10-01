@@ -10,5 +10,11 @@
     "useUnknownInCatchVariables": true,
     "noEmit": true
   },
-  "include": ["src/telemetry/**/*.ts", "src/inference/**/*.ts"]
+  "include": [
+    "src/telemetry/**/*.ts",
+    "src/inference/**/*.ts",
+    "src/storage/**/*.ts",
+    "src/api/**/*.ts",
+    "test/phase7.2-vectors.ts"
+  ]
 }
