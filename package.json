@@ -14,7 +14,8 @@
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
     "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
     "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs",
-    "test:phase7.1": "npx --yes typescript@5.9.3 tsc -p tsconfig.phase7.1.json"
+    "test:phase7.1": "npx --yes typescript@5.9.3 tsc -p tsconfig.phase7.1.json",
+    "test:phase7.2": "npm run test:phase7.1 && rm -rf .phase72-build && npx --yes typescript@5.9.3 tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --outDir .phase72-build src/telemetry/prg_harvester.ts src/inference/bayesian_core.ts src/inference/utility_engine.ts src/inference/vacuum_gate.ts test/phase7.2-vectors.ts && node .phase72-build/test/phase7.2-vectors.js"
   },
   "engines": {
     "node": ">=20"
