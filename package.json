@@ -13,7 +13,8 @@
     "test:connection-doctor": "node --test test/connection-doctor.mjs",
     "test:terminal-policy": "node --test test/terminal-readonly-guard.mjs",
     "test:web-runtime": "node --check public/diagnostic-core-v2.js && node --check public/terminal-readonly-guard.js && node --test test/web-runtime-wiring.mjs",
-    "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs"
+    "test:tablet-usb": "node --check public/android-usb-readiness.js && node --test test/android-usb-readiness.mjs",
+    "test:phase7.1": "npx --yes typescript@5.9.3 tsc -p tsconfig.phase7.1.json"
   },
   "engines": {
     "node": ">=20"
